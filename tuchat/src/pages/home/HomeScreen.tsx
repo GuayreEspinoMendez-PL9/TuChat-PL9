@@ -13,7 +13,7 @@ import { markMessagesAsRead, getMessagesByRoom } from '../../db/database';
 import { ChatScreen } from '../../components/Chat/ChatScreen';
 import { useTheme } from '../../context/ThemeContext';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 const DESKTOP_BREAKPOINT = 768;
 
 // ============ ICONOS SVG ============

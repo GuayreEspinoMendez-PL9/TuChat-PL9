@@ -20,7 +20,7 @@ import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
 import { useNavigation } from '@react-navigation/native';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 // Iconos SVG
 const UserIcon = ({ focused }: { focused: boolean }) => (

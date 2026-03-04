@@ -12,7 +12,7 @@ import { ThemeSelector } from '../components/ThemeSelector';
 import { clearOldMessages } from '../db/database';
 import { QRSyncScreen } from './QrSyncScreen';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 // Iconos (con color parametrizable)
 const BackIcon = () => (

@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { saveMessageLocal } from '../db/database';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 export const syncMessages = async (userId: string, token: string) => {
   try {

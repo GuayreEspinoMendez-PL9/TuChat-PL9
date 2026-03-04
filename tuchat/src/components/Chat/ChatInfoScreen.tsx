@@ -9,7 +9,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 const getStorageItem = async (key: string) => {
   if (Platform.OS === 'web') return localStorage.getItem(key);

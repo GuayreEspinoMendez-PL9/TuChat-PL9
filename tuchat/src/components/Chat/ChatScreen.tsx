@@ -35,7 +35,7 @@ import { decodeJwt } from '../../utils/auth';
 import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 // ─── FILE HELPERS ────────────────────────────────────────
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB

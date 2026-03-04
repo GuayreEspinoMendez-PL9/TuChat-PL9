@@ -6,7 +6,7 @@ import type { CallScreenProps } from './Call.types';
 import { MicIcon, VideoIcon, ScreenShareIcon } from './Call.icons';
 
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 export const CallScreen: React.FC<CallScreenProps> = ({ 

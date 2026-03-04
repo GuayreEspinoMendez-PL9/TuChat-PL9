@@ -5,7 +5,7 @@ import * as SecureStore from 'expo-secure-store';
 import { saveMessageLocal, getAllUnreadCounts } from '../db/database';
 import { decodeJwt } from '../utils/auth';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 interface SocketContextType {
   socket: Socket | null;

@@ -10,7 +10,7 @@ import { adminStyles as S } from './admin_styles';
 import { router } from 'expo-router';
 import WizardClase from './WizardClase';
 
-const API = "http://localhost:4000";
+const API = "https://tuchat-pl9.onrender.com";
 
 // ─── ICONS (SVG path-based) ─────────────────────────────────
 const I = ({ d, size = 20, color = '#64748B' }: { d: string; size?: number; color?: string }) => (

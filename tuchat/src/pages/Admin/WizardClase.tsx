@@ -8,7 +8,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { adminStyles as S } from './admin_styles';
 
-const API = "http://localhost:4000";
+const API = "https://tuchat-pl9.onrender.com";
 
 const I = ({ d, size = 20, color = '#64748B' }: { d: string; size?: number; color?: string }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"><Path d={d} /></Svg>

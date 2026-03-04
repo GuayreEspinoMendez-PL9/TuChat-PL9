@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 export async function registerForPushNotificationsAsync() {
   if (Platform.OS === 'web') return;

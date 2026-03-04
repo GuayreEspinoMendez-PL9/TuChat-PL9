@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import axios from 'axios';
 import { useTheme } from '../context/ThemeContext';
 
-const API_URL = "http://localhost:4000";
+const API_URL = "https://tuchat-pl9.onrender.com";
 
 const BackIcon = () => (<Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#fff" style={{ width: 24, height: 24 }}><Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></Svg>);
 const ChevronRight = ({ color = "#94a3b8" }: { color?: string }) => (<Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke={color} style={{ width: 16, height: 16 }}><Path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></Svg>);
