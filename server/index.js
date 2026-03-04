@@ -174,6 +174,18 @@ io.on("connection", async (socket) => {
   socket.on("join_room", async (roomId) => {
     socket.join(roomId);
     console.log(`👤 Unión manual: ${socket.id} -> ${roomId}`);
+      const redis = getRedis();
+    if (userId && redis?.status === 'ready') {
+        const key = `pendientes:usuario:${userId}`;
+        const pendingMessages = await redis.lrange(key, 0, -1);
+        const roomMessages = pendingMessages
+            .map(msg => JSON.parse(msg))
+            .filter(msg => msg.roomId === roomId);
+
+        for (const msg of roomMessages) {
+            socket.emit("chat:receive", msg);
+        }
+    }
 
     await cargarAjustesSala(roomId);
   });
