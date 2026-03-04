@@ -1,14 +1,13 @@
 import { loginConCredenciales } from "./auth.service.js";
+import { appDb, gobDb } from "../db/db.js";
+import crypto from "crypto";
 
-/**
- * Controlador para manejar el inicio de sesión
- * Realiza la validación, sincroniza datos académicos y devuelve el token
- */
+const sha256 = (input) => crypto.createHash("sha256").update(input).digest("hex");
+
 export const login = async (req, res) => {
   try {
     const { identificador, password } = req.body;
 
-    // 1. Validación básica de entrada
     if (!identificador || !password) {
       return res.status(400).json({ 
         ok: false, 
@@ -19,34 +18,19 @@ export const login = async (req, res) => {
 
     console.log(`[Auth] Intento de login para: ${identificador}`);
 
-    // 2. Llamada al servicio
-    // Este servicio ya debe encargarse de:
-    // - Validar contra la DB externa (Gobcan)
-    // - Crear/Actualizar el usuario en seguridad.usuarios_app local
-    // - SINCRONIZAR las asignaturas y matrículas en la DB local
     const result = await loginConCredenciales({ identificador, password });
 
-    // 3. Respuesta exitosa
-    // Al llegar aquí, el 'result' ya contiene el usuario local y el token JWT
     console.log(`[Auth] Login y Sincronización exitosa: ${result.usuario.nombre}`);
 
     return res.json({
       ok: true,
       token: result.token,
-      usuario: {
-        id: result.usuario.id_usuario_app,
-        nombre: result.usuario.nombre,
-        dni: result.usuario.dni,
-        rol: result.usuario.id_rol
-      }
+      usuario: result.usuario
     });
 
   } catch (err) {
-    console.error("[Login Error]:", err.message);
+    console.error("[Login Error]:", err);
 
-    // 4. Manejo de errores específicos
-    
-    // Credenciales incorrectas
     if (err.message === "INVALID_CREDENTIALS") {
       return res.status(401).json({ 
         ok: false, 
@@ -55,16 +39,14 @@ export const login = async (req, res) => {
       });
     }
 
-    // Errores de red o base de datos (Supabase externa o local)
     if (err.message.includes("getaddrinfo") || err.message.includes("connection") || err.message.includes("ECONNREFUSED")) {
       return res.status(503).json({
         ok: false,
         error: "DB_CONNECTION_ERROR",
-        msg: "Error de conexión con los servicios de base de datos. Revisa tu conexión a internet."
+        msg: "Error de conexión con los servicios de base de datos."
       });
     }
 
-    // Error de Base de Datos local (Postgres)
     if (err.code && err.code.startsWith('23')) {
       return res.status(500).json({
         ok: false,
@@ -73,7 +55,6 @@ export const login = async (req, res) => {
       });
     }
 
-    // 5. Error genérico (Fallback)
     return res.status(500).json({ 
       ok: false, 
       error: "SERVER_ERROR", 
@@ -82,13 +63,91 @@ export const login = async (req, res) => {
   }
 };
 
-/**
- * Endpoint opcional para verificar si el token sigue siendo válido
- */
 export const checkStatus = async (req, res) => {
-  // Si pasa por el middleware requireAuth, req.currentUser ya existe
   return res.json({
     ok: true,
     usuario: req.currentUser
   });
+};
+
+export const registrarPushToken = async (req, res) => {
+  try {
+    const { token, plataforma } = req.body;
+    const { id_usuario_app } = req.currentUser;
+
+    if (!token) {
+      return res.status(400).json({ ok: false, msg: "Token requerido" });
+    }
+
+    const query = `
+      INSERT INTO seguridad.tokens_push (id_usuario_app, token, plataforma)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (token) 
+      DO UPDATE SET 
+        id_usuario_app = EXCLUDED.id_usuario_app,
+        plataforma = EXCLUDED.plataforma
+    `;
+
+    await appDb.query(query, [id_usuario_app, token, plataforma || 'unknown']);
+
+    return res.json({ ok: true, msg: "Token registrado correctamente" });
+
+  } catch (error) {
+    console.error("[Push Token Error]:", error);
+    return res.status(500).json({ ok: false, msg: "Error al guardar token" });
+  }
+};
+
+// ─── CAMBIAR CONTRASEÑA (usuario autenticado) ────────────
+export const cambiarPassword = async (req, res) => {
+  try {
+    const { password_actual, password_nueva } = req.body;
+    const { dni } = req.currentUser;
+
+    if (!password_actual || !password_nueva) {
+      return res.status(400).json({ ok: false, msg: "Contraseña actual y nueva son obligatorias" });
+    }
+    if (password_nueva.length < 4) {
+      return res.status(400).json({ ok: false, msg: "La nueva contraseña debe tener al menos 4 caracteres" });
+    }
+
+    // Buscar credenciales del usuario
+    const { rows: personas } = await gobDb.query(
+      `SELECT ug.id_usuario_externo, cred.salt, cred.password_sha256_hex
+       FROM externo.personas p
+       JOIN externo.usuarios_gobierno ug ON ug.id_persona = p.id_persona
+       JOIN externo.credenciales_acceso cred ON cred.id_usuario_externo = ug.id_usuario_externo
+       WHERE TRIM(UPPER(p.dni)) = TRIM(UPPER($1)) AND ug.activo = true`,
+      [dni]
+    );
+
+    if (!personas.length) {
+      return res.status(404).json({ ok: false, msg: "Usuario no encontrado" });
+    }
+
+    const ext = personas[0];
+    const saltDB = ext.salt?.trim() || "";
+    const hashDB = ext.password_sha256_hex?.trim() || "";
+    const hashActual = sha256(saltDB + password_actual);
+
+    if (hashActual !== hashDB) {
+      return res.status(401).json({ ok: false, msg: "La contraseña actual es incorrecta" });
+    }
+
+    // Generar nuevo salt y hash
+    const newSalt = crypto.randomBytes(16).toString('hex');
+    const newHash = sha256(newSalt + password_nueva);
+
+    await gobDb.query(
+      `UPDATE externo.credenciales_acceso SET salt = $1, password_sha256_hex = $2 WHERE id_usuario_externo = $3`,
+      [newSalt, newHash, ext.id_usuario_externo]
+    );
+
+    console.log(`[Auth] Contraseña cambiada para usuario ${dni}`);
+    return res.json({ ok: true, msg: "Contraseña actualizada correctamente" });
+
+  } catch (error) {
+    console.error("[Cambiar Password Error]:", error);
+    return res.status(500).json({ ok: false, msg: "Error al cambiar la contraseña" });
+  }
 };

@@ -1,196 +1,676 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  FlatList, 
-  ActivityIndicator, 
-  RefreshControl, 
-  TouchableOpacity,
-  Platform,
-  Alert
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import {
+  View, Text, FlatList, ActivityIndicator, RefreshControl,
+  TouchableOpacity, Platform, StyleSheet, useWindowDimensions,
+  Modal, Pressable, Image
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
-import { router } from "expo-router"; // CAMBIO: Usamos el router de Expo
-import { styles } from './home.styles';
-import { ChatItem } from '../../components/ChatItem';
+import { router, useFocusEffect } from "expo-router";
+import { useSocket } from '../../context/SocketContext';
+import { markMessagesAsRead, getMessagesByRoom } from '../../db/database';
+import { ChatScreen } from '../../components/Chat/ChatScreen';
+import { useTheme } from '../../context/ThemeContext';
 
-// Definimos la interfaz para que TypeScript reconozca las propiedades
-interface Chat {
-  id_asignatura: string;
-  nombre: string;
-  clase: string;
-}
+const API_URL = "http://localhost:4000";
+const DESKTOP_BREAKPOINT = 768;
 
-const API_URL = "http://192.168.56.1:4000";
+// ============ ICONOS SVG ============
 
-// Icono de Cerrar Sesión (Estilo elegante)
+// Logo TuChat desde archivo PNG
+const TuChatLogoImage = ({ size = 32 }: { size?: number }) => (
+  <Image
+    source={require('../../../../tuchat/assets/images/logo.png')}
+    style={{ width: size, height: size, tintColor: '#fff' }}
+    resizeMode="contain"
+  />
+);
+
+// Logo para fondo claro (sin tint)
+const TuChatLogoColor = ({ size = 80 }: { size?: number }) => (
+  <Image
+    source={require('../../../../tuchat/assets/images/logo.png')}
+    style={{ width: size, height: size, opacity: 0.4 }}
+    resizeMode="contain"
+  />
+);
+
+// Icono de 3 puntos verticales
+const DotsVerticalIcon = () => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#fff" style={{ width: 24, height: 24 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
+  </Svg>
+);
+
+// Iconos del menú
+const ProfileIcon = ({ color = "#475569" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+  </Svg>
+);
+
+const SettingsIcon = ({ color = "#475569" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </Svg>
+);
+
+const HelpIcon = ({ color = "#475569" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+  </Svg>
+);
+
+const AdminIcon = ({ color = "#475569" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </Svg>
+);
+
 const LogoutIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="#E11D48" style={{ width: 18, height: 18 }}>
-    <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#EF4444" style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" />
   </Svg>
 );
 
-// Icono para lista vacía
-const EmptyIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#94a3b8" style={{ width: 64, height: 64 }}>
-    <Path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 0 1-.825-.242m9.345-8.334a2.126 2.126 0 0 0-.476-.095 48.64 48.64 0 0 0-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0 0 11.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
+const UsersIcon = ({ color = "currentColor" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
   </Svg>
 );
+
+const UserIcon = ({ color = "currentColor" }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
+    <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+  </Svg>
+);
+
+// Componente de doble tick
+const MessageStatus = ({ status }: { status: 'sent' | 'delivered' | 'read' }) => {
+  const color = status === 'read' ? '#34B7F1' : '#8696A0';
+
+  if (status === 'sent') {
+    return (
+      <Svg viewBox="0 0 16 11" width={16} height={11} fill="none">
+        <Path d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.405-2.272a.463.463 0 0 0-.32-.143.462.462 0 0 0-.312.106l-.311.296a.455.455 0 0 0-.14.337c0 .136.047.25.14.337l2.996 2.996a.497.497 0 0 0 .501.14.493.493 0 0 0 .39-.28l6.846-8.932a.485.485 0 0 0-.063-.577l-.417-.32Z" fill={color} />
+      </Svg>
+    );
+  }
+
+  return (
+    <Svg viewBox="0 0 16 11" width={16} height={11} fill="none">
+      <Path d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.405-2.272a.463.463 0 0 0-.32-.143.462.462 0 0 0-.312.106l-.311.296a.455.455 0 0 0-.14.337c0 .136.047.25.14.337l2.996 2.996a.497.497 0 0 0 .501.14.493.493 0 0 0 .39-.28l6.846-8.932a.485.485 0 0 0-.063-.577l-.417-.32Z" fill={color} />
+      <Path d="M15.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-1.405-1.328-.696.9 2.076 2.076a.497.497 0 0 0 .501.14.493.493 0 0 0 .39-.28l6.846-8.932a.485.485 0 0 0-.063-.577l-.417-.32Z" fill={color} />
+    </Svg>
+  );
+};
+
+// ============ COMPONENTE PRINCIPAL ============
 
 export const HomeScreen = () => {
-  // Estado tipado para evitar el error de 'id_asignatura does not exist on type never'
-  const [chats, setChats] = useState<Chat[]>([]);
+  const { colors, isDark } = useTheme();
+  const [chats, setChats] = useState<any[]>([]);
+  const [privateChats, setPrivateChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'grupos' | 'privados'>('grupos');
+  const [userType, setUserType] = useState<'ALUMNO' | 'PROFESOR'>('ALUMNO');
+  const [userName, setUserName] = useState('');
+  const [selectedChat, setSelectedChat] = useState<any>(null);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [userRol, setUserRol] = useState<number | null>(null);
 
-  const getToken = async () => {
-    return Platform.OS === 'web' 
-      ? localStorage.getItem('token') 
-      : await SecureStore.getItemAsync('token');
-  };
+  const { width } = useWindowDimensions();
+  const isDesktop = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
+  const { unreadCounts, refreshUnreadCounts } = useSocket();
+  const [lastMessages, setLastMessages] = useState<Record<string, any>>({});
 
-  /**
-   * Lógica de Cierre de Sesión para Expo Router
-   */
-  const handleLogout = () => {
-    const performLogout = async () => {
-      try {
-        if (Platform.OS === 'web') {
-          localStorage.removeItem('token');
-        } else {
-          await SecureStore.deleteItemAsync('token');
-        }
+  const fetchUserData = async () => {
+    try {
+      const userDataStr = Platform.OS === 'web'
+        ? localStorage.getItem('usuario')
+        : await SecureStore.getItemAsync('usuario');
 
-        // REDIRECCIÓN: En Expo Router usamos replace para limpiar el historial
-        router.replace("/login"); 
-        
-      } catch (error) {
-        console.error("Error logout:", error);
+      if (userDataStr) {
+        const userData = JSON.parse(userDataStr);
+        setUserType(userData.tipo || userData.tipo_externo || 'ALUMNO');
+        setUserName(userData.nombre || '');
+        setUserRol(userData.id_rol || null);
       }
-    };
-
-    if (Platform.OS === 'web') {
-      if (window.confirm("¿Estás seguro de que quieres cerrar sesión?")) {
-        performLogout();
-      }
-    } else {
-      Alert.alert("Cerrar Sesión", "¿Seguro que quieres salir de TuChat?", [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Sí, salir", style: "destructive", onPress: performLogout }
-      ]);
+    } catch (e) {
+      console.error("Error obteniendo datos de usuario:", e);
     }
   };
 
   const fetchChats = useCallback(async () => {
     try {
-      const token = await getToken();
-      if (!token) return;
+      const token = Platform.OS === 'web'
+        ? localStorage.getItem('token')
+        : await SecureStore.getItemAsync('token');
+
+      if (!token) {
+        setLoading(false);
+        return;
+      }
 
       const response = await axios.get(`${API_URL}/academico/chats-disponibles`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (response.data.ok) {
-        setChats(response.data.chats);
+      if (response.data.ok && response.data.chats) {
+        const processed = response.data.chats.map((item: any) => ({
+          id_chat: item.id_chat,
+          nombre: item.nombre || "Asignatura",
+          subtitulo: item.subtitulo || "General",
+          esProfesor: item.esProfesor || false,
+          tipo: 'grupo',
+        }));
+        setChats(processed);
+
+        const messagesMap: Record<string, any> = {};
+        processed.forEach((chat: any) => {
+          const messages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(chat.id_chat) : [];
+          if (messages && messages.length > 0) {
+            messagesMap[chat.id_chat] = messages[messages.length - 1];
+          }
+        });
+        setLastMessages(prev => ({ ...prev, ...messagesMap }));
       }
-    } catch (error) {
-      console.error("Error cargando chats:", error);
+
+      try {
+        const privateResponse = await axios.get(`${API_URL}/academico/chats-privados`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (privateResponse.data.ok && privateResponse.data.chats) {
+          const processedPrivate = privateResponse.data.chats.map((item: any) => ({
+            id_chat: item.id_chat_privado,
+            nombre: item.nombre_contacto || "Usuario",
+            subtitulo: item.asignatura || "Chat privado",
+            esProfesor: item.es_profesor_contacto || false,
+            tipo: 'privado',
+          }));
+          setPrivateChats(processedPrivate);
+
+          const privateMessagesMap: Record<string, any> = {};
+          processedPrivate.forEach((chat: any) => {
+            const messages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(chat.id_chat) : [];
+            if (messages && messages.length > 0) {
+              privateMessagesMap[chat.id_chat] = messages[messages.length - 1];
+            }
+          });
+          setLastMessages(prev => ({ ...prev, ...privateMessagesMap }));
+        }
+      } catch (e) {
+        console.log("Chats privados no disponibles");
+      }
+
+    } catch (e) {
+      console.error("Error cargando chats:", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      const token = await getToken();
-      if (!token) return;
-
-      await axios.post(`${API_URL}/academico/sync-forzar`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (Platform.OS !== 'web') Alert.alert("Éxito", "Sincronización completada");
-      await fetchChats();
-    } catch (error) {
-      console.error("Error en sync:", error);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   useEffect(() => {
+    fetchUserData();
     fetchChats();
   }, [fetchChats]);
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Mis Chats</Text>
-          <Text style={styles.headerSubtitle}>
-            {chats.length} {chats.length === 1 ? 'asignatura' : 'asignaturas'}
-          </Text>
+  useFocusEffect(
+    useCallback(() => {
+      refreshUnreadCounts();
+      fetchChats();
+    }, [refreshUnreadCounts, fetchChats])
+  );
+
+  const handleChatPress = (item: any) => {
+    if (typeof markMessagesAsRead === 'function') markMessagesAsRead(item.id_chat);
+    refreshUnreadCounts();
+
+    if (isDesktop) {
+      setSelectedChat(item);
+    } else {
+      router.push({
+        pathname: "/chat",
+        params: {
+          id: item.id_chat,
+          nombre: item.nombre,
+          tipo: item.tipo
+        }
+      });
+    }
+  };
+
+  const handleLogout = async () => {
+    setMenuVisible(false);
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('usuario');
+      } else {
+        await SecureStore.deleteItemAsync('token');
+        await SecureStore.deleteItemAsync('usuario');
+      }
+      router.replace('/login' as any);
+    } catch (e) {
+      console.error("Error al cerrar sesión:", e);
+    }
+  };
+
+  const handleMenuOption = (option: string) => {
+    setMenuVisible(false);
+    switch (option) {
+      case 'profile':
+        router.push('/profile' as any);
+        break;
+      case 'settings':
+        router.push('/settings' as any);
+        break;
+      case 'help':
+        router.push('/faq' as any);
+        break;
+      case 'admin':
+        router.push('/admin' as any);
+        break;
+      case 'logout':
+        handleLogout();
+        break;
+    }
+  };
+
+  const formatLastMessageTime = (timestamp: number) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    } else if (diffDays === 1) {
+      return 'Ayer';
+    } else if (diffDays < 7) {
+      return date.toLocaleDateString('es-ES', { weekday: 'short' });
+    }
+    return date.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' });
+  };
+
+  const truncateMessage = (text: string, maxLength: number = 35) => {
+    if (!text) return '';
+    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+  };
+
+  const renderItem = ({ item }: { item: any }) => {
+    const initial = item.nombre.charAt(0).toUpperCase();
+    const unreadCount = unreadCounts[item.id_chat] || 0;
+    const lastMessage = lastMessages[item.id_chat];
+    const lastMessageText = lastMessage?.text || lastMessage?.contenido || '';
+    const lastMessageTime = lastMessage?.timestamp;
+    const isMyMessage = lastMessage?.isMe || lastMessage?.senderId === item.myUserId;
+    const messageStatus: 'sent' | 'delivered' | 'read' = lastMessage?.read ? 'read' : 'delivered';
+    const isSelected = isDesktop && selectedChat?.id_chat === item.id_chat;
+
+    return (
+      <TouchableOpacity
+        style={[s.chatCard, isSelected && s.chatCardSelected, { backgroundColor: colors.surface }]}
+        onPress={() => handleChatPress(item)}
+        activeOpacity={0.7}
+      >
+        <View style={[s.avatar, { backgroundColor: colors.primary }, item.tipo === 'privado' && s.avatarPrivate]}>
+          <Text style={s.avatarText}>{initial}</Text>
         </View>
-        
-        <TouchableOpacity 
-          onPress={handleLogout} 
-          style={styles.logoutButton}
+
+        <View style={s.chatContent}>
+          <View style={s.chatTopRow}>
+            <Text style={[s.chatTitle, { color: colors.textPrimary }, unreadCount > 0 && s.chatTitleUnread]} numberOfLines={1}>
+              {item.nombre}
+            </Text>
+            {lastMessageTime && (
+              <Text style={[s.timeText, { color: colors.textMuted }, unreadCount > 0 && { color: colors.primary, fontWeight: '600' }]}>
+                {formatLastMessageTime(lastMessageTime)}
+              </Text>
+            )}
+          </View>
+
+          <View style={s.chatBottomRow}>
+            <View style={s.lastMessageContainer}>
+              {isMyMessage && lastMessage && (
+                <View style={s.tickContainer}>
+                  <MessageStatus status={messageStatus} />
+                </View>
+              )}
+              <Text style={[s.lastMessage, { color: colors.textSecondary }, unreadCount > 0 && { color: colors.textPrimary, fontWeight: '500' }]} numberOfLines={1}>
+                {lastMessageText ? truncateMessage(lastMessageText) : item.subtitulo}
+              </Text>
+            </View>
+
+            {unreadCount > 0 && (
+              <View style={[s.unreadBadge, { backgroundColor: colors.primary }]}>
+                <Text style={s.unreadBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const currentChats = activeTab === 'grupos' ? chats : privateChats;
+  const gruposUnread = chats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
+  const privadosUnread = privateChats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
+
+  // ============ MENÚ DESPLEGABLE ============
+  const DropdownMenu = () => (
+    <Modal
+      visible={menuVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setMenuVisible(false)}
+    >
+      <Pressable style={s.menuOverlay} onPress={() => setMenuVisible(false)}>
+        <View style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface }]}>
+          <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('profile')}>
+            <ProfileIcon color={colors.textSecondary} />
+            <Text style={[s.menuItemText, { color: colors.textPrimary }]}>Mi perfil</Text>
+          </TouchableOpacity>
+
+          <View style={[s.menuDivider, { backgroundColor: colors.borderLight }]} />
+
+          <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('settings')}>
+            <SettingsIcon color={colors.textSecondary} />
+            <Text style={[s.menuItemText, { color: colors.textPrimary }]}>Configuración</Text>
+          </TouchableOpacity>
+
+          <View style={[s.menuDivider, { backgroundColor: colors.borderLight }]} />
+
+          <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('help')}>
+            <HelpIcon color={colors.textSecondary} />
+            <Text style={[s.menuItemText, { color: colors.textPrimary }]}>Preguntas</Text>
+          </TouchableOpacity>
+
+          {userRol === 7 && (
+            <>
+              <View style={[s.menuDivider, { backgroundColor: colors.borderLight }]} />
+              <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('admin')}>
+                <AdminIcon color={colors.primary} />
+                <Text style={[s.menuItemText, { color: colors.primary }]}>Panel Admin</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <View style={[s.menuDivider, { backgroundColor: colors.borderLight }]} />
+
+          <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('logout')}>
+            <LogoutIcon />
+            <Text style={[s.menuItemText, s.menuItemTextDanger]}>Cerrar sesión</Text>
+          </TouchableOpacity>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+
+  const ChatList = () => (
+    <View style={[s.chatListContainer, isDesktop && s.chatListContainerDesktop, { backgroundColor: colors.surface }]}>
+      {/* Header con logo + título + menú 3 puntos */}
+      <View style={[s.header, isDesktop && s.headerDesktop, { backgroundColor: colors.primary }]}>
+        <View style={s.headerLeft}>
+          <TuChatLogoImage size={30} />
+          <Text style={s.mainTitle}>TuChat</Text>
+        </View>
+        <TouchableOpacity
+          onPress={() => setMenuVisible(true)}
+          style={s.menuButton}
           activeOpacity={0.7}
         >
-          <LogoutIcon />
-          <Text style={styles.logoutText}>Salir</Text>
+          <DotsVerticalIcon />
         </TouchableOpacity>
       </View>
 
-      {/* Listado */}
+      {/* Tabs */}
+      <View style={[s.tabsContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          style={[s.tab, activeTab === 'grupos' && { borderBottomColor: colors.primary }]}
+          onPress={() => setActiveTab('grupos')}
+        >
+          <UsersIcon color={activeTab === 'grupos' ? colors.primary : colors.textSecondary} />
+          <Text style={[s.tabText, { color: colors.textSecondary }, activeTab === 'grupos' && { color: colors.primary }]}>Grupos</Text>
+          {gruposUnread > 0 && (
+            <View style={[s.tabBadge]}>
+              <Text style={s.tabBadgeText}>{gruposUnread > 99 ? '99+' : gruposUnread}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[s.tab, activeTab === 'privados' && { borderBottomColor: colors.primary }]}
+          onPress={() => setActiveTab('privados')}
+        >
+          <UserIcon color={activeTab === 'privados' ? colors.primary : colors.textSecondary} />
+          <Text style={[s.tabText, { color: colors.textSecondary }, activeTab === 'privados' && { color: colors.primary }]}>
+            {userType === 'ALUMNO' ? 'Profesores' : 'Alumnos'}
+          </Text>
+          {privadosUnread > 0 && (
+            <View style={[s.tabBadge]}>
+              <Text style={s.tabBadgeText}>{privadosUnread > 99 ? '99+' : privadosUnread}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Lista de chats */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2563EB" />
-          <Text style={styles.loadingText}>Cargando chats...</Text>
+        <View style={s.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
         <FlatList
-          data={chats}
-          keyExtractor={(item) => item.id_asignatura}
-          renderItem={({ item }) => <ChatItem chat={item} />}
-          contentContainerStyle={styles.listContent}
+          data={currentChats}
+          keyExtractor={(item) => item.id_chat.toString()}
+          renderItem={renderItem}
+          contentContainerStyle={s.list}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
+            <RefreshControl
+              refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
                 fetchChats();
+                refreshUnreadCounts();
               }}
-              tintColor="#2563EB"
+              colors={[colors.primary]}
+              tintColor={colors.primary}
             />
           }
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <EmptyIcon />
-              <Text style={styles.emptyTitle}>No hay chats disponibles</Text>
-              <Text style={styles.emptyText}>
-                No tienes asignaturas en curso actualmente.
+            <View style={s.emptyState}>
+              <View style={s.emptyIconWrap}>
+                {activeTab === 'grupos' ? (
+                  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.2} stroke="#94A3B8" style={{ width: 48, height: 48 }}>
+                    <Path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+                  </Svg>
+                ) : (
+                  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.2} stroke="#94A3B8" style={{ width: 48, height: 48 }}>
+                    <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                  </Svg>
+                )}
+              </View>
+              <Text style={s.emptyTitle}>
+                {activeTab === 'grupos' ? 'No tienes grupos' : `Sin chats con ${userType === 'ALUMNO' ? 'profesores' : 'alumnos'}`}
               </Text>
-              <TouchableOpacity 
-                onPress={handleSync}
-                style={[styles.emptyButton, syncing && { opacity: 0.5 }]}
-                disabled={syncing}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.emptyButtonText}>
-                  {syncing ? "Sincronizando..." : "Sincronizar ahora"}
-                </Text>
-              </TouchableOpacity>
+              <Text style={s.emptyText}>
+                {activeTab === 'grupos' ? 'Aparecerán cuando te asignen a clases' : 'Los chats privados aparecerán aquí'}
+              </Text>
             </View>
           }
         />
       )}
+
+      {/* Menú desplegable */}
+      <DropdownMenu />
     </View>
   );
+
+  const EmptyChatPanel = () => (
+    <View style={[s.emptyChatPanel, { backgroundColor: colors.background }]}>
+      <TuChatLogoColor size={80} />
+      <Text style={[s.emptyChatTitle, { color: colors.textPrimary }]}>TuChat para Educación</Text>
+      <Text style={[s.emptyChatSubtitle, { color: colors.textSecondary }]}>Selecciona una conversación para ver los mensajes</Text>
+    </View>
+  );
+
+  if (isDesktop) {
+    return (
+      <View style={[s.desktopContainer, { backgroundColor: colors.background }]}>
+        <ChatList />
+        <View style={[s.chatPanelContainer, { backgroundColor: colors.background }]}>
+          {selectedChat ? (
+            <ChatScreen
+              id={selectedChat.id_chat}
+              nombre={selectedChat.nombre}
+              tipo={selectedChat.tipo}
+              isEmbedded={true}
+              onBack={() => setSelectedChat(null)}
+            />
+          ) : (
+            <EmptyChatPanel />
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  return <View style={[s.container, { backgroundColor: colors.background }]}><ChatList /></View>;
 };
+
+// ============ ESTILOS ============
+
+const s = StyleSheet.create({
+  container: { flex: 1 },
+  desktopContainer: { flex: 1, flexDirection: 'row' },
+  chatListContainer: { flex: 1 },
+  chatListContainerDesktop: { width: 380, maxWidth: 380, borderRightWidth: 1, borderRightColor: '#e2e8f0' }, // border will be themed
+  chatPanelContainer: { flex: 1 },
+
+  emptyChatPanel: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyChatTitle: { fontSize: 26, fontWeight: '300', marginTop: 20, marginBottom: 10 },
+  emptyChatSubtitle: { fontSize: 14, textAlign: 'center', maxWidth: 350 },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#6366f1',
+    paddingTop: Platform.OS === 'ios' ? 56 : Platform.OS === 'android' ? 44 : 14,
+  },
+  headerDesktop: { paddingTop: 14 },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mainTitle: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  menuButton: {
+    padding: 8,
+    borderRadius: 20,
+  },
+
+  // Menú desplegable
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 100 : Platform.OS === 'android' ? 80 : 52,
+    left: 12,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    minWidth: 200,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 8,
+      },
+      web: {
+        boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.15)',
+      },
+    }),
+  },
+  menuContainerDesktop: {
+    left: 180,
+    top: 52,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  menuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  menuItemTextDanger: {
+    color: '#EF4444',
+  },
+  menuDivider: {
+    height: 1,
+    marginHorizontal: 12,
+  },
+
+  // Tabs
+  tabsContainer: { flexDirection: 'row', borderBottomWidth: 1 },
+  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 8, borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabActive: {},
+  tabText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  tabTextActive: {},
+  tabBadge: { backgroundColor: '#ef4444', minWidth: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 5 },
+  tabBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+
+  // Lista
+  list: { paddingVertical: 4 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+
+  // Chat card
+  chatCard: { flexDirection: 'row', paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center', backgroundColor: '#fff' },
+  chatCardSelected: { backgroundColor: '#ede9fe' }, // will be overridden dynamically
+
+  avatar: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  avatarPrivate: { backgroundColor: '#10b981' },
+  avatarText: { color: '#fff', fontWeight: '600', fontSize: 18 },
+
+  chatContent: { flex: 1 },
+  chatTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  chatBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+
+  chatTitle: { fontSize: 16, fontWeight: '500', flex: 1, marginRight: 8 },
+  chatTitleUnread: { fontWeight: '700' },
+
+  timeText: { fontSize: 12 },
+  timeTextUnread: { fontWeight: '600' },
+
+  lastMessageContainer: { flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 },
+  tickContainer: { marginRight: 4 },
+  lastMessage: { fontSize: 14, flex: 1 },
+  lastMessageUnread: { color: '#1e293b', fontWeight: '500' },
+
+  unreadBadge: { minWidth: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 5 },
+  unreadBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
+  emptyIconWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
+  emptyText: { fontSize: 14, textAlign: 'center' },
+});

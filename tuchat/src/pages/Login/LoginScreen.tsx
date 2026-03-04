@@ -20,7 +20,7 @@ import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
 import { useNavigation } from '@react-navigation/native';
 
-const API_URL = "http://192.168.56.1:4000";
+const API_URL = "http://localhost:4000";
 
 // Iconos SVG
 const UserIcon = ({ focused }: { focused: boolean }) => (
@@ -69,7 +69,7 @@ export default function LoginScreen() {
       setDimensions(window);
     });
 
-    // Animaciones de entrada más sutiles y profesionales
+    // Animaciones de entrada 
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -97,8 +97,9 @@ export default function LoginScreen() {
   const isMobile = dimensions.width < 768;
 
   const handleLogin = async () => {
+    console.log("BOTÓN PULSADO");
     Keyboard.dismiss();
-    
+
     if (!identificador || !password) {
       Alert.alert("Campos requeridos", "Por favor, introduce tu CIAL/DNI y contraseña");
       return;
@@ -126,6 +127,7 @@ export default function LoginScreen() {
       });
 
       if (data.ok) {
+        // Guardar token y datos de usuario
         if (Platform.OS === 'web') {
           localStorage.setItem("token", data.token);
           localStorage.setItem("usuario", JSON.stringify(data.usuario));
@@ -133,7 +135,15 @@ export default function LoginScreen() {
           await SecureStore.setItemAsync("token", data.token);
           await SecureStore.setItemAsync("usuario", JSON.stringify(data.usuario));
         }
-        router.replace("/");
+
+        // REDIRECCIÓN SEGÚN ROL
+        if (data.usuario.id_rol === 7) {
+          console.log("[Login] Usuario ADMIN detectado → /admin");
+          setTimeout(() => router.replace("/admin" as any), 100);
+        } else {
+          console.log("[Login] Usuario normal → /");
+          setTimeout(() => router.replace("/" as any), 100);
+        }
       }
     } catch (err: any) {
       Alert.alert("Error de autenticación", "Las credenciales ingresadas son incorrectas");
@@ -187,16 +197,16 @@ export default function LoginScreen() {
         <View style={styles.gradientOverlay} />
       </View>
 
-      <Animated.View 
+      <Animated.View
         style={[
           styles.scrollContainer,
-          { 
+          {
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
           }
         ]}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
             isDesktop && styles.scrollContentDesktop,
@@ -211,7 +221,7 @@ export default function LoginScreen() {
             isTablet && styles.contentWrapperTablet
           ]}>
             {/* Logo institucional con fondo para móvil */}
-            <Animated.View 
+            <Animated.View
               style={[
                 styles.logoContainer,
                 isMobile && styles.logoContainerMobile,
@@ -221,8 +231,8 @@ export default function LoginScreen() {
               ]}
             >
               <View style={[styles.logoWrapper, isMobile && styles.logoWrapperMobile]}>
-                <Image 
-                  source={require("../../../assets/images/logo.png")} 
+                <Image
+                  source={require("../../../assets/images/logo.png")}
                   style={getLogoSize()}
                   resizeMode="contain"
                 />
@@ -254,8 +264,8 @@ export default function LoginScreen() {
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>CIAL/DNI</Text>
-                  <Animated.View 
-                    style={{ 
+                  <Animated.View
+                    style={{
                       transform: [{ scale: inputScaleUser }]
                     }}
                   >
@@ -282,8 +292,8 @@ export default function LoginScreen() {
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>Contraseña</Text>
-                  <Animated.View 
-                    style={{ 
+                  <Animated.View
+                    style={{
                       transform: [{ scale: inputScalePass }]
                     }}
                   >
