@@ -11,7 +11,7 @@ import mensajesRoutes from "./routes/mensajes.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
 import adminRoutes from "./routes/admin.routes.js";       // ✅ AÑADIDO
 
-import { appDb } from "../server/db/db.js";
+import { appDb } from "./db/db.js";
 import { getRedis } from "./redis.js";
 import { enviarNotificacionPush } from "./services/push.service.js";
 
