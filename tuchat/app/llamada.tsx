@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Platform, StyleSheet, Alert, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Platform, StyleSheet, Alert, Dimensions, ScrollView } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import { useSocket } from '../src/context/SocketContext';
@@ -80,6 +80,54 @@ const ScreenShareIcon = () => (
     <Path d="m17 8 5-5M22 8h-5V3" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
+
+// ─── Debug overlay (solo en desarrollo, quitar en producción) ─────────────────
+// Intercepta console.log para mostrarlos en pantalla en el móvil
+const debugLogs: string[] = [];
+const origLog = console.log.bind(console);
+const origWarn = console.warn.bind(console);
+const origError = console.error.bind(console);
+let _setDebugLogs: ((l: string[]) => void) | null = null;
+
+const pushLog = (prefix: string, args: any[]) => {
+  const msg = `${prefix} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+  debugLogs.unshift(msg.slice(0, 120)); // máximo 120 chars por línea
+  if (debugLogs.length > 40) debugLogs.pop();
+  _setDebugLogs?.([...debugLogs]);
+};
+
+console.log = (...args) => { origLog(...args); pushLog('', args); };
+console.warn = (...args) => { origWarn(...args); pushLog('⚠️', args); };
+console.error = (...args) => { origError(...args); pushLog('❌', args); };
+
+const DebugOverlay = () => {
+  const [logs, setLogs] = useState<string[]>([...debugLogs]);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => { _setDebugLogs = setLogs; return () => { _setDebugLogs = null; }; }, []);
+  if (!visible) return (
+    <TouchableOpacity onPress={() => setVisible(true)}
+      style={{ position: 'absolute', top: 60, left: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 6, zIndex: 9999 }}>
+      <Text style={{ color: '#0f0', fontSize: 10 }}>DEBUG</Text>
+    </TouchableOpacity>
+  );
+  return (
+    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 9999, padding: 8 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+        <Text style={{ color: '#0f0', fontSize: 11, fontWeight: 'bold' }}>📱 DEBUG LOGS</Text>
+        <TouchableOpacity onPress={() => setVisible(false)}>
+          <Text style={{ color: '#f00', fontSize: 11, fontWeight: 'bold' }}>✕ cerrar</Text>
+        </TouchableOpacity>
+      </View>
+      <ScrollView style={{ flex: 1 }}>
+        {logs.map((l, i) => (
+          <Text key={i} style={{ color: l.includes('❌') ? '#f88' : l.includes('⚠️') ? '#fa0' : '#0f0', fontSize: 9, fontFamily: 'monospace', marginBottom: 1 }}>
+            {l}
+          </Text>
+        ))}
+      </ScrollView>
+    </View>
+  );
+};
 
 // ─── Tipos ────────────────────────────────────────────────
 interface ParticipantInfo {
@@ -198,20 +246,36 @@ export default function MeetScreen() {
     if (currentStream) {
       if (Platform.OS === 'web') {
         currentStream.getTracks().forEach((track: any) => pc.addTrack(track, currentStream));
+        console.log(`📡 Añadidos ${currentStream.getTracks().length} tracks locales a PC ${socketId}`);
       } else {
         pc.addStream(currentStream);
       }
+    } else if (Platform.OS === 'web') {
+      // Sin stream local (ej: ordenador sin cámara/micro), SIEMPRE añadir transceivers.
+      // Sin transceivers el navegador no genera candidatos ICE → ICE se queda en "checking"
+      // sendrecv en lugar de recvonly para que el peer remoto también pueda enviar sin problemas
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      console.log(`📡 Sin stream local: añadidos transceivers recvonly a PC ${socketId}`);
     }
 
     pc.onicecandidate = (e: any) => {
       if (e.candidate && socket) {
+        console.log(`🧊 ICE candidate generado para ${socketId}: ${e.candidate.type}`);
         socket.emit('meet:ice-candidate', { to: socketId, candidate: e.candidate, roomId });
+      } else if (!e.candidate) {
+        console.log(`🧊 ICE gathering completo para ${socketId}`);
       }
     };
 
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState;
       console.log(`🔌 ICE ${socketId}: ${state}`);
+
+      // Guardar estado ICE en el peer para que renegotiateWithAllPeers pueda esperarlo
+      const peer = peersRef.current.get(socketId);
+      if (peer) peer.iceState = state;
+
       if (state === 'failed') {
         console.log('🔁 ICE failed, reiniciando...');
         pc.restartIce();
@@ -245,21 +309,109 @@ export default function MeetScreen() {
     return pc;
   };
 
+  // Esperar a que un peer tenga ICE connected/completed (con timeout de seguridad)
+  const waitForIceConnected = (socketId: string, timeoutMs = 8000): Promise<void> => {
+    return new Promise(resolve => {
+      const peer = peersRef.current.get(socketId);
+      if (!peer) { resolve(); return; }
+      const state = peer.peerConnection.iceConnectionState;
+      if (state === 'connected' || state === 'completed') { resolve(); return; }
+
+      const timeout = setTimeout(resolve, timeoutMs);
+      const handler = () => {
+        const s = peer.peerConnection.iceConnectionState;
+        if (s === 'connected' || s === 'completed' || s === 'failed' || s === 'closed') {
+          clearTimeout(timeout);
+          peer.peerConnection.removeEventListener?.('iceconnectionstatechange', handler);
+          resolve();
+        }
+      };
+      peer.peerConnection.addEventListener?.('iceconnectionstatechange', handler);
+    });
+  };
+
   // ─── Renegociación (compartir pantalla) ───────────────
   const renegotiateWithAllPeers = async (newStream: any) => {
-    console.log('🔄 Renegociando...');
+    console.log('🔄 Iniciando renegociación para', peersRef.current.size, 'peers');
+
     for (const [socketId, peer] of peersRef.current.entries()) {
       const pc = peer.peerConnection;
-      pc.getSenders().forEach((s: any) => pc.removeTrack(s));
+      const iceState = pc.iceConnectionState;
+      console.log(`🔌 Estado ICE antes de renegociar con ${socketId}: ${iceState}`);
+
+      // Esperar a que ICE esté estable antes de renegociar
+      // Si renegociamos mientras ICE está en "checking", la conexión se rompe
+      if (iceState === 'checking' || iceState === 'new') {
+        console.log(`⏳ Esperando ICE connected para ${socketId}...`);
+        await new Promise<void>(resolve => {
+          const timeout = setTimeout(() => {
+            console.warn(`⚠️ Timeout esperando ICE connected para ${socketId}, continuando de todas formas`);
+            resolve();
+          }, 10000);
+          const check = () => {
+            const s = pc.iceConnectionState;
+            if (s === 'connected' || s === 'completed' || s === 'failed' || s === 'closed') {
+              clearTimeout(timeout);
+              pc.removeEventListener('iceconnectionstatechange', check);
+              resolve();
+            }
+          };
+          pc.addEventListener('iceconnectionstatechange', check);
+          // Comprobar de inmediato por si ya cambió
+          check();
+        });
+        console.log(`✅ ICE resuelto para ${socketId}: ${pc.iceConnectionState}`);
+      }
+
+      if (pc.iceConnectionState === 'closed' || pc.signalingState === 'closed') {
+        console.warn(`⚠️ PC cerrada para ${socketId}, saltando renegociación`);
+        continue;
+      }
+
       if (Platform.OS === 'web') {
+        const senders = pc.getSenders();
+        const newTracks = newStream.getTracks();
+        let needsFullRenegotiation = false;
+
+        for (const newTrack of newTracks) {
+          const matchingSender = senders.find((s: any) => s.track?.kind === newTrack.kind);
+          if (matchingSender) {
+            try {
+              await matchingSender.replaceTrack(newTrack);
+              console.log(`🔄 replaceTrack OK: ${newTrack.kind} → ${socketId}`);
+            } catch (e) {
+              console.warn(`⚠️ replaceTrack falló, forzando renegociación:`, e);
+              needsFullRenegotiation = true;
+              break;
+            }
+          } else {
+            needsFullRenegotiation = true;
+          }
+        }
+
+        if (!needsFullRenegotiation) {
+          console.log(`✅ replaceTrack fue suficiente para ${socketId}, sin renegociación`);
+          continue;
+        }
+
+        // Renegociación completa (nuevo tipo de track)
+        senders.forEach((s: any) => pc.removeTrack(s));
         newStream.getTracks().forEach((track: any) => pc.addTrack(track, newStream));
       } else {
+        pc.getSenders().forEach((s: any) => pc.removeTrack(s));
         pc.addStream(newStream);
       }
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket?.emit('meet:offer', { to: socketId, offer, roomId, isRenegotiation: true });
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket?.emit('meet:offer', { to: socketId, offer, roomId, isRenegotiation: true });
+        console.log(`📤 Offer de renegociación enviada a ${socketId}`);
+      } catch (e) {
+        console.error(`❌ Error creando offer de renegociación para ${socketId}:`, e);
+      }
     }
+
     setRenegotiationCount(n => n + 1);
   };
 
@@ -524,6 +676,8 @@ export default function MeetScreen() {
 
   return (
     <View style={st.container}>
+      {/* DEBUG OVERLAY — quitar en producción */}
+      {isMobileWeb && <DebugOverlay />}
       {showAvatarGrid ? (
         <View style={st.gridContainer}>
           {allParticipants.map((p, idx) => (
