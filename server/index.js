@@ -5,6 +5,10 @@ import { Server } from "socket.io";
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
+// fetch está disponible de forma nativa en Node 18+
+// Si usas Node 16 o anterior, instala node-fetch: npm install node-fetch
+// y descomenta: import fetch from 'node-fetch';
+
 import authRoutes from "./routes/auth.routes.js";
 import academicoRoutes from "./routes/academico.routes.js";
 import mensajesRoutes from "./routes/mensajes.routes.js";
@@ -39,44 +43,61 @@ app.get("/health/db", async (req, res) => {
 });
 
 // ─── TURN credentials endpoint ────────────────────────────────────────────────
-// Devuelve la configuración ICE con servidores TURN para que el cliente
-// no tenga las credenciales hardcodeadas. Se puede usar Open Relay (gratis)
-// o Metered.ca. Configura TURN_SECRET en tu .env si usas coturn propio.
-app.get("/meet/ice-config", (req, res) => {
-  // Opción A: Open Relay TURN (gratis, sin registro, sin límite de tiempo)
-  // https://www.metered.ca/tools/openrelay/
+// Usa Metered.ca para TURN servers fiables (tier gratuito: 50GB/mes)
+// 1. Regístrate gratis en https://dashboard.metered.ca
+// 2. Crea una app y copia el nombre y la API key
+// 3. Añade en tu .env:
+//    METERED_API_KEY=tu_api_key_aqui
+//    METERED_APP_NAME=tu_app_name_aqui  (el subdominio, ej: "tuchat")
+app.get("/meet/ice-config", async (req, res) => {
+  const apiKey = process.env.METERED_API_KEY;
+  const appName = process.env.METERED_APP_NAME;
+
+  if (apiKey && appName) {
+    try {
+      // Metered genera credenciales temporales (TTL 1h) por llamada — más seguro
+      const response = await fetch(
+        `https://${appName}.metered.ca/api/v1/turn/credentials?apiKey=${apiKey}`
+      );
+      if (response.ok) {
+        const iceServers = await response.json();
+        console.log(`✅ ICE config de Metered: ${iceServers.length} servidores`);
+        return res.json({ iceServers });
+      }
+      console.warn('⚠️ Metered respondió con error:', response.status);
+    } catch (e) {
+      console.error('❌ Error obteniendo ICE config de Metered:', e.message);
+    }
+  }
+
+  // Fallback: múltiples TURN públicos por si falla Metered o no hay .env configurado
+  // Nota: estos son menos fiables que Metered para producción
+  console.warn('⚠️ Usando TURN público de fallback (configura METERED_API_KEY para producción)');
   const iceServers = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.relay.metered.ca:80" },
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:80",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
     },
     {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
     },
     {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
+      urls: "turn:standard.relay.metered.ca:443",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
+    },
+    {
+      urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
     },
   ];
-
-  // Opción B (recomendado a largo plazo): usa Metered.ca con tu propia API key
-  // Registra gratis en https://dashboard.metered.ca y pon en .env:
-  //   METERED_API_KEY=tu_key
-  //   METERED_APP_NAME=tu_app
-  // Y descomenta esto:
-  /*
-  if (process.env.METERED_API_KEY) {
-    return res.redirect(
-      `https://${process.env.METERED_APP_NAME}.metered.ca/api/v1/turn/credentials?apiKey=${process.env.METERED_API_KEY}`
-    );
-  }
-  */
 
   res.json({ iceServers });
 });
