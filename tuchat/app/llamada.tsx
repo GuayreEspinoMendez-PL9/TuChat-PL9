@@ -5,11 +5,29 @@ import Svg, { Path } from 'react-native-svg';
 import { useSocket } from '../src/context/SocketContext';
 
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
-const configuration = {
+const API_URL = "https://tuchat-pl9.onrender.com";
+
+// Configuración ICE por defecto (solo STUN, funciona en misma red)
+// Se sobreescribe con TURN al conectar (necesario para móvil 4G ↔ escritorio)
+let iceConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ]
+};
+
+// Cargar configuración ICE con servidores TURN desde el servidor
+const loadIceConfig = async () => {
+  try {
+    const res = await fetch(`${API_URL}/meet/ice-config`);
+    const data = await res.json();
+    if (data.iceServers) {
+      iceConfiguration = { iceServers: data.iceServers };
+      console.log('✅ ICE config cargada con TURN:', data.iceServers.length, 'servidores');
+    }
+  } catch (e) {
+    console.warn('⚠️ No se pudo cargar ICE config, usando solo STUN:', e);
+  }
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -174,7 +192,7 @@ export default function MeetScreen() {
   const createPeerConnection = (socketId: string, participantUserId: string) => {
     console.log(`🔗 Creando PC con ${socketId}`);
     const PC = Platform.OS === 'web' ? RTCPeerConnection : WebRTC.RTCPeerConnection;
-    const pc = new PC(configuration);
+    const pc = new PC(iceConfiguration);
 
     const currentStream = localStreamRef.current;
     if (currentStream) {
@@ -259,6 +277,10 @@ export default function MeetScreen() {
         localStreamRef.current = stream;
         console.log('📡 Stream listo, tracks:', stream.getTracks().map((t: any) => t.kind));
       }
+
+      // Cargar servidores TURN antes de crear ninguna PeerConnection
+      // Sin TURN, móvil 4G ↔ escritorio falla siempre (ICE queda en "checking")
+      await loadIceConfig();
 
       setStatus('Conectando...');
       socket.emit('meet:join', { roomId, userId, type: callType });

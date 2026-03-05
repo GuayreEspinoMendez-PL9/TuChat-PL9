@@ -38,6 +38,49 @@ app.get("/health/db", async (req, res) => {
   }
 });
 
+// ─── TURN credentials endpoint ────────────────────────────────────────────────
+// Devuelve la configuración ICE con servidores TURN para que el cliente
+// no tenga las credenciales hardcodeadas. Se puede usar Open Relay (gratis)
+// o Metered.ca. Configura TURN_SECRET en tu .env si usas coturn propio.
+app.get("/meet/ice-config", (req, res) => {
+  // Opción A: Open Relay TURN (gratis, sin registro, sin límite de tiempo)
+  // https://www.metered.ca/tools/openrelay/
+  const iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ];
+
+  // Opción B (recomendado a largo plazo): usa Metered.ca con tu propia API key
+  // Registra gratis en https://dashboard.metered.ca y pon en .env:
+  //   METERED_API_KEY=tu_key
+  //   METERED_APP_NAME=tu_app
+  // Y descomenta esto:
+  /*
+  if (process.env.METERED_API_KEY) {
+    return res.redirect(
+      `https://${process.env.METERED_APP_NAME}.metered.ca/api/v1/turn/credentials?apiKey=${process.env.METERED_API_KEY}`
+    );
+  }
+  */
+
+  res.json({ iceServers });
+});
+
 app.get("/health/redis", async (req, res) => {
   try {
     const redis = getRedis();
@@ -425,8 +468,14 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("meet:offer", (data) => {
-    console.log(`📤 Reenviando Offer de ${socket.id} a ${data.to}`);
-    io.to(data.to).emit("meet:offer", { from: socket.id, offer: data.offer, roomId: data.roomId });
+    console.log(`📤 Reenviando Offer de ${socket.id} a ${data.to} (renegotiation: ${!!data.isRenegotiation})`);
+    // FIX: propagar isRenegotiation al receptor para que fuerce re-mount del <video>
+    io.to(data.to).emit("meet:offer", {
+      from: socket.id,
+      offer: data.offer,
+      roomId: data.roomId,
+      isRenegotiation: !!data.isRenegotiation
+    });
   });
 
   socket.on("meet:answer", (data) => {
