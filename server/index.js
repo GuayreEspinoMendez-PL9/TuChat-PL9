@@ -42,53 +42,64 @@ app.get("/health/db", async (req, res) => {
   }
 });
 
-// ─── TURN credentials endpoint (Twilio) ───────────────────────────────────────
-// Twilio Network Traversal Service: 10,000 minutos gratis/mes
-// Setup:
-//   1. Regístrate en https://twilio.com (gratis, no necesitas tarjeta para el trial)
-//   2. En Console → Account Info copia: Account SID y Auth Token
-//   3. Añade en tu .env:
-//      TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-//      TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+// ─── TURN credentials endpoint ────────────────────────────────────────────────
+// Usa Metered.ca para TURN servers fiables (tier gratuito: 50GB/mes)
+// 1. Regístrate gratis en https://dashboard.metered.ca
+// 2. Crea una app y copia el nombre y la API key
+// 3. Añade en tu .env:
+//    METERED_API_KEY=tu_api_key_aqui
+//    METERED_APP_NAME=tu_app_name_aqui  (el subdominio, ej: "tuchat")
 app.get("/meet/ice-config", async (req, res) => {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const apiKey = process.env.METERED_API_KEY;
+  const appName = process.env.METERED_APP_NAME;
 
-  if (accountSid && authToken) {
+  if (apiKey && appName) {
     try {
-      // Twilio genera tokens ICE con TTL de 86400s (24h)
-      const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+      // Metered genera credenciales temporales (TTL 1h) por llamada — más seguro
       const response = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Tokens.json`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${credentials}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'Ttl=86400'
-        }
+        `https://${appName}.metered.ca/api/v1/turn/credentials?apiKey=${apiKey}`
       );
-
       if (response.ok) {
-        const data = await response.json();
-        console.log(`✅ ICE config de Twilio: ${data.ice_servers.length} servidores`);
-        return res.json({ iceServers: data.ice_servers });
+        const iceServers = await response.json();
+        console.log(`✅ ICE config de Metered: ${iceServers.length} servidores`);
+        return res.json({ iceServers });
       }
-      console.warn('⚠️ Twilio respondió con error:', response.status, await response.text());
+      console.warn('⚠️ Metered respondió con error:', response.status);
     } catch (e) {
-      console.error('❌ Error obteniendo ICE config de Twilio:', e.message);
+      console.error('❌ Error obteniendo ICE config de Metered:', e.message);
     }
   }
 
-  // Fallback si no hay credenciales Twilio configuradas
-  console.warn('⚠️ Sin TWILIO_ACCOUNT_SID/AUTH_TOKEN — usando solo STUN (no funcionará en 4G)');
-  res.json({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-    ]
-  });
+  // Fallback: múltiples TURN públicos por si falla Metered o no hay .env configurado
+  // Nota: estos son menos fiables que Metered para producción
+  console.warn('⚠️ Usando TURN público de fallback (configura METERED_API_KEY para producción)');
+  const iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.relay.metered.ca:80" },
+    {
+      urls: "turn:standard.relay.metered.ca:80",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
+    },
+    {
+      urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
+    },
+    {
+      urls: "turn:standard.relay.metered.ca:443",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
+    },
+    {
+      urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+      username: "83eebabf8b4cce9d5dbcb649",
+      credential: "2D7JvfkOQtBdYW3R",
+    },
+  ];
+
+  res.json({ iceServers });
 });
 
 app.get("/health/redis", async (req, res) => {
