@@ -80,55 +80,6 @@ const ScreenShareIcon = () => (
     <Path d="m17 8 5-5M22 8h-5V3" strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
-
-// ─── Debug overlay (solo en desarrollo, quitar en producción) ─────────────────
-// Intercepta console.log para mostrarlos en pantalla en el móvil
-const debugLogs: string[] = [];
-const origLog = console.log.bind(console);
-const origWarn = console.warn.bind(console);
-const origError = console.error.bind(console);
-let _setDebugLogs: ((l: string[]) => void) | null = null;
-
-const pushLog = (prefix: string, args: any[]) => {
-  const msg = `${prefix} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
-  debugLogs.unshift(msg.slice(0, 120)); // máximo 120 chars por línea
-  if (debugLogs.length > 40) debugLogs.pop();
-  _setDebugLogs?.([...debugLogs]);
-};
-
-console.log = (...args) => { origLog(...args); pushLog('', args); };
-console.warn = (...args) => { origWarn(...args); pushLog('⚠️', args); };
-console.error = (...args) => { origError(...args); pushLog('❌', args); };
-
-const DebugOverlay = () => {
-  const [logs, setLogs] = useState<string[]>([...debugLogs]);
-  const [visible, setVisible] = useState(true);
-  useEffect(() => { _setDebugLogs = setLogs; return () => { _setDebugLogs = null; }; }, []);
-  if (!visible) return (
-    <TouchableOpacity onPress={() => setVisible(true)}
-      style={{ position: 'absolute', top: 60, left: 10, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 6, zIndex: 9999 }}>
-      <Text style={{ color: '#0f0', fontSize: 10 }}>DEBUG</Text>
-    </TouchableOpacity>
-  );
-  return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 9999, padding: 8 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-        <Text style={{ color: '#0f0', fontSize: 11, fontWeight: 'bold' }}>📱 DEBUG LOGS</Text>
-        <TouchableOpacity onPress={() => setVisible(false)}>
-          <Text style={{ color: '#f00', fontSize: 11, fontWeight: 'bold' }}>✕ cerrar</Text>
-        </TouchableOpacity>
-      </View>
-      <ScrollView style={{ flex: 1 }}>
-        {logs.map((l, i) => (
-          <Text key={i} style={{ color: l.includes('❌') ? '#f88' : l.includes('⚠️') ? '#fa0' : '#0f0', fontSize: 9, fontFamily: 'monospace', marginBottom: 1 }}>
-            {l}
-          </Text>
-        ))}
-      </ScrollView>
-    </View>
-  );
-};
-
 // ─── Tipos ────────────────────────────────────────────────
 interface ParticipantInfo {
   userId: string;
@@ -676,8 +627,6 @@ export default function MeetScreen() {
 
   return (
     <View style={st.container}>
-      {/* DEBUG OVERLAY — quitar en producción */}
-      {isMobileWeb && <DebugOverlay />}
       {showAvatarGrid ? (
         <View style={st.gridContainer}>
           {allParticipants.map((p, idx) => (
