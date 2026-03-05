@@ -1136,7 +1136,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           </TouchableOpacity>
           <TextInput
             ref={inputRef} // Ensure ref is attached
-            style={styles.input}
+            style={[styles.input, { color: colors.inputText }]}
             value={input}
             onChangeText={(text) => {
               setInput(text);

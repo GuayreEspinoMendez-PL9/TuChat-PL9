@@ -2,16 +2,21 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Platform, StyleSheet, Alert, Dimensions } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
-import { useSocket } from '../src/context/SocketContext'; // IMPORTAR EL HOOK
+import { useSocket } from '../src/context/SocketContext';
 
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
 const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Detectar si es web móvil (iOS Safari / Chrome Android)
+const isMobileWeb = Platform.OS === 'web' &&
+  typeof navigator !== 'undefined' &&
+  /Android|iPhone|iPad/i.test(navigator.userAgent ?? '');
+
 // Colores para avatares
 const AVATAR_COLORS = [
-  '#1e40af', '#be123c', '#065f46', '#7c2d12', 
+  '#1e40af', '#be123c', '#065f46', '#7c2d12',
   '#581c87', '#0f766e', '#a16207', '#1e3a8a'
 ];
 
@@ -55,10 +60,9 @@ const ScreenShareIcon = () => (
 
 export default function MeetScreen() {
   const params = useLocalSearchParams();
-  
-  // USAR EL SOCKET GLOBAL
+
   const { socket } = useSocket();
-  
+
   const roomId = String(params.roomId || '');
   const userId = String(params.from || '');
   const callType = String(params.type || 'audio');
@@ -71,7 +75,9 @@ export default function MeetScreen() {
   const [hasAudio, setHasAudio] = useState(false);
   const [hasVideo, setHasVideo] = useState(false);
   const [participants, setParticipants] = useState<Map<string, { userId: string, stream: any }>>(new Map());
-  
+  // FIX: contador para forzar re-mount de <video> cuando hay renegociación (pantalla compartida)
+  const [renegotiationCount, setRenegotiationCount] = useState(0);
+
   const localStreamRef = useRef<any>(null);
   const screenStreamRef = useRef<any>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
@@ -86,7 +92,7 @@ export default function MeetScreen() {
       ]);
       return;
     }
-    
+
     if (!userId || userId === 'null' || userId === 'undefined' || userId.trim() === '') {
       console.error('❌ userId inválido:', params.from);
       Alert.alert("Error", "ID de usuario inválido", [
@@ -98,16 +104,54 @@ export default function MeetScreen() {
     console.log(`🎬 Iniciando llamada:`, { roomId, userId, type: callType });
   }, []);
 
+  // FIX: requestPermissions adaptado para web móvil
   const requestPermissions = async () => {
     const wantsVideo = callType === 'video';
-    
+
+    if (Platform.OS === 'web') {
+      try {
+        // En móvil web usar facingMode en lugar de video: true genérico
+        const videoConstraints = isMobileWeb
+          ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+          : true;
+
+        const constraints = wantsVideo
+          ? { audio: true, video: videoConstraints }
+          : { audio: true, video: false };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        console.log('✅ Permisos obtenidos:', wantsVideo ? 'Audio + Video' : 'Solo Audio');
+        setHasAudio(stream.getAudioTracks().length > 0);
+        setHasVideo(stream.getVideoTracks().length > 0);
+        return stream;
+      } catch (e: any) {
+        console.log("⚠️ getUserMedia falló:", e.name, e.message);
+
+        // Si falló con video y NO fue denegado explícitamente, reintentar solo audio
+        if (wantsVideo && e.name !== 'NotAllowedError' && e.name !== 'PermissionDeniedError') {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            console.log('✅ Permisos obtenidos (fallback): Solo Audio');
+            setHasAudio(stream.getAudioTracks().length > 0);
+            setHasVideo(false);
+            return stream;
+          } catch (e2: any) {
+            console.log("❌ Audio también falló:", e2.name, e2.message);
+          }
+        }
+      }
+
+      console.log('ℹ️ Entrando en modo observador (sin audio/video)');
+      setHasAudio(false);
+      setHasVideo(false);
+      return null;
+    }
+
+    // Nativo (react-native-webrtc) — igual que antes
     if (wantsVideo) {
       try {
-        const stream = Platform.OS === 'web'
-          ? await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-          : await WebRTC.mediaDevices.getUserMedia({ audio: true, video: true });
-        
-        console.log('✅ Permisos obtenidos: Audio + Video');
+        const stream = await WebRTC.mediaDevices.getUserMedia({ audio: true, video: true });
+        console.log('✅ Permisos nativos: Audio + Video');
         setHasAudio(stream.getAudioTracks().length > 0);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
@@ -117,11 +161,8 @@ export default function MeetScreen() {
     }
 
     try {
-      const stream = Platform.OS === 'web'
-        ? await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-        : await WebRTC.mediaDevices.getUserMedia({ audio: true, video: false });
-      
-      console.log('✅ Permisos obtenidos: Solo Audio');
+      const stream = await WebRTC.mediaDevices.getUserMedia({ audio: true, video: false });
+      console.log('✅ Permisos nativos: Solo Audio');
       setHasAudio(stream.getAudioTracks().length > 0);
       setHasVideo(false);
       return stream;
@@ -131,11 +172,8 @@ export default function MeetScreen() {
 
     if (wantsVideo) {
       try {
-        const stream = Platform.OS === 'web'
-          ? await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
-          : await WebRTC.mediaDevices.getUserMedia({ audio: false, video: true });
-        
-        console.log('✅ Permisos obtenidos: Solo Video');
+        const stream = await WebRTC.mediaDevices.getUserMedia({ audio: false, video: true });
+        console.log('✅ Permisos nativos: Solo Video');
         setHasAudio(false);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
@@ -152,12 +190,12 @@ export default function MeetScreen() {
 
   const createPeerConnection = (socketId: string, participantUserId: string) => {
     console.log(`🔗 Creando PeerConnection con ${socketId} (Usuario: ${participantUserId})`);
-    
+
     const PC = Platform.OS === 'web' ? RTCPeerConnection : WebRTC.RTCPeerConnection;
     const pc = new PC(configuration);
 
     const currentStream = localStreamRef.current;
-    
+
     if (currentStream) {
       if (Platform.OS === 'web') {
         currentStream.getTracks().forEach((track: any) => {
@@ -214,15 +252,15 @@ export default function MeetScreen() {
 
   const renegotiateWithAllPeers = async (newStream: any) => {
     console.log("🔄 Renegociando con todos los peers...");
-    
+
     for (const [socketId, peer] of peersRef.current.entries()) {
       const pc = peer.peerConnection;
-      
+
       const senders = pc.getSenders();
       for (const sender of senders) {
         pc.removeTrack(sender);
       }
-      
+
       if (Platform.OS === 'web') {
         newStream.getTracks().forEach((track: any) => {
           pc.addTrack(track, newStream);
@@ -230,10 +268,10 @@ export default function MeetScreen() {
       } else {
         pc.addStream(newStream);
       }
-      
+
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      
+
       if (socket) {
         socket.emit("meet:offer", {
           to: socketId,
@@ -243,6 +281,9 @@ export default function MeetScreen() {
         });
       }
     }
+
+    // FIX: incrementar contador para forzar re-mount de <video> en el receptor
+    setRenegotiationCount(n => n + 1);
   };
 
   useEffect(() => {
@@ -255,57 +296,55 @@ export default function MeetScreen() {
 
     const init = async () => {
       const stream = await requestPermissions();
-      
+
       if (stream) {
         setLocalStream(stream);
         localStreamRef.current = stream;
       }
-      
+
       setStatus("Conectando...");
 
-      // EMITIR DIRECTAMENTE (el socket ya está conectado)
       const joinData = { roomId, userId, type: callType };
       console.log(`📞 Emitiendo meet:join con socket global:`, joinData);
       socket.emit("meet:join", joinData);
 
-      // REGISTRAR LISTENERS
       const handleParticipants = async (data: any) => {
         console.log(`👥 Participantes existentes: ${data.participants.length}`);
 
         for (const participant of data.participants) {
           const pc = createPeerConnection(participant.socketId, participant.userId);
-          peersRef.current.set(participant.socketId, { 
-            peerConnection: pc, 
-            userId: participant.userId 
+          peersRef.current.set(participant.socketId, {
+            peerConnection: pc,
+            userId: participant.userId
           });
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          
+
           socket.emit("meet:offer", {
             to: participant.socketId,
             offer,
             roomId
           });
         }
-        
+
         setStatus("");
       };
 
       const handleUserJoined = async (data: any) => {
         console.log(`➕ Nuevo participante: ${data.userId} (${data.socketId})`);
         const pc = createPeerConnection(data.socketId, data.userId);
-        peersRef.current.set(data.socketId, { 
-          peerConnection: pc, 
-          userId: data.userId 
+        peersRef.current.set(data.socketId, {
+          peerConnection: pc,
+          userId: data.userId
         });
       };
 
       const handleOffer = async (data: any) => {
         console.log(`📥 Offer recibida de ${data.from}`);
-        
+
         let peer = peersRef.current.get(data.from);
-        
+
         if (!peer) {
           const pc = createPeerConnection(data.from, "unknown");
           peer = { peerConnection: pc, userId: "unknown" };
@@ -314,15 +353,21 @@ export default function MeetScreen() {
 
         const SD = Platform.OS === 'web' ? RTCSessionDescription : WebRTC.RTCSessionDescription;
         await peer.peerConnection.setRemoteDescription(new SD(data.offer));
-        
+
         const answer = await peer.peerConnection.createAnswer();
         await peer.peerConnection.setLocalDescription(answer);
-        
+
         socket.emit("meet:answer", {
           to: data.from,
           answer,
           roomId
         });
+
+        // FIX: al recibir una offer de renegociación, incrementar también el contador
+        // para que el <video> del emisor (pantalla compartida) haga re-mount en móvil
+        if (data.isRenegotiation) {
+          setRenegotiationCount(n => n + 1);
+        }
       };
 
       const handleAnswer = async (data: any) => {
@@ -373,7 +418,6 @@ export default function MeetScreen() {
       socket.on("meet:user-left", handleUserLeft);
       socket.on("meet:error", handleError);
 
-      // CLEANUP: Solo remover listeners, NO desconectar el socket global
       return () => {
         console.log("🧹 Limpiando listeners de meet");
         socket.off("meet:participants", handleParticipants);
@@ -387,7 +431,7 @@ export default function MeetScreen() {
     };
 
     const cleanup = init();
-    
+
     return () => {
       cleanup.then(cleanupFn => cleanupFn?.());
       endCall();
@@ -409,18 +453,22 @@ export default function MeetScreen() {
   };
 
   const toggleScreenShare = async () => {
-    if (Platform.OS !== 'web') return;
+    // FIX: compartir pantalla solo en web escritorio, no en móvil
+    if (Platform.OS !== 'web' || isMobileWeb) {
+      Alert.alert("No disponible", "Compartir pantalla solo está disponible en navegadores de escritorio");
+      return;
+    }
 
     if (isScreenSharing) {
       console.log("⏹️ Deteniendo compartir pantalla");
-      
+
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((track: any) => track.stop());
         screenStreamRef.current = null;
       }
-      
+
       setIsScreenSharing(false);
-      
+
       if (localStreamRef.current) {
         setLocalStream(localStreamRef.current);
         await renegotiateWithAllPeers(localStreamRef.current);
@@ -431,12 +479,12 @@ export default function MeetScreen() {
           video: { cursor: "always" },
           audio: false
         });
-        
+
         screenStreamRef.current = screenStream;
         setLocalStream(screenStream);
         setIsScreenSharing(true);
         await renegotiateWithAllPeers(screenStream);
-        
+
         screenStream.getVideoTracks()[0].onended = async () => {
           console.log("🛑 Usuario detuvo compartir");
           setIsScreenSharing(false);
@@ -454,7 +502,7 @@ export default function MeetScreen() {
 
   const endCall = () => {
     console.log("🔚 Finalizando llamada...");
-    
+
     peersRef.current.forEach((peer) => {
       if (peer.peerConnection) peer.peerConnection.close();
     });
@@ -463,14 +511,13 @@ export default function MeetScreen() {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t: any) => t.stop());
     }
-    
+
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((t: any) => t.stop());
     }
 
     if (socket) {
       socket.emit("meet:leave", { roomId, userId });
-      // NO desconectar el socket global
     }
 
     if (router.canGoBack()) router.back();
@@ -479,13 +526,13 @@ export default function MeetScreen() {
 
   const remoteParticipants = Array.from(participants.values());
   const totalParticipants = remoteParticipants.length + 1;
-  
-  const hasLocalVideo = localStream && localStream.getVideoTracks && 
-                        localStream.getVideoTracks().length > 0 && !isVideoOff;
-  const hasRemoteVideo = remoteParticipants.some(p => p.stream && 
-                         p.stream.getVideoTracks && 
-                         p.stream.getVideoTracks().length > 0);
-  
+
+  const hasLocalVideo = localStream && localStream.getVideoTracks &&
+    localStream.getVideoTracks().length > 0 && !isVideoOff;
+  const hasRemoteVideo = remoteParticipants.some(p => p.stream &&
+    p.stream.getVideoTracks &&
+    p.stream.getVideoTracks().length > 0);
+
   const showAvatarGrid = !hasLocalVideo && !hasRemoteVideo;
 
   const allParticipants = [
@@ -500,7 +547,7 @@ export default function MeetScreen() {
           {allParticipants.map((p, idx) => {
             const colorIndex = idx % AVATAR_COLORS.length;
             const initial = p.userId.charAt(0).toUpperCase();
-            
+
             return (
               <View key={idx} style={[st.avatarBox, { backgroundColor: AVATAR_COLORS[colorIndex] }]}>
                 <Text style={st.avatarText}>{initial}</Text>
@@ -516,18 +563,36 @@ export default function MeetScreen() {
           {remoteParticipants.map((p, idx) => p.stream && (
             <View key={idx} style={st.videoBox}>
               {Platform.OS === 'web' ? (
-                <video
-                  key={`remote-${p.stream.id}`}
-                  autoPlay
-                  playsInline
-                  ref={el => { if (el) el.srcObject = p.stream }}
-                  style={st.video}
-                />
+                <>
+                  {/*
+                    FIX 1: key incluye renegotiationCount para forzar re-mount del <video>
+                    cuando el emisor cambia a pantalla compartida. Sin esto, el móvil
+                    se queda en negro porque el elemento DOM no se actualiza.
+
+                    FIX 2: elemento <audio> separado e invisible para iOS Safari.
+                    En iOS, el audio de un <video> sin contenido visual puede silenciarse;
+                    un <audio> explícito con el mismo stream garantiza que se escuche.
+                  */}
+                  <video
+                    key={`remote-${p.stream.id}-${renegotiationCount}`}
+                    autoPlay
+                    playsInline
+                    ref={el => { if (el) el.srcObject = p.stream }}
+                    style={st.video}
+                  />
+                  <audio
+                    key={`audio-${p.stream.id}`}
+                    autoPlay
+                    playsInline
+                    ref={el => { if (el) el.srcObject = p.stream }}
+                    style={{ display: 'none' } as any}
+                  />
+                </>
               ) : (
-                <WebRTC.RTCView 
-                  streamURL={p.stream.toURL()} 
-                  style={st.video} 
-                  objectFit="cover" 
+                <WebRTC.RTCView
+                  streamURL={p.stream.toURL()}
+                  style={st.video}
+                  objectFit="cover"
                 />
               )}
               <View style={st.nameTag}>
@@ -535,7 +600,7 @@ export default function MeetScreen() {
               </View>
             </View>
           ))}
-          
+
           {localStream && localStream.getVideoTracks && localStream.getVideoTracks().length > 0 && (
             <View style={st.localVideoBox}>
               {Platform.OS === 'web' ? (
@@ -548,10 +613,10 @@ export default function MeetScreen() {
                   style={st.localVideo}
                 />
               ) : (
-                <WebRTC.RTCView 
-                  streamURL={localStream.toURL()} 
-                  style={st.localVideo} 
-                  objectFit="cover" 
+                <WebRTC.RTCView
+                  streamURL={localStream.toURL()}
+                  style={st.localVideo}
+                  objectFit="cover"
                 />
               )}
               <View style={st.nameTag}>
@@ -577,25 +642,26 @@ export default function MeetScreen() {
 
       <View style={st.controls}>
         <View style={st.controlsRow}>
-          <TouchableOpacity 
-            style={[st.controlBtn, isMuted && st.controlBtnDanger]} 
+          <TouchableOpacity
+            style={[st.controlBtn, isMuted && st.controlBtnDanger]}
             onPress={toggleMute}
             disabled={!hasAudio}
           >
             <MicIcon muted={isMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[st.controlBtn, isVideoOff && st.controlBtnDanger]} 
+          <TouchableOpacity
+            style={[st.controlBtn, isVideoOff && st.controlBtnDanger]}
             onPress={toggleVideo}
             disabled={!hasVideo}
           >
             <VideoIcon disabled={isVideoOff} />
           </TouchableOpacity>
 
-          {Platform.OS === 'web' && (
-            <TouchableOpacity 
-              style={[st.controlBtn, isScreenSharing && st.controlBtnActive]} 
+          {/* FIX: botón compartir pantalla solo en web escritorio, no en móvil */}
+          {Platform.OS === 'web' && !isMobileWeb && (
+            <TouchableOpacity
+              style={[st.controlBtn, isScreenSharing && st.controlBtnActive]}
               onPress={toggleScreenShare}
             >
               <ScreenShareIcon />
@@ -613,7 +679,7 @@ export default function MeetScreen() {
 
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
-  
+
   gridContainer: {
     flex: 1,
     flexDirection: 'row',
@@ -646,7 +712,7 @@ const st = StyleSheet.create({
     color: '#fff',
     fontWeight: '600'
   },
-  
+
   videoGrid: {
     flex: 1,
     flexDirection: 'row',
@@ -654,7 +720,7 @@ const st = StyleSheet.create({
     backgroundColor: '#000'
   },
   videoBox: {
-    width: '100%', 
+    width: '100%',
     height: '100%',
     position: 'relative',
     backgroundColor: '#000',
@@ -695,58 +761,58 @@ const st = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600'
   },
-  
-  statusOverlay: { 
-    ...StyleSheet.absoluteFillObject, 
-    backgroundColor: 'rgba(0,0,0,0.8)', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    zIndex: 100 
+
+  statusOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100
   },
   statusText: { color: '#fff', marginTop: 10, fontSize: 16 },
-  
-  infoBar: { 
-    position: 'absolute', 
-    top: 20, 
-    right: 20, 
-    backgroundColor: 'rgba(0,0,0,0.7)', 
-    paddingHorizontal: 12, 
-    paddingVertical: 8, 
+
+  infoBar: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 20,
     zIndex: 10
   },
   participantCount: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  
-  controls: { 
-    position: 'absolute', 
-    bottom: 40, 
-    width: '100%', 
-    paddingHorizontal: 20, 
-    zIndex: 10 
+
+  controls: {
+    position: 'absolute',
+    bottom: 40,
+    width: '100%',
+    paddingHorizontal: 20,
+    zIndex: 10
   },
-  controlsRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'center', 
-    gap: 15, 
-    alignItems: 'center' 
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 15,
+    alignItems: 'center'
   },
-  controlBtn: { 
-    width: 56, 
-    height: 56, 
-    borderRadius: 28, 
-    backgroundColor: 'rgba(255,255,255,0.2)', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
+  controlBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   controlBtnDanger: { backgroundColor: '#ef4444' },
   controlBtnActive: { backgroundColor: '#10b981' },
-  hangupBtn: { 
-    width: 56, 
-    height: 56, 
-    borderRadius: 28, 
-    backgroundColor: '#ef4444', 
-    justifyContent: 'center', 
-    alignItems: 'center' 
+  hangupBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#ef4444',
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   btnText: { color: '#fff', fontWeight: 'bold', fontSize: 12 }
 });
