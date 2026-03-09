@@ -1,103 +1,119 @@
-# TUCHAT (PL9)
+# TUCHAT
 
-Aplicacion de comunicacion academica tipo chat en formato monorepo.
+Plataforma de comunicacion academica para centros educativos, con soporte web y movil.
 
-## Estado actual de despliegue
-- Backend API + Socket.IO: Render
-- URL backend produccion: `https://tuchat-pl9.onrender.com`
-- Frontend web: Vercel
-- App movil: Expo (Android/iOS)
+Acceso web: https://tu-chat-pl-9.vercel.app
 
-## Stack
-- App: Expo + React Native + Expo Router
-- Backend: Node.js + Express + Socket.IO
-- Cache/buzon offline: Redis
-- Base de datos principal: PostgreSQL (Supabase)
-- Notificaciones push: Expo Push
-- Hosting: Render (server) + Vercel (web)
+## Plataformas
+- Web
+- Android
+- iOS
 
-## Estructura
-- `tuchat/`: app movil/web
-- `server/`: API REST + WebSocket
-- `docker-compose.yml`: Redis local
+## Funcionalidades de la aplicacion
 
-## Funcionalidades destacadas
-- Chat en tiempo real por salas y chats privados
-- Cola de mensajes offline con Redis
-- Reacciones en mensajes
-- Notificaciones push
-- Videollamada tipo meet (WebRTC)
-- Panel admin academico
-- Selector de temas (`light`, `dark`, `system`, `green`, `red`, `yellow`)
-- Picker de reacciones con emojis dinamicos desde `https://www.emoji.family/api/emojis/` con fallback local
+### Acceso y sesion
+- Inicio de sesion con identificador institucional.
+- Cierre de sesion desde el menu principal.
+- Redireccion por perfil de usuario.
 
-## Requisitos locales
-- Node.js LTS
-- npm
-- Docker Desktop
-- Proyecto en Supabase (Postgres)
+### Inicio y navegacion de chats
+- Vista de conversaciones con dos pestañas:
+- Grupos academicos.
+- Chats privados.
+- Indicadores de mensajes no leidos por chat y por seccion.
+- Vista responsive:
+- En escritorio se muestra lista + chat en paralelo.
+- En movil se abre la conversacion en pantalla completa.
 
-## Variables de entorno (server/.env)
-```bash
-PORT=4000
+### Mensajeria en tiempo real
+- Envio y recepcion instantanea de mensajes.
+- Estados de mensaje (enviado, entregado, leido).
+- Respuesta a mensajes (hilos ligeros dentro de la conversacion).
+- Copiado rapido de contenido.
+- Reacciones con emojis.
+- Menus de acciones por mensaje.
 
-# Postgres principal (Supabase)
-DATABASE_URL=postgres://...
+### Archivos y multimedia
+- Envio de imagenes, videos y documentos.
+- Vista previa de imagen y video dentro del chat.
+- Apertura/descarga de archivos adjuntos.
+- Validacion de tamano maximo en adjuntos para evitar errores de envio.
 
-# Postgres externo academico (si aplica en tu entorno)
-DATABASE_GOB_URL=postgres://...
+### Mensajes fijados (pins)
+- Fijar mensajes relevantes dentro del chat.
+- Categorizacion visual de pines.
+- Seleccion de color para cada pin.
+- Duracion configurable:
+- Presets (24 horas, 7 dias, 1 mes).
+- Duracion personalizada (minutos, horas o dias).
+- Banner de pines activos con vista expandida.
+- Desfijado de mensajes con permisos.
 
-# JWT
-JWT_SECRET=tu_secreto_jwt
+### Gestion del chat de clase
+- Vista de informacion del chat.
+- Lista de participantes por rol (profesorado/alumnado).
+- Configuracion de permisos de escritura en grupos:
+- Todos pueden escribir.
+- Solo profesorado.
+- Profesorado + delegados.
+- Seleccion de delegados en el propio chat.
 
-# Redis local
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-# Opcional en cloud
-# REDIS_URL=redis://...
+### Llamadas
+- Llamadas de audio.
+- Llamadas de video.
+- Controles durante llamada:
+- Silenciar microfono.
+- Activar/desactivar camara.
+- Compartir pantalla en web.
+- Conteo de participantes en tiempo real.
 
-# Opcional TURN dinamico para meet
-# METERED_API_KEY=...
-# METERED_APP_NAME=...
-```
+### Perfil
+- Visualizacion de datos personales y academicos.
+- Cambio de contraseña desde la app.
 
-## Desarrollo local
-1. Levantar Redis
-```bash
-docker compose up -d
-```
+### Ajustes
+- Activacion/desactivacion de notificaciones.
+- Control de sonidos.
+- Descarga automatica de medios.
+- Selector de tema visual:
+- Claro, oscuro, sistema.
+- Variantes de color adicionales.
+- Limpieza de mensajes antiguos.
+- Acceso a sincronizacion con web.
 
-2. Levantar backend
-```bash
-cd server
-npm install
-npm run dev
-```
+### Sincronizacion entre movil y web
+- Flujo de emparejamiento mediante codigo QR.
+- Importacion de mensajes en sesion web.
+- Indicadores de progreso y estado.
+- Confirmacion final de sincronizacion.
 
-3. Levantar app
-```bash
-cd tuchat
-npm install
-npx expo start -c
-```
+### FAQ y ayuda
+- Pantalla de preguntas frecuentes con buscador.
+- Respuestas rapidas de uso comun.
 
-## Endpoints de salud
-- `GET http://localhost:4000/health`
-- `GET http://localhost:4000/health/db`
-- `GET http://localhost:4000/health/redis`
+## Panel de administracion
 
-## Produccion
-### Backend (Render)
-- Runtime: Node.js
-- Start command: `node index.js`
-- Configurar variables de entorno de `server/.env` en el panel de Render
-- Exponer puerto via variable `PORT` asignada por Render
+Incluye un panel completo para gestion academica y operativa:
+- Resumen general con metricas.
+- Gestion de centros.
+- Gestion de personas (alumnos/profesores).
+- Gestion de cursos escolares.
+- Gestion de planes de estudio.
+- Gestion de asignaturas.
+- Gestion de ofertas.
+- Gestion de clases.
+- Matriculas.
+- Asignaciones de profesorado.
+- Gestion de usuarios de la app.
+- Gestion de salas de chat.
+- Auditoria de acciones administrativas.
+- Asistente para alta guiada de clases.
 
-### Frontend web (Vercel)
-- Proyecto apuntando a `tuchat/`
-- Build/serve segun configuracion de Expo web
-- La app web consume el backend en `https://tuchat-pl9.onrender.com`
+## Ejecucion en local (resumen)
+1. Iniciar backend.
+2. Iniciar app desde `tuchat/` con Expo.
+3. Abrir en web o dispositivo movil.
 
-## Notas
-- `docker-compose.yml` de este repo levanta Redis (no MySQL).
-- El backend no tiene suite de tests automatizados completa todavia.
+## Estructura del repositorio
+- `tuchat/`: aplicacion cliente (web + movil).
+- `server/`: servicios del backend.

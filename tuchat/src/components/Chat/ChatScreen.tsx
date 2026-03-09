@@ -36,7 +36,6 @@ import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
-const EMOJI_API_URL = "https://www.emoji.family/api/emojis/";
 const DEFAULT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🤔', '👏', '🔥', '✅'];
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
@@ -269,11 +268,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
 
     const loadReactionEmojis = async () => {
       try {
-        const response = await fetch(EMOJI_API_URL);
+        const response = await fetch(`${API_URL}/chat/emojis`);
         if (!response.ok) throw new Error(`Emoji API status ${response.status}`);
 
-        const payload: unknown = await response.json();
-        const fromApi = extractEmojiList(payload);
+        const payload: any = await response.json();
+        const emojiPayload: unknown = payload?.emojis ?? payload;
+        const fromApi = extractEmojiList(emojiPayload);
 
         if (!cancelled && fromApi.length >= 5) {
           setReactionEmojis(fromApi.slice(0, 8));
