@@ -10,12 +10,17 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useTheme } from '../../context/ThemeContext';
 
-const DEFAULT_EMOJIS = ['👍', '❤️', '😂', '🎉', '🤔'];
+const DEFAULT_EMOJIS = [
+    String.fromCodePoint(0x1F44D), // 👍
+    '\u2764\uFE0F',                // ❤️
+    String.fromCodePoint(0x1F602), // 😂
+    String.fromCodePoint(0x1F389), // 🎉
+    String.fromCodePoint(0x1F914), // 🤔
+];
 
 interface ReactionPickerProps {
     onSelect: (emoji: string) => void;
     isMe: boolean;
-    emojis?: string[];
 }
 
 const ReactionItem = ({
@@ -38,8 +43,8 @@ const ReactionItem = ({
     }));
 
     const handleMouseEnter = () => {
-        scale.value = withSpring(1.3); // "ligeramente más grande"
-        backgroundColor.value = withTiming(hoverColor, { duration: 150 }); // "cambia de color el fondo"
+        scale.value = withSpring(1.3);
+        backgroundColor.value = withTiming(hoverColor, { duration: 150 });
     };
 
     const handleMouseLeave = () => {
@@ -49,7 +54,7 @@ const ReactionItem = ({
 
     return (
         <Animated.View
-            entering={ZoomIn.delay(index * 60).springify().damping(12).stiffness(200)} // "aparecen 1 a uno... se inflan un poco más"
+            entering={ZoomIn.delay(index * 60).springify().damping(12).stiffness(200)}
             style={[{ borderRadius: 20, padding: 4 }, animatedStyle]}
         >
             <TouchableOpacity
@@ -68,10 +73,10 @@ const ReactionItem = ({
     );
 };
 
-export const ReactionPicker = ({ onSelect, isMe, emojis }: ReactionPickerProps) => {
+export const ReactionPicker = ({ onSelect, isMe }: ReactionPickerProps) => {
     const { colors } = useTheme();
     const { width } = useWindowDimensions();
-    const pickerEmojis = (emojis && emojis.length > 0 ? emojis : DEFAULT_EMOJIS).slice(0, 8);
+    const pickerEmojis = DEFAULT_EMOJIS;
     const isCompact = width < 420;
     const horizontalOffset = isCompact ? 0 : -10;
 

@@ -36,7 +36,20 @@ import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
-const DEFAULT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🤔', '👏', '🔥', '✅'];
+const DEFAULT_INPUT_EMOJIS = [
+  String.fromCodePoint(0x1F600), // 😀
+  String.fromCodePoint(0x1F602), // 😂
+  String.fromCodePoint(0x1F60D), // 😍
+  String.fromCodePoint(0x1F44D), // 👍
+  String.fromCodePoint(0x1F64F), // 🙏
+  String.fromCodePoint(0x1F389), // 🎉
+  String.fromCodePoint(0x1F525), // 🔥
+  '\u2764\uFE0F',                // ❤️
+  String.fromCodePoint(0x2705),  // ✅
+  String.fromCodePoint(0x1F914), // 🤔
+  String.fromCodePoint(0x1F44F), // 👏
+  String.fromCodePoint(0x1F60E), // 😎
+];
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -249,11 +262,18 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null); // New state for reply
-  const [reactionEmojis, setReactionEmojis] = useState<string[]>(DEFAULT_REACTION_EMOJIS);
+  const [inputEmojis, setInputEmojis] = useState<string[]>(DEFAULT_INPUT_EMOJIS);
+  const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
 
   const handleCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
     setOpenMenuId(null);
+  };
+
+  const handleInsertEmoji = (emoji: string) => {
+    const next = `${input}${emoji}`;
+    setInput(next);
+    saveDraftLocal(id, next);
   };
 
   const { socket, refreshUnreadCounts, setActiveRoom } = useSocket();
@@ -266,7 +286,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
   useEffect(() => {
     let cancelled = false;
 
-    const loadReactionEmojis = async () => {
+    const loadInputEmojis = async () => {
       try {
         const response = await fetch(`${API_URL}/chat/emojis`);
         if (!response.ok) throw new Error(`Emoji API status ${response.status}`);
@@ -276,14 +296,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         const fromApi = extractEmojiList(emojiPayload);
 
         if (!cancelled && fromApi.length >= 5) {
-          setReactionEmojis(fromApi.slice(0, 8));
+          setInputEmojis(fromApi.slice(0, 42));
         }
       } catch {
         // Fallback silencioso: mantenemos emojis locales por defecto
       }
     };
 
-    loadReactionEmojis();
+    loadInputEmojis();
     return () => {
       cancelled = true;
     };
@@ -492,6 +512,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     // Update local DB
     if (typeof toggleReactionFn === 'function') toggleReactionFn(msgId, reaction);
     setShowReactionPicker(null);
+    setShowInputEmojiPicker(false);
 
     // 3. Socket
     if (socket) {
@@ -769,6 +790,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         onScrollBeginDrag={() => {
           setOpenMenuId(null);
           setShowReactionPicker(null);
+          setShowInputEmojiPicker(false);
           setSelectedMessageId(null);
         }}
         CellRendererComponent={CellRenderer} // Inject custom z-index logic
@@ -807,6 +829,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                   setHoveredMessageId(null);
                   if (!showPicker && openMenuId !== item.msg_id) {
                     setShowReactionPicker(null);
+                    setShowInputEmojiPicker(false);
                   }
                 }
               } : {})}
@@ -1155,7 +1178,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                       <ReactionPicker
                         onSelect={(emoji) => handleReaction(item.msg_id, emoji)}
                         isMe={isMe}
-                        emojis={reactionEmojis}
                       />
                     )}
                   </View>
@@ -1206,9 +1228,55 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
 
       {/* Input */}
       <View style={[styles.inputContainer, isEmbedded && { paddingBottom: 16 }, replyingTo && { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+        {showInputEmojiPicker && (
+          <View style={{
+            position: 'absolute',
+            bottom: 66,
+            left: 16,
+            right: 16,
+            backgroundColor: colors.surface,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: colors.border,
+            padding: 10,
+            zIndex: 2000,
+            maxHeight: 170,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.18,
+            shadowRadius: 10,
+            elevation: 8,
+          }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {inputEmojis.map((emoji, idx) => (
+                <TouchableOpacity
+                  key={`${emoji}-${idx}`}
+                  onPress={() => handleInsertEmoji(emoji)}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    borderRadius: 10,
+                    backgroundColor: colors.surfaceHover,
+                  }}
+                >
+                  <Text style={{ fontSize: 20 }}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
         <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <TouchableOpacity onPress={handleAttachment} style={styles.attachButton}>
+          <TouchableOpacity onPress={() => { setShowInputEmojiPicker(false); handleAttachment(); }} style={styles.attachButton}>
             <PaperclipIcon />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowInputEmojiPicker(prev => !prev)}
+            style={styles.attachButton}
+          >
+            <SmileyIcon color={colors.textSecondary} />
           </TouchableOpacity>
           <TextInput
             ref={inputRef} // Ensure ref is attached
@@ -1218,18 +1286,23 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
               setInput(text);
               saveDraftLocal(id, text);
             }}
+            onFocus={() => setShowInputEmojiPicker(false)}
             placeholder="Escribe un mensaje..."
             placeholderTextColor={colors.placeholder}
             multiline
             onKeyPress={(e: any) => {
               if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                setShowInputEmojiPicker(false);
                 sendMessage();
               }
             }}
           />
           <TouchableOpacity
-            onPress={() => sendMessage()}
+            onPress={() => {
+              setShowInputEmojiPicker(false);
+              sendMessage();
+            }}
             disabled={!input.trim() || sending}
             style={[styles.sendButton, (!input.trim() || sending) && styles.sendButtonDisabled]}
           >
@@ -1246,6 +1319,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         <TouchableWithoutFeedback onPress={() => {
           setOpenMenuId(null);
           setShowReactionPicker(null);
+          setShowInputEmojiPicker(false);
           setSelectedMessageId(null);
         }}>
           {content}
@@ -1298,6 +1372,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         <TouchableWithoutFeedback onPress={() => {
           setOpenMenuId(null);
           setShowReactionPicker(null);
+          setShowInputEmojiPicker(false);
           setSelectedMessageId(null);
         }}>
           {content}
@@ -1384,3 +1459,4 @@ const VideoViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: st
     </Modal>
   );
 };
+
