@@ -1,134 +1,103 @@
 # TUCHAT (PL9)
 
-Aplicación de comunicación educativa tipo chat.
+Aplicacion de comunicacion academica tipo chat en formato monorepo.
 
-Monorepo con:
-- App: Expo (React Native) + Web (UI compartida)
-- Backend: Node.js (Express) + Socket.IO
-- Infra local: Redis (Docker)
-- BD relacional (cloud): Supabase (PostgreSQL)
-- Deploy (Web): Vercel
-- Estilos (CSS): Tailwind
+## Estado actual de despliegue
+- Backend API + Socket.IO: Render
+- URL backend produccion: `https://tuchat-pl9.onrender.com`
+- Frontend web: Vercel
+- App movil: Expo (Android/iOS)
 
-## Estructura del proyecto
-- `tuchat/`  -> App (Expo)
-- `server/`  -> API + WebSocket (Node)
-- `docker-compose.yml` -> Redis (local)
+## Stack
+- App: Expo + React Native + Expo Router
+- Backend: Node.js + Express + Socket.IO
+- Cache/buzon offline: Redis
+- Base de datos principal: PostgreSQL (Supabase)
+- Notificaciones push: Expo Push
+- Hosting: Render (server) + Vercel (web)
 
-## Requisitos
-- Node.js (recomendado LTS)
-- Git
+## Estructura
+- `tuchat/`: app movil/web
+- `server/`: API REST + WebSocket
+- `docker-compose.yml`: Redis local
+
+## Funcionalidades destacadas
+- Chat en tiempo real por salas y chats privados
+- Cola de mensajes offline con Redis
+- Reacciones en mensajes
+- Notificaciones push
+- Videollamada tipo meet (WebRTC)
+- Panel admin academico
+- Selector de temas (`light`, `dark`, `system`, `green`, `red`, `yellow`)
+- Picker de reacciones con emojis dinamicos desde `https://www.emoji.family/api/emojis/` con fallback local
+
+## Requisitos locales
+- Node.js LTS
+- npm
 - Docker Desktop
-- Cuenta Supabase (gratis)
+- Proyecto en Supabase (Postgres)
 
-## Puertos (local)
-- API: http://localhost:4000
-- Redis: 6379
-
-## 1) Clonar el repositorio
-```bash
-git clone https://github.com/JacintoClubDeFans/TUCHAT-PL9-JoelSantana-GuayreEspino.git
-cd TUCHAT-PL9-JoelSantana-GuayreEspino
-```
-
-## 2) Levantar MySQL + Redis (Docker)
-```bash
-docker compose up -d
-docker ps
-```
-
-Adminer:
-
-- URL: http://localhost:8080
-
-- System: MySQL
-
-- Server: tuchat-mysql (recomendado)
-
-- User: tuchat_user
-
-- Password: tuchat_pass
-
-- Database: tuchat
-
-## 3) Crear proyecto en Supabase (Postgres)
-
-- Crea un proyecto en Supabase (plan gratis)
-
-- Copia la cadena de conexión de la BD (DATABASE_URL) desde:
-    Project Settings -> Database -> Connection string
-
-## 4) Backend (Node) - Instalar y arrancar
-```bash
-cd server
-npm install
-```
-
-Crear server/.env
+## Variables de entorno (server/.env)
 ```bash
 PORT=4000
 
-# Supabase Postgres (usa tu URL real)
-DATABASE_URL=TU_DATABASE_URL_DE_SUPABASE
+# Postgres principal (Supabase)
+DATABASE_URL=postgres://...
+
+# Postgres externo academico (si aplica en tu entorno)
+DATABASE_GOB_URL=postgres://...
+
+# JWT
+JWT_SECRET=tu_secreto_jwt
 
 # Redis local
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+# Opcional en cloud
+# REDIS_URL=redis://...
+
+# Opcional TURN dinamico para meet
+# METERED_API_KEY=...
+# METERED_APP_NAME=...
 ```
 
-Notas:
-
-Si NO tienes XAMPP ocupando 3306, puedes usar MYSQL_PORT=3306.
-
-Si tienes XAMPP, lo recomendable es mapear Docker MySQL a 3307:3306 en docker-compose.yml y dejar MYSQL_PORT=3307.
-
-```bash
-npm run dev
-
-curl http://localhost:4000/health
-curl http://localhost:4000/health/redis
-```
-
-## 5) App (Expo + Web) - Instalar y arrancar
-```bash
-cd tuchat
-npm install
-npx expo start -c
-```
-
-Atajos:
-
-- w abre Web
-
-- a abre Android (emulador)
-
-- QR con Expo Go (móvil)
-
-## 6) Comandos rápidos (levantar todo desde cero)
-Terminal 1 (infra):
-
+## Desarrollo local
+1. Levantar Redis
 ```bash
 docker compose up -d
 ```
 
-Terminal 2 (backend):
-
+2. Levantar backend
 ```bash
 cd server
 npm install
 npm run dev
 ```
 
-Terminal 3 (app):
-
+3. Levantar app
 ```bash
 cd tuchat
 npm install
 npx expo start -c
 ```
 
-Parar todo
+## Endpoints de salud
+- `GET http://localhost:4000/health`
+- `GET http://localhost:4000/health/db`
+- `GET http://localhost:4000/health/redis`
 
-```bash
-docker compose down
-```
+## Produccion
+### Backend (Render)
+- Runtime: Node.js
+- Start command: `node index.js`
+- Configurar variables de entorno de `server/.env` en el panel de Render
+- Exponer puerto via variable `PORT` asignada por Render
+
+### Frontend web (Vercel)
+- Proyecto apuntando a `tuchat/`
+- Build/serve segun configuracion de Expo web
+- La app web consume el backend en `https://tuchat-pl9.onrender.com`
+
+## Notas
+- `docker-compose.yml` de este repo levanta Redis (no MySQL).
+- El backend no tiene suite de tests automatizados completa todavia.

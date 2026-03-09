@@ -36,6 +36,55 @@ import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
+const EMOJI_API_URL = "https://www.emoji.family/api/emojis/";
+const DEFAULT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🤔', '👏', '🔥', '✅'];
+
+const normalizeEmojiValue = (candidate: unknown): string | null => {
+  if (typeof candidate !== 'string') return null;
+  const value = candidate.trim();
+  if (!value || value.length > 8) return null;
+  if (/^U\+/i.test(value)) return null;
+  if (/^[A-Za-z0-9_:-]+$/.test(value)) return null;
+  return value;
+};
+
+const extractEmojiList = (payload: unknown): string[] => {
+  const collected: string[] = [];
+
+  const push = (value: unknown) => {
+    const normalized = normalizeEmojiValue(value);
+    if (normalized) collected.push(normalized);
+  };
+
+  const parseItem = (item: unknown) => {
+    if (typeof item === 'string') {
+      push(item);
+      return;
+    }
+
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>;
+      push(record.emoji);
+      push(record.character);
+      push(record.symbol);
+      push(record.char);
+      push(record.value);
+    }
+  };
+
+  if (Array.isArray(payload)) {
+    payload.forEach(parseItem);
+  } else if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.emojis)) {
+      record.emojis.forEach(parseItem);
+    } else {
+      Object.values(record).forEach(parseItem);
+    }
+  }
+
+  return Array.from(new Set(collected));
+};
 
 // ─── FILE HELPERS ────────────────────────────────────────
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -127,8 +176,8 @@ const SendIcon = () => (
   </Svg>
 );
 
-const SmileyIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#64748b" style={{ width: 20, height: 20 }}>
+const SmileyIcon = ({ color = '#64748b' }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm6 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Z" />
   </Svg>
 );
@@ -201,6 +250,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null); // New state for reply
+  const [reactionEmojis, setReactionEmojis] = useState<string[]>(DEFAULT_REACTION_EMOJIS);
 
   const handleCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
@@ -213,6 +263,31 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
 
   // Calcular si el usuario puede fijar mensajes (profesor O delegado)
   const canPin = esProfesor || delegados.includes(myUserId);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadReactionEmojis = async () => {
+      try {
+        const response = await fetch(EMOJI_API_URL);
+        if (!response.ok) throw new Error(`Emoji API status ${response.status}`);
+
+        const payload: unknown = await response.json();
+        const fromApi = extractEmojiList(payload);
+
+        if (!cancelled && fromApi.length >= 5) {
+          setReactionEmojis(fromApi.slice(0, 8));
+        }
+      } catch {
+        // Fallback silencioso: mantenemos emojis locales por defecto
+      }
+    };
+
+    loadReactionEmojis();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const setup = async () => {
@@ -770,12 +845,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                         borderRadius: 8,
                         marginBottom: 8,
                         borderLeftWidth: 4,
-                        borderLeftColor: isMe ? 'rgba(255,255,255,0.5)' : '#6366F1',
+                        borderLeftColor: isMe ? 'rgba(255,255,255,0.5)' : colors.primary,
                       }}>
                         <Text style={{
                           fontSize: 12,
                           fontWeight: 'bold',
-                          color: isMe ? 'rgba(255,255,255,0.9)' : '#6366F1',
+                          color: isMe ? 'rgba(255,255,255,0.9)' : colors.primary,
                           marginBottom: 2
                         }}>
                           {item.replyTo.senderName}
@@ -927,13 +1002,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                         position: 'absolute',
                         top: 4,
                         right: 8,
-                        backgroundColor: isMe ? '#6366F1' : '#FFFFFF', // Blend with bubble
+                        backgroundColor: isMe ? colors.primary : colors.surface,
                         borderRadius: 12,
                         padding: 2,
                         zIndex: 20
                       }}
                     >
-                      <ChevronDown size={18} color={isMe ? 'rgba(255,255,255,0.7)' : '#94a3b8'} />
+                      <ChevronDown size={18} color={isMe ? colors.textOnPrimary : colors.textMuted} />
                     </TouchableOpacity>
                   )}
 
@@ -949,7 +1024,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                       right: isMe ? 0 : undefined,
                       left: !isMe ? '85%' : undefined, // Start near right edge, extend right
 
-                      backgroundColor: 'white',
+                      backgroundColor: colors.surface,
                       borderRadius: 12,
                       paddingVertical: 4,
                       shadowColor: "#000",
@@ -960,7 +1035,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                       zIndex: 9999,
                       minWidth: 160,
                       borderWidth: 1,
-                      borderColor: '#f1f5f9'
+                      borderColor: colors.border
                     }}>
                       {/* ACTIONS */}
                       <TouchableOpacity
@@ -972,11 +1047,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                           setTimeout(() => inputRef.current?.focus(), 100);
                         }}
                       >
-                        <CornerUpLeft size={18} color="#475569" style={{ marginRight: 10 }} />
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#334155' }}>Responder</Text>
+                        <CornerUpLeft size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Responder</Text>
                       </TouchableOpacity>
 
-                      <View style={{ height: 1, backgroundColor: '#f1f5f9', marginHorizontal: 8 }} />
+                      <View style={{ height: 1, backgroundColor: colors.borderLight, marginHorizontal: 8 }} />
 
                       <TouchableOpacity
                         onPress={() => {
@@ -985,13 +1060,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                         }}
                         style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 12 }}
                       >
-                        <Smile size={18} color="#475569" style={{ marginRight: 10 }} />
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#334155' }}>Reaccionar</Text>
+                        <Smile size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Reaccionar</Text>
                       </TouchableOpacity>
                       {/* FIJAR MENSAJE (SOLO PROFESOR O DELEGADO) */}
                       {canPin && (
                         <>
-                          <View style={{ height: 1, backgroundColor: '#f1f5f9', marginHorizontal: 8 }} />
+                          <View style={{ height: 1, backgroundColor: colors.borderLight, marginHorizontal: 8 }} />
                           <TouchableOpacity
                             onPress={() => {
                               setOpenMenuId(null);
@@ -1000,20 +1075,20 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                             }}
                             style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 12 }}
                           >
-                            <Pin size={18} color="#475569" style={{ marginRight: 10 }} />
-                            <Text style={{ fontSize: 14, fontWeight: '500', color: '#334155' }}>Fijar</Text>
+                            <Pin size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Fijar</Text>
                           </TouchableOpacity>
                         </>
                       )}
 
-                      <View style={{ height: 1, backgroundColor: '#f1f5f9', marginHorizontal: 8 }} />
+                      <View style={{ height: 1, backgroundColor: colors.borderLight, marginHorizontal: 8 }} />
 
                       <TouchableOpacity
                         onPress={() => handleCopy(item.text || item.contenido || "")}
                         style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 12 }}
                       >
-                        <Copy size={18} color="#475569" style={{ marginRight: 10 }} />
-                        <Text style={{ fontSize: 14, fontWeight: '500', color: '#334155' }}>Copiar</Text>
+                        <Copy size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Copiar</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -1026,12 +1101,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                     bottom: -14,
                     [isMe ? 'right' : 'left']: 8,
                     flexDirection: 'row',
-                    backgroundColor: 'white',
+                    backgroundColor: colors.surface,
                     borderRadius: 10,
                     paddingHorizontal: 5,
                     paddingVertical: 2,
                     borderWidth: 1,
-                    borderColor: '#e2e8f0',
+                    borderColor: colors.border,
                     elevation: 3,
                     shadowColor: "#000",
                     shadowOffset: { width: 0, height: 1 },
@@ -1043,7 +1118,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                       <Text key={e} style={{ fontSize: 14, marginRight: 2 }}>{e}</Text>
                     ))}
                     {reactions.length > 1 && (
-                      <Text style={{ fontSize: 11, color: '#64748b', marginLeft: 2, alignSelf: 'center' }}>{reactions.length}</Text>
+                      <Text style={{ fontSize: 11, color: colors.textSecondary, marginLeft: 2, alignSelf: 'center' }}>{reactions.length}</Text>
                     )}
                   </View>
                 )}
@@ -1058,21 +1133,21 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                     <TouchableOpacity
                       onPress={() => setShowReactionPicker(prev => prev === item.msg_id ? null : item.msg_id)}
                       style={{
-                        backgroundColor: '#f8fafc',
+                        backgroundColor: colors.surfaceHover,
                         borderRadius: 20,
                         width: 28,
                         height: 28,
                         justifyContent: 'center',
                         alignItems: 'center',
                         borderWidth: 1,
-                        borderColor: '#e2e8f0',
+                        borderColor: colors.border,
                         shadowColor: "#000",
                         shadowOffset: { width: 0, height: 1 },
                         shadowOpacity: 0.05,
                         shadowRadius: 1,
                       }}
                     >
-                      <SmileyIcon />
+                      <SmileyIcon color={colors.textSecondary} />
                     </TouchableOpacity>
 
                     {/* REACTION PICKER POPUP (Anchored to button) */}
@@ -1080,6 +1155,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                       <ReactionPicker
                         onSelect={(emoji) => handleReaction(item.msg_id, emoji)}
                         isMe={isMe}
+                        emojis={reactionEmojis}
                       />
                     )}
                   </View>
@@ -1093,7 +1169,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
       {/* REPLY BANNER */}
       {replyingTo && (
         <View style={{
-          backgroundColor: '#6366F1', // Primary Brand Blue
+          backgroundColor: colors.primary,
           paddingHorizontal: 16,
           paddingVertical: 10,
           borderTopLeftRadius: 16,
@@ -1108,12 +1184,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           elevation: 2,
         }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <CornerUpLeft size={20} color="rgba(255,255,255,0.8)" style={{ marginRight: 10 }} />
+            <CornerUpLeft size={20} color="rgba(255,255,255,0.85)" style={{ marginRight: 10 }} />
             <View>
-              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, fontWeight: '500', marginBottom: 2 }}>
+              <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '500', marginBottom: 2 }}>
                 Respondiendo a
               </Text>
-              <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 14 }} numberOfLines={1}>
+              <Text style={{ color: colors.textOnPrimary, fontWeight: 'bold', fontSize: 14 }} numberOfLines={1}>
                 {replyingTo.senderName || replyingTo.nombreEmisor || "Usuario"}
               </Text>
             </View>
@@ -1123,7 +1199,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             style={{ padding: 4, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12 }}
           >
-            <X size={18} color="white" />
+            <X size={18} color={colors.textOnPrimary} />
           </TouchableOpacity>
         </View>
       )}

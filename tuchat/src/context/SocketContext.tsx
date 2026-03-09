@@ -30,75 +30,81 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
-  // Usamos ref para el chat activo para que el listener de socket 
-  // siempre tenga el valor real sin reiniciarse
+  // Ref para saber que chat esta abierto sin reinstalar listeners
   const activeRoomIdRef = useRef<string | null>(null);
   const appState = useRef(AppState.currentState);
 
-  // Función para refrescar contadores
   const refreshUnreadCounts = useCallback(() => {
     try {
       const counts = typeof getAllUnreadCounts === 'function' ? getAllUnreadCounts() : {};
       setUnreadCounts(counts);
-      console.log('🔄 Contadores actualizados:', counts);
+      console.log('Contadores actualizados:', counts);
     } catch (e) {
-      console.error("Error refreshing unread counts:", e);
+      console.error('Error refreshing unread counts:', e);
     }
   }, []);
 
-  // Función para establecer chat activo
   const setActiveRoom = useCallback((roomId: string | null) => {
     activeRoomIdRef.current = roomId;
-    console.log('🎯 Chat activo (Ref):', roomId);
+    console.log('Chat activo (Ref):', roomId);
   }, []);
 
   useEffect(() => {
     let newSocket: Socket | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let destroyed = false;
+
+    const scheduleRetry = (ms = 600) => {
+      if (destroyed || newSocket) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => {
+        if (!destroyed) initSocket();
+      }, ms);
+    };
 
     const initSocket = async () => {
       try {
+        if (destroyed || newSocket) return;
+
         const token = Platform.OS === 'web'
           ? localStorage.getItem('token')
           : await SecureStore.getItemAsync('token');
 
+        // Cuando app arranca sin token (antes de login), reintenta solo.
         if (!token) {
-          console.log('⚠️ No hay token, reintentando en breve...');
+          scheduleRetry(600);
           return;
         }
 
-        // Decodificación segura del token (Cross-Platform)
         const decoded = decodeJwt(token);
         const userId = decoded?.sub;
 
         if (!userId) {
-          console.error("Token inválido o error al decodificar");
+          console.error('Token invalido o error al decodificar');
+          scheduleRetry(1200);
           return;
         }
 
-        // Configuración optimizada para INCÓGNITO y WEB
         newSocket = io(API_URL, {
           autoConnect: true,
           query: { userId },
-          transports: ['websocket'], // Obligatorio para evitar bloqueos en incógnito
+          transports: ['websocket'],
           upgrade: false,
           reconnection: true,
           reconnectionAttempts: 5
         });
 
         newSocket.on('connect', () => {
-          console.log('🟢 Socket conectado globalmente:', newSocket?.id);
+          console.log('Socket conectado globalmente:', newSocket?.id);
           setIsConnected(true);
         });
 
         newSocket.on('disconnect', () => {
-          console.log('🔴 Socket desconectado');
+          console.log('Socket desconectado');
           setIsConnected(false);
         });
 
-        // ESCUCHA GLOBAL PERMANENTE
         newSocket.on('chat:receive', (msg) => {
-          console.log('📨 Mensaje recibido globalmente:', msg);
-
           const isMe = msg.senderId === userId;
 
           const messageToSave = {
@@ -107,10 +113,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
             read: isMe || msg.roomId === activeRoomIdRef.current ? true : false
           };
 
-          // 1. Guardar siempre en local
           if (typeof saveMessageLocal === 'function') saveMessageLocal(messageToSave);
 
-          // 2. Si no es mi mensaje y no estoy viendo ese chat, actualizar globos (badges)
           if (!isMe && msg.roomId !== activeRoomIdRef.current) {
             refreshUnreadCounts();
           }
@@ -121,24 +125,26 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
       } catch (error) {
         console.error('Error inicializando socket:', error);
+        scheduleRetry(1500);
       }
     };
 
     initSocket();
 
     return () => {
+      destroyed = true;
+      if (retryTimer) clearTimeout(retryTimer);
       if (newSocket) {
-        console.log('🔌 Desconectando socket global');
+        console.log('Desconectando socket global');
         newSocket.disconnect();
       }
     };
-  }, [refreshUnreadCounts]); // refreshUnreadCounts es estable gracias a useCallback
+  }, [refreshUnreadCounts]);
 
-  // Manejar AppState
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('📱 App volvió al primer plano');
+        console.log('App volvio al primer plano');
         refreshUnreadCounts();
         if (socket && !socket.connected) socket.connect();
       }
