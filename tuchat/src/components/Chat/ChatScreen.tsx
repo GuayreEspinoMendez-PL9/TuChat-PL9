@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, FlatList, TextInput, TouchableOpacity, Text,
   KeyboardAvoidingView, Platform, Image, ActivityIndicator,
-  Modal, Dimensions, useWindowDimensions, TouchableWithoutFeedback
+  Modal, Dimensions, useWindowDimensions, TouchableWithoutFeedback, ScrollView
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import * as SecureStore from 'expo-secure-store';
@@ -423,12 +423,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     };
 
     const handleIncomingReaction = ({ msgId, reaction }: { msgId: string, reaction: any }) => {
-      // Use ref instead of state value to avoid stale closure bug
       if (String(reaction.userId) === String(myUserIdRef.current)) return;
 
       setMessages(prev => prev.map(m => {
         if (m.msg_id === msgId) {
-          // ... (existing logic) ...
           let reactions = m.reactions ? [...m.reactions] : [];
           const existingIndex = reactions.findIndex((r: any) => String(r.userId) === String(reaction.userId));
           if (existingIndex >= 0) {
@@ -1231,39 +1229,70 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         {showInputEmojiPicker && (
           <View style={{
             position: 'absolute',
-            bottom: 66,
-            left: 16,
-            right: 16,
+            bottom: Platform.OS === 'ios' ? 74 : 66,
+            left: isDesktop ? 24 : 16,
+            right: isDesktop ? 24 : 16,
             backgroundColor: colors.surface,
             borderRadius: 14,
             borderWidth: 1,
             borderColor: colors.border,
             padding: 10,
             zIndex: 2000,
-            maxHeight: 170,
+            maxHeight: isDesktop ? 250 : 185,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: 0.18,
             shadowRadius: 10,
             elevation: 8,
           }}>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 8,
+            }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted }}>
+                Emojis
+              </Text>
+              <TouchableOpacity onPress={() => setShowInputEmojiPicker(false)}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: isDesktop ? 8 : 6,
+              }}
+            >
               {inputEmojis.map((emoji, idx) => (
                 <TouchableOpacity
                   key={`${emoji}-${idx}`}
                   onPress={() => handleInsertEmoji(emoji)}
                   style={{
-                    width: 34,
-                    height: 34,
+                    width: isDesktop ? 40 : 34,
+                    height: isDesktop ? 40 : 34,
                     justifyContent: 'center',
                     alignItems: 'center',
                     borderRadius: 10,
                     backgroundColor: colors.surfaceHover,
                   }}
                 >
-                  <Text style={{ fontSize: 20 }}>{emoji}</Text>
+                  <Text style={{ fontSize: isDesktop ? 22 : 20 }}>{emoji}</Text>
                 </TouchableOpacity>
               ))}
+            </ScrollView>
+            <View style={{
+              marginTop: 8,
+              paddingTop: 8,
+              borderTopWidth: 1,
+              borderTopColor: colors.borderLight,
+            }}>
+              <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                Toca un emoji para insertarlo en el mensaje.
+              </Text>
             </View>
           </View>
         )}
