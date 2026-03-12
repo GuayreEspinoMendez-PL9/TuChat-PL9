@@ -18,6 +18,8 @@ import adminRoutes from "./routes/admin.routes.js";       // ✅ AÑADIDO
 import { appDb } from "./db/db.js";
 import { getRedis } from "./redis.js";
 import { enviarNotificacionPush } from "./services/push.service.js";
+import { setUserPresence } from "./services/collab.store.js";
+import { createPinDb, initCollabTables, removePinDb } from "./services/collab.persistence.js";
 
 dotenv.config();
 const app = express();
@@ -125,6 +127,13 @@ app.set('io', io);
 
 let ajustesSalas = {};
 
+const PRESENCE_LABELS = {
+  available: "Disponible",
+  in_class: "En clase",
+  busy: "Ocupado",
+  offline: "Desconectado",
+};
+
 // Función para cargar ajustes desde BD (roomId = id_sala)
 async function cargarAjustesSala(roomId) {
   try {
@@ -157,11 +166,13 @@ const meetRooms = new Map();
 
 io.on("connection", async (socket) => {
   const userId = socket.handshake.query.userId;
+  let connectedRooms = [];
 
   if (userId) {
     // Sala Personal: Para recibir todo aunque esté en el Home
     socket.join(`user:${userId}`);
     console.log(`🚀 Usuario conectado: ${userId}`);
+    const initialPresence = setUserPresence(userId, { online: true, status: "available" });
 
     // AUTO-JOIN: Unirse a todas las salas (Vistas + Privados)
     try {
@@ -197,7 +208,12 @@ io.on("connection", async (socket) => {
 
         salas.forEach(row => {
           socket.join(row.sala_id);
+          connectedRooms.push(String(row.sala_id));
           // console.log(`📡 Escuchando sala: ${row.sala_id}`);
+        });
+
+        connectedRooms.forEach((roomId) => {
+          io.to(roomId).emit("presence:update", initialPresence);
         });
 
         console.log(`✅ Sincronizadas ${salas.length} salas para ${userId}`);
@@ -237,6 +253,9 @@ io.on("connection", async (socket) => {
 
   socket.on("join_room", async (roomId) => {
     socket.join(roomId);
+    if (!connectedRooms.includes(String(roomId))) {
+      connectedRooms.push(String(roomId));
+    }
     console.log(`👤 Unión manual: ${socket.id} -> ${roomId}`);
       const redis = getRedis();
     if (userId && redis?.status === 'ready') {
@@ -252,6 +271,18 @@ io.on("connection", async (socket) => {
     }
 
     await cargarAjustesSala(roomId);
+  });
+
+  socket.on("presence:set_status", ({ status }) => {
+    if (!userId) return;
+    const nextStatus = ["available", "in_class", "busy"].includes(status) ? status : "available";
+    const presence = setUserPresence(userId, { online: true, status: nextStatus });
+
+    connectedRooms.forEach((roomId) => {
+      io.to(roomId).emit("presence:update", presence);
+    });
+
+    io.to(`user:${userId}`).emit("presence:update", presence);
   });
 
   socket.on("chat:send", async (payload) => {
@@ -295,7 +326,13 @@ io.on("connection", async (socket) => {
             }
 
             // 3. Notificación Push
-            const textoNotif = `${nombreEmisor || 'Usuario'}: ${contenido || 'Nuevo mensaje'}`;
+            const mentionTargets = payload.mentions?.targetUserIds || [];
+            const mentionLabels = payload.mentions?.tokens || [];
+            const hasDirectMention = mentionTargets.includes(uId);
+            const hasRoleMention = mentionLabels.some((label) => ["todos", "delegados", "profesor"].includes(label));
+            const textoNotif = hasDirectMention || hasRoleMention
+              ? `${nombreEmisor || 'Usuario'} te mencionó: ${contenido || 'Nuevo mensaje'}`
+              : `${nombreEmisor || 'Usuario'}: ${contenido || 'Nuevo mensaje'}`;
             enviarNotificacionPush(uId, textoNotif, roomId);
           }
         }
@@ -351,8 +388,13 @@ io.on("connection", async (socket) => {
       recipients.forEach(uId => {
         if (uId !== senderId) {
           io.to(`user:${uId}`).emit("chat:receive", message);
-          // Enviamos texto fijo porque 'contenido' viene vacío en fotos
-          enviarNotificacionPush(uId, `${nombreEmisor}: 📷 Envió una imagen`, roomId);
+          const mentionTargets = payload.mentions?.targetUserIds || [];
+          const mentionLabels = payload.mentions?.tokens || [];
+          const hasMention = mentionTargets.includes(uId) || mentionLabels.some((label) => ["todos", "delegados", "profesor"].includes(label));
+          const notifText = hasMention
+            ? `${nombreEmisor}: te mencionó en un adjunto`
+            : `${nombreEmisor}: 📷 Envió un adjunto`;
+          enviarNotificacionPush(uId, notifText, roomId);
         }
       });
     }
@@ -399,9 +441,8 @@ io.on("connection", async (socket) => {
     const { roomId, messageId, duration, category, color, durationLabel } = payload;
     console.log(`📌 Pin message request:`, payload);
 
-    // Buscar el mensaje para obtener su contenido
-    // (En una implementación completa, esto vendría de la DB)
-    const pinData = {
+    const pinData = await createPinDb({
+      roomId,
       messageId,
       duration,
       durationLabel,
@@ -409,9 +450,7 @@ io.on("connection", async (socket) => {
       color,
       senderName: payload.senderName || 'Profesor',
       text: payload.text || payload.contenido || 'Mensaje fijado',
-      pinnedAt: Date.now(),
-      expiresAt: Date.now() + duration,
-    };
+    });
 
     // Broadcast to all users in the room
     io.to(roomId).emit("chat:receive_pin", pinData);
@@ -421,6 +460,8 @@ io.on("connection", async (socket) => {
   socket.on("chat:unpin_message", async (payload) => {
     const { roomId, messageId } = payload;
     console.log(`📌 Unpin message request:`, payload);
+
+    await removePinDb({ roomId, messageId });
 
     // Broadcast to all users in the room
     io.to(roomId).emit("chat:receive_unpin", { messageId });
@@ -578,6 +619,14 @@ io.on("connection", async (socket) => {
   });
 
   // --- LIMPIEZA EN DISCONNECT ---
+  socket.on("disconnecting", () => {
+    if (!userId) return;
+    const offlinePresence = setUserPresence(userId, { online: false, status: "offline" });
+    connectedRooms.forEach((roomId) => {
+      io.to(roomId).emit("presence:update", offlinePresence);
+    });
+  });
+
   socket.on("disconnect", () => {
     console.log(`❌ Socket desconectado: ${socket.id}`);
 
@@ -623,6 +672,14 @@ io.on("connection", async (socket) => {
 });
 
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
-  console.log(`✅ Servidor corriendo en puerto ${PORT}`);
-});
+
+initCollabTables()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`✅ Servidor corriendo en puerto ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("❌ No se pudieron inicializar las tablas colaborativas:", error.message);
+    process.exit(1);
+  });

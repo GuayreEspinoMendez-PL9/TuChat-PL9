@@ -8,6 +8,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
+import { fetchRoomPresence } from '../../services/chatExtras.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -49,6 +50,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('todos');
   const [delegados, setDelegados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, any>>({});
   
   // ✅ NUEVO ESTADO: Para asegurar que el rol es correcto
   const [esProfesorInterno, setEsProfesorInterno] = useState(false);
@@ -87,6 +89,13 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
             }
             setDelegados(config.delegados || []);
           }
+        }
+
+        try {
+          const presence = await fetchRoomPresence(roomId);
+          setPresenceByUser(Object.fromEntries((presence || []).map((entry: any) => [String(entry.userId), entry])));
+        } catch (e) {
+          console.log("No se pudo cargar presencia:", e);
         }
       } catch (e) {
         console.error("Error en ChatInfoScreen:", e);
@@ -131,6 +140,16 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
 
   const profesores = participantes.filter(p => p.es_profesor);
   const alumnos = participantes.filter(p => !p.es_profesor);
+  const getPresenceLabel = (userId: string) => {
+    const current = presenceByUser[String(userId)];
+    if (!current) return 'Desconectado';
+    if (current.online) {
+      if (current.status === 'in_class') return 'En clase';
+      if (current.status === 'busy') return 'Ocupado';
+      return 'Conectado';
+    }
+    return 'Desconectado';
+  };
 
   // ✅ DEBUG REAL: Ahora comparamos la prop con lo que detectamos nosotros
   console.log("🔍 DEBUG ROL:", { 
@@ -248,7 +267,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
                 </View>
                 <View style={styles.participantInfo}>
                   <Text style={[styles.participantName, { color: colors.textPrimary }]}>{profesor.nombre}</Text>
-                  <Text style={[styles.participantRole, { color: colors.textSecondary }]}>Profesor</Text>
+                  <Text style={[styles.participantRole, { color: colors.textSecondary }]}>Profesor • {getPresenceLabel(profesor.id)}</Text>
                 </View>
               </View>
             ))}
@@ -266,7 +285,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
                 <View style={styles.participantInfo}>
                   <Text style={[styles.participantName, { color: colors.textPrimary }]}>{alumno.nombre}</Text>
                   <View style={styles.participantMeta}>
-                    <Text style={[styles.participantRole, { color: colors.textSecondary }]}>Alumno</Text>
+                    <Text style={[styles.participantRole, { color: colors.textSecondary }]}>Alumno • {getPresenceLabel(alumno.id)}</Text>
                     {delegados.includes(alumno.id) && (
                       <View style={styles.delegadoBadge}>
                         <Text style={styles.delegadoBadgeText}>Delegado</Text>

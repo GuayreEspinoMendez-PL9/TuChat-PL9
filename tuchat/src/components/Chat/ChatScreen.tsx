@@ -29,11 +29,21 @@ import { ChatInfoScreen } from './ChatInfoScreen';
 import { ReactionPicker } from './ReactionPicker';
 import axios from 'axios';
 import * as Clipboard from 'expo-clipboard';
-import { ChevronDown, Copy, Smile, CornerUpLeft, X, FileText, Pin, Download } from 'lucide-react-native';
+import { ChevronDown, Copy, Smile, CornerUpLeft, X, FileText, Pin, Download, CalendarDays, ListChecks, AtSign } from 'lucide-react-native';
 import { Alert, Linking } from 'react-native';
 import { decodeJwt } from '../../utils/auth';
 import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
+import {
+  createRoomEventRequest,
+  createRoomPollRequest,
+  fetchRoomEvents,
+  fetchRoomPins,
+  fetchRoomPolls,
+  fetchRoomPresence,
+  votePollRequest,
+} from '../../services/chatExtras.service';
+import { buildMentionsPayload, messageMentionsCurrentUser } from '../../utils/mentions';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DEFAULT_INPUT_EMOJIS = [
@@ -50,6 +60,13 @@ const DEFAULT_INPUT_EMOJIS = [
   String.fromCodePoint(0x1F44F), // 👏
   String.fromCodePoint(0x1F60E), // 😎
 ];
+
+const PRESENCE_META: Record<string, { label: string; color: string }> = {
+  available: { label: 'Disponible', color: '#16A34A' },
+  in_class: { label: 'En clase', color: '#2563EB' },
+  busy: { label: 'Ocupado', color: '#EA580C' },
+  offline: { label: 'Desconectado', color: '#94A3B8' },
+};
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -147,7 +164,7 @@ const fileToBase64Web = (uri: string): Promise<string> => {
 };
 
 const fileToBase64Native = async (uri: string, mimeType: string): Promise<string> => {
-  const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  const b64 = await FileSystem.readAsStringAsync(uri, { encoding: (FileSystem as any).EncodingType.Base64 });
   return `data:${mimeType || 'application/octet-stream'};base64,${b64}`;
 };
 
@@ -227,11 +244,12 @@ interface ChatScreenProps {
   id: string;
   nombre: string;
   tipo?: string;
+  esProfesor?: boolean;
   isEmbedded?: boolean;
   onBack?: () => void;
 }
 
-export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onBack }: ChatScreenProps) => {
+export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorProp = false, isEmbedded = false, onBack }: ChatScreenProps) => {
   const { colors } = useTheme();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
@@ -244,7 +262,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
   const [myUserId, setMyUserId] = useState("");
   const myUserIdRef = useRef(""); // Ref to always have current value in socket closures
   const [myUserName, setMyUserName] = useState("Usuario");
-  const [esProfesor, setEsProfesor] = useState(false);
+  const [esProfesor, setEsProfesor] = useState(esProfesorProp);
   const [loading, setLoading] = useState(true);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [messageToPin, setMessageToPin] = useState<any>(null);
@@ -252,9 +270,24 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
   const [pinnedExpanded, setPinnedExpanded] = useState(false);
   const [sending, setSending] = useState(false);
   const [miembros, setMiembros] = useState<string[]>([]);
+  const [memberDetails, setMemberDetails] = useState<any[]>([]);
   const [delegados, setDelegados] = useState<string[]>([]); // Delegados del chat
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, any>>({});
+  const [myPresenceStatus, setMyPresenceStatus] = useState<'available' | 'in_class' | 'busy'>('available');
+  const [events, setEvents] = useState<any[]>([]);
+  const [polls, setPolls] = useState<any[]>([]);
+  const [showExtrasPanel, setShowExtrasPanel] = useState<'events' | 'polls' | null>(null);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventDescription, setEventDescription] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null); // New ref for input
+  const typingTimeoutRef = useRef<any>(null);
 
   // States for Reactions
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
@@ -288,7 +321,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
 
     const loadInputEmojis = async () => {
       try {
-        const response = await fetch(`${API_URL}/chat/emojis`);
+        const token = Platform.OS === 'web'
+          ? localStorage.getItem('token')
+          : await SecureStore.getItemAsync('token');
+        const response = await fetch(`${API_URL}/chat/emojis`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (!response.ok) throw new Error(`Emoji API status ${response.status}`);
 
         const payload: any = await response.json();
@@ -348,6 +386,18 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           });
           if (response.data.ok) setMiembros(response.data.ids || []);
 
+          try {
+            const detailResponse = await axios.get(`${API_URL}/academico/miembros-detalle/${id}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (detailResponse.data.ok) {
+              setMemberDetails(detailResponse.data.usuarios || []);
+              setDelegados(detailResponse.data.config?.delegados || []);
+            }
+          } catch (e) {
+            console.log("âš ï¸ No se pudieron cargar detalles de miembros:", e);
+          }
+
           // Fetch chat settings to get delegates (safe - won't break if endpoint unavailable)
           try {
             const settingsResponse = await axios.get(`${API_URL}/chat/settings/${id}`, {
@@ -359,17 +409,33 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           } catch (e) {
             console.log("⚠️ No se pudieron cargar los delegados:", e);
           }
+          try {
+            const [presenceData, eventsData, pollsData, pinsData] = await Promise.all([
+              fetchRoomPresence(id),
+              fetchRoomEvents(id),
+              fetchRoomPolls(id),
+              fetchRoomPins(id),
+            ]);
+            setPresenceByUser(Object.fromEntries((presenceData || []).map((entry: any) => [String(entry.userId), entry])));
+            setEvents(eventsData || []);
+            setPolls(pollsData || []);
+            setPinnedMessages(pinsData || []);
+            if (typeof cleanExpiredPins === 'function') cleanExpiredPins();
+            if (typeof savePinnedMessage === 'function') {
+              (pinsData || []).forEach((pin: any) => savePinnedMessage(pin));
+            }
+          } catch (e) {
+            console.log("No se pudieron cargar extras del chat:", e);
+            if (typeof cleanExpiredPins === 'function') cleanExpiredPins();
+            if (typeof getPinnedMessagesByRoom === 'function') {
+              const loadedPins = getPinnedMessagesByRoom(id);
+              setPinnedMessages(loadedPins);
+            }
+          }
         }
 
         setMessages(typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : []);
         setInput(typeof getDraftLocal === 'function' ? getDraftLocal(id) : '');
-
-        // Load pinned messages from database (safe for web where expo-sqlite unavailable)
-        if (typeof cleanExpiredPins === 'function') cleanExpiredPins();
-        if (typeof getPinnedMessagesByRoom === 'function') {
-          const loadedPins = getPinnedMessagesByRoom(id);
-          setPinnedMessages(loadedPins);
-        }
         if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
         refreshUnreadCounts();
 
@@ -394,6 +460,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
       return () => setActiveRoom(null);
     }, [id])
   );
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.emit("presence:set_status", { status: myPresenceStatus });
+  }, [socket, myPresenceStatus]);
 
   useEffect(() => {
     if (!socket) return;
@@ -449,9 +520,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     const handleIncomingPin = (pinData: any) => {
       console.log('📌 Pin recibido:', pinData);
       const newPin = {
-        id: `pin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        roomId: id, // Add roomId for per-chat pins
-        msgId: pinData.messageId,
+        id: pinData.id || `pin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        roomId: pinData.roomId || id,
+        msgId: pinData.msgId || pinData.messageId,
         text: pinData.text || pinData.contenido || 'Archivo adjunto',
         senderName: pinData.senderName || 'Profesor',
         category: pinData.category,
@@ -461,7 +532,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         pinnedAt: pinData.pinnedAt || Date.now(),
         expiresAt: pinData.expiresAt || (Date.now() + pinData.duration),
       };
-      setPinnedMessages(prev => [newPin, ...prev]);
+      setPinnedMessages(prev => {
+        if (prev.some(pin => pin.id === newPin.id || pin.msgId === newPin.msgId)) return prev;
+        return [newPin, ...prev];
+      });
       if (typeof savePinnedMessage === 'function') savePinnedMessage(newPin);
     };
 
@@ -470,11 +544,51 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
       setPinnedMessages(prev => prev.filter(p => p.msgId !== data.messageId));
     };
 
+    const handlePresenceUpdate = (presence: any) => {
+      if (!presence?.userId) return;
+      setPresenceByUser(prev => ({ ...prev, [String(presence.userId)]: presence }));
+    };
+
+    const handleEventCreated = (event: any) => {
+      if (String(event?.roomId) !== String(id)) return;
+      setEvents(prev => {
+        if (prev.some(item => item.id === event.id)) return prev;
+        return [...prev, event].sort((a, b) => a.startsAt - b.startsAt);
+      });
+    };
+
+    const handlePollCreated = (poll: any) => {
+      if (String(poll?.roomId) !== String(id)) return;
+      setPolls(prev => {
+        if (prev.some(item => item.id === poll.id)) return prev;
+        return [poll, ...prev];
+      });
+    };
+
+    const handlePollUpdated = (poll: any) => {
+      if (String(poll?.roomId) !== String(id)) return;
+      setPolls(prev => prev.map(item => item.id === poll.id ? poll : item));
+    };
+
+    const handleTyping = ({ userName }: { userName: string }) => {
+      setTypingUserName(userName || 'Alguien');
+    };
+
+    const handleStopTyping = () => {
+      setTypingUserName(null);
+    };
+
     socket.on("chat:receive", handleNewMessage);
     socket.on("chat:update_read_status", handleReadReceipt);
     socket.on("chat:reaction", handleIncomingReaction);
     socket.on("chat:receive_pin", handleIncomingPin);
     socket.on("chat:receive_unpin", handleUnpin);
+    socket.on("presence:update", handlePresenceUpdate);
+    socket.on("chat:event_created", handleEventCreated);
+    socket.on("chat:poll_created", handlePollCreated);
+    socket.on("chat:poll_updated", handlePollUpdated);
+    socket.on("chat:user_typing", handleTyping);
+    socket.on("chat:user_stopped_typing", handleStopTyping);
 
     return () => {
       socket.off("chat:receive", handleNewMessage);
@@ -482,6 +596,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
       socket.off("chat:reaction", handleIncomingReaction);
       socket.off("chat:receive_pin", handleIncomingPin);
       socket.off("chat:receive_unpin", handleUnpin);
+      socket.off("presence:update", handlePresenceUpdate);
+      socket.off("chat:event_created", handleEventCreated);
+      socket.off("chat:poll_created", handlePollCreated);
+      socket.off("chat:poll_updated", handlePollUpdated);
+      socket.off("chat:user_typing", handleTyping);
+      socket.off("chat:user_stopped_typing", handleStopTyping);
     };
   }, [socket, id, refreshUnreadCounts, myUserId]);
 
@@ -533,6 +653,92 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     });
   };
 
+  const quickMention = (token: string) => {
+    const next = `${input}${token}`;
+    setInput(next);
+    saveDraftLocal(id, next);
+    inputRef.current?.focus();
+  };
+
+  const emitTyping = (text: string) => {
+    if (!socket) return;
+    if (text.trim()) {
+      socket.emit("chat:typing", { roomId: id, userName: myUserName });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit("chat:stop_typing", { roomId: id });
+      }, 1200);
+    } else {
+      socket.emit("chat:stop_typing", { roomId: id });
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    }
+  };
+
+  const createEvent = async () => {
+    if (!eventTitle.trim() || !eventDate.trim()) {
+      Alert.alert('Faltan datos', 'Indica al menos un título y una fecha válida.');
+      return;
+    }
+
+    try {
+      const event = await createRoomEventRequest({
+        roomId: id,
+        title: eventTitle.trim(),
+        description: eventDescription.trim(),
+        startsAt: new Date(eventDate).toISOString(),
+        kind: 'academico',
+      });
+
+      if (event) {
+        setEvents(prev => [...prev, event].sort((a, b) => a.startsAt - b.startsAt));
+        setShowEventModal(false);
+        setShowExtrasPanel('events');
+        setEventTitle('');
+        setEventDescription('');
+        setEventDate('');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo crear el evento.');
+    }
+  };
+
+  const createPoll = async () => {
+    const cleanOptions = pollOptions.map(option => option.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || cleanOptions.length < 2) {
+      Alert.alert('Faltan datos', 'La encuesta necesita una pregunta y al menos dos opciones.');
+      return;
+    }
+
+    try {
+      const poll = await createRoomPollRequest({
+        roomId: id,
+        question: pollQuestion.trim(),
+        options: cleanOptions,
+      });
+
+      if (poll) {
+        setPolls(prev => [poll, ...prev]);
+        setShowPollModal(false);
+        setShowExtrasPanel('polls');
+        setPollQuestion('');
+        setPollOptions(['', '']);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo crear la encuesta.');
+    }
+  };
+
+  const votePoll = async (pollId: string, optionId: string) => {
+    try {
+      const updated = await votePollRequest({ roomId: id, pollId, optionId });
+      if (updated) {
+        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
+      }
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo registrar el voto.');
+    }
+  };
+
   const sendMessage = async (mediaUri?: string, mediaType: 'image' | 'video' | 'file' = 'image', fileName?: string, fileSize?: number, mimeType?: string) => {
     console.log("SENDING MESSAGE...", { input, mediaUri: mediaUri?.substring(0, 60), socket: !!socket, myUserId, mediaType, fileName });
     if (!input.trim() && !mediaUri) return;
@@ -544,6 +750,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     setSending(true);
     const textoLimpio = input.trim();
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const mentions = buildMentionsPayload(textoLimpio, memberDetails, myUserId);
 
     const msg = {
       msg_id: msgId,
@@ -560,6 +767,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
       nombreEmisor: myUserName,
       timestamp: Date.now(),
       recipients: miembros,
+      mentions,
       esProfesor: esProfesor,
       status: 'sending',
       read: false,
@@ -574,6 +782,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     setMessages(prev => [...prev, msg]);
     setInput("");
     saveDraftLocal(id, "");
+    socket.emit("chat:stop_typing", { roomId: id });
     setReplyingTo(null); // Clear reply state
 
     // Enviar por socket
@@ -728,6 +937,18 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
     );
   };
 
+  const presenceEntries = Object.values(presenceByUser);
+  const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
+  const upcomingEvents = events.filter((event: any) => (event?.startsAt || 0) >= Date.now()).slice(0, 3);
+  const visiblePolls = polls.slice(0, 3);
+  const myMentionBadge = memberDetails
+    .filter(member => member.id !== myUserId)
+    .slice(0, 4)
+    .map(member => ({
+      id: member.id,
+      label: `@${(member.nombre || '').split(' ')[0]}`,
+    }));
+
   const content = (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -740,7 +961,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
 
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowInfo(true)}>
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>{nombre}</Text>
-          <Text style={styles.headerSubtitle}>{miembros.length} participantes • Toca para más info</Text>
+          <Text style={styles.headerSubtitle}>{miembros.length} participantes • {onlineCount} conectados</Text>
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
@@ -772,6 +993,136 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         }}
       />
 
+      <View style={{
+        paddingHorizontal: 16,
+        paddingTop: 10,
+        paddingBottom: 4,
+        gap: 10,
+      }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {(['available', 'in_class', 'busy'] as const).map((statusKey) => {
+            const meta = PRESENCE_META[statusKey];
+            const selected = myPresenceStatus === statusKey;
+            return (
+              <TouchableOpacity
+                key={statusKey}
+                onPress={() => setMyPresenceStatus(statusKey)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  backgroundColor: selected ? meta.color : colors.surface,
+                  borderWidth: 1,
+                  borderColor: selected ? meta.color : colors.border,
+                }}
+              >
+                <Text style={{ color: selected ? '#fff' : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>
+                  {meta.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity
+            onPress={() => setShowExtrasPanel(prev => prev === 'events' ? null : 'events')}
+            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <CalendarDays size={15} color={colors.textSecondary} />
+            <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Calendario</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowExtrasPanel(prev => prev === 'polls' ? null : 'polls')}
+            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <ListChecks size={15} color={colors.textSecondary} />
+            <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Encuestas</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => quickMention('@todos ')}
+            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <AtSign size={15} color={colors.textSecondary} />
+            <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Menciones</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {myMentionBadge.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            <TouchableOpacity onPress={() => quickMention('@delegados ')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primaryBg }}>
+              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 12 }}>@delegados</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => quickMention('@profesor ')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primaryBg }}>
+              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 12 }}>@profesor</Text>
+            </TouchableOpacity>
+            {myMentionBadge.map((badge) => (
+              <TouchableOpacity key={badge.id} onPress={() => quickMention(`${badge.label} `)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{badge.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
+
+        {showExtrasPanel === 'events' && (
+          <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Próximos eventos</Text>
+              <TouchableOpacity onPress={() => setShowEventModal(true)}>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Nuevo</Text>
+              </TouchableOpacity>
+            </View>
+            {upcomingEvents.length === 0 ? (
+              <Text style={{ color: colors.textMuted }}>Todavía no hay eventos programados.</Text>
+            ) : upcomingEvents.map((event) => (
+              <View key={event.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{event.title}</Text>
+                {!!event.description && <Text style={{ color: colors.textSecondary, marginTop: 2 }}>{event.description}</Text>}
+                <Text style={{ color: colors.primary, marginTop: 4, fontWeight: '600' }}>
+                  {new Date(event.startsAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {showExtrasPanel === 'polls' && (
+          <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Encuestas rápidas</Text>
+              <TouchableOpacity onPress={() => setShowPollModal(true)}>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Nueva</Text>
+              </TouchableOpacity>
+            </View>
+            {visiblePolls.length === 0 ? (
+              <Text style={{ color: colors.textMuted }}>Todavía no hay encuestas activas.</Text>
+            ) : visiblePolls.map((poll) => (
+              <View key={poll.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700', marginBottom: 8 }}>{poll.question}</Text>
+                {poll.options.map((option: any) => {
+                  const voted = option.votes?.some((vote: any) => String(vote.userId) === String(myUserId));
+                  return (
+                    <TouchableOpacity
+                      key={option.id}
+                      onPress={() => votePoll(poll.id, option.id)}
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 12,
+                        backgroundColor: voted ? colors.primaryBg : colors.background,
+                        borderWidth: 1,
+                        borderColor: voted ? colors.primary : colors.border,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{option.text}</Text>
+                      <Text style={{ color: colors.textMuted, marginTop: 4 }}>{option.votes?.length || 0} votos</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
       {/* Lista de mensajes */}
       <FlatList
         ref={flatListRef}
@@ -801,6 +1152,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           const isMe = item.senderId === myUserId;
           const isVideo = item.mediaType === 'video' || item.image?.includes('video');
           const messageStatus = getMessageStatus(item);
+          const mentionsMe = !isMe && messageMentionsCurrentUser(item, myUserId, myUserName);
 
           const isHovered = hoveredMessageId === item.msg_id;
           const isSelected = selectedMessageId === item.msg_id; // Touch/click selection
@@ -850,9 +1202,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                   style={[
                     styles.messageBubble,
                     isMe ? styles.myMessage : styles.theirMessage, isMe ? { backgroundColor: colors.bubbleOwn } : { backgroundColor: colors.bubbleOther },
-                    { position: 'relative', maxWidth: '100%' }
+                    {
+                      position: 'relative',
+                      maxWidth: '100%',
+                      borderWidth: mentionsMe ? 2 : 0,
+                      borderColor: mentionsMe ? colors.primary : 'transparent'
+                    }
                   ]}
                 >
+                  {mentionsMe && (
+                    <View style={{ alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.primaryBg, marginBottom: 8 }}>
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Mención para ti</Text>
+                    </View>
+                  )}
 
                   {/* REPLY CONTEXT */}
                   {item.replyTo && (
@@ -940,8 +1302,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
                           // Native: save to file system and open
                           try {
                             const b64Data = item.image.split(',')[1];
-                            const fileUri = FileSystem.cacheDirectory + (item.fileName || 'archivo');
-                            FileSystem.writeAsStringAsync(fileUri, b64Data, { encoding: FileSystem.EncodingType.Base64 })
+                            const fileUri = ((FileSystem as any).cacheDirectory || '') + (item.fileName || 'archivo');
+                            FileSystem.writeAsStringAsync(fileUri, b64Data, { encoding: (FileSystem as any).EncodingType.Base64 })
                               .then(() => Linking.openURL(fileUri))
                               .catch(e => console.error('Error saving file:', e));
                           } catch (e) { Linking.openURL(item.image); }
@@ -1186,6 +1548,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
         }}
       />
 
+      {typingUserName && (
+        <View style={{
+          paddingHorizontal: 18,
+          paddingBottom: 8,
+        }}>
+          <Text style={{ color: colors.textMuted, fontStyle: 'italic', fontSize: 12 }}>
+            {typingUserName} está escribiendo...
+          </Text>
+        </View>
+      )}
+
       {/* REPLY BANNER */}
       {replyingTo && (
         <View style={{
@@ -1314,8 +1687,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
             onChangeText={(text) => {
               setInput(text);
               saveDraftLocal(id, text);
+              emitTyping(text);
             }}
             onFocus={() => setShowInputEmojiPicker(false)}
+            onBlur={() => socket?.emit("chat:stop_typing", { roomId: id })}
             placeholder="Escribe un mensaje..."
             placeholderTextColor={colors.placeholder}
             multiline
@@ -1390,6 +1765,37 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
             setMessageToPin(null);
           }}
         />
+        <QuickFormModal
+          visible={showEventModal}
+          title="Nuevo evento"
+          fields={[
+            { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
+            { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
+            { value: eventDate, onChangeText: setEventDate, placeholder: '2026-03-20 10:30' },
+          ]}
+          confirmLabel="Crear evento"
+          onClose={() => setShowEventModal(false)}
+          onConfirm={createEvent}
+        />
+        <QuickFormModal
+          visible={showPollModal}
+          title="Nueva encuesta"
+          fields={[
+            { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
+            ...pollOptions.map((option, index) => ({
+              value: option,
+              onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
+              placeholder: `Opción ${index + 1}`,
+            })),
+          ]}
+          footerAction={{
+            label: 'Añadir opción',
+            onPress: () => setPollOptions(prev => [...prev, '']),
+          }}
+          confirmLabel="Crear encuesta"
+          onClose={() => setShowPollModal(false)}
+          onConfirm={createPoll}
+        />
 
       </>
     );
@@ -1444,11 +1850,101 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', isEmbedded = false, onB
           setMessageToPin(null);
         }}
       />
+      <QuickFormModal
+        visible={showEventModal}
+        title="Nuevo evento"
+        fields={[
+          { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
+          { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
+          { value: eventDate, onChangeText: setEventDate, placeholder: '2026-03-20 10:30' },
+        ]}
+        confirmLabel="Crear evento"
+        onClose={() => setShowEventModal(false)}
+        onConfirm={createEvent}
+      />
+      <QuickFormModal
+        visible={showPollModal}
+        title="Nueva encuesta"
+        fields={[
+          { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
+          ...pollOptions.map((option, index) => ({
+            value: option,
+            onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
+            placeholder: `Opción ${index + 1}`,
+          })),
+        ]}
+        footerAction={{
+          label: 'Añadir opción',
+          onPress: () => setPollOptions(prev => [...prev, '']),
+        }}
+        confirmLabel="Crear encuesta"
+        onClose={() => setShowPollModal(false)}
+        onConfirm={createPoll}
+      />
     </KeyboardAvoidingView>
   );
 };
 
 // Componentes auxiliares para modales
+const QuickFormModal = ({
+  visible,
+  title,
+  fields,
+  onClose,
+  onConfirm,
+  confirmLabel,
+  footerAction,
+}: {
+  visible: boolean;
+  title: string;
+  fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string }>;
+  onClose: () => void;
+  onConfirm: () => void;
+  confirmLabel: string;
+  footerAction?: { label: string; onPress: () => void };
+}) => {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', padding: 20 }}>
+        <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 14 }}>{title}</Text>
+          {fields.map((field, index) => (
+            <TextInput
+              key={`${field.placeholder}-${index}`}
+              value={field.value}
+              onChangeText={field.onChangeText}
+              placeholder={field.placeholder}
+              placeholderTextColor="#94a3b8"
+              style={{
+                borderWidth: 1,
+                borderColor: '#cbd5e1',
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                color: '#0f172a',
+                marginBottom: 10,
+              }}
+            />
+          ))}
+          {footerAction && (
+            <TouchableOpacity onPress={footerAction.onPress} style={{ marginBottom: 14 }}>
+              <Text style={{ color: '#4f46e5', fontWeight: '700' }}>{footerAction.label}</Text>
+            </TouchableOpacity>
+          )}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+            <TouchableOpacity onPress={onClose} style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
+              <Text style={{ color: '#64748b', fontWeight: '700' }}>Cancelar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onConfirm} style={{ backgroundColor: '#4f46e5', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 }}>
+              <Text style={{ color: '#fff', fontWeight: '700' }}>{confirmLabel}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const ImageViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: string | null; onClose: () => void }) => {
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;

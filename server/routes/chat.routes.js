@@ -1,10 +1,60 @@
 import express from "express";
 import { appDb } from "../db/db.js";
+import { requireAuth } from "../auth/auth.middleware.js";
+import {
+    getPresenceSnapshot,
+} from "../services/collab.store.js";
+import {
+    createRoomEventDb,
+    createRoomPollDb,
+    listEventsByRoomDb,
+    listPinsByRoomDb,
+    listPollsByRoomDb,
+    voteRoomPollDb,
+} from "../services/collab.persistence.js";
 
 const router = express.Router();
 const EMOJI_SOURCE_URL = "https://www.emoji.family/api/emojis/";
 const EMOJI_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 let emojiCache = { data: null, fetchedAt: 0 };
+
+router.use(requireAuth);
+
+const getRoomMemberIds = async (roomId) => {
+    const privateChat = await appDb.query(
+        `SELECT id_profesor_usuario_app, id_alumno_usuario_app
+         FROM comunicacion.chats_privados
+         WHERE id_chat_privado = $1`,
+        [roomId]
+    );
+
+    if (privateChat.rows.length > 0) {
+        const row = privateChat.rows[0];
+        return [row.id_profesor_usuario_app, row.id_alumno_usuario_app].filter(Boolean);
+    }
+
+    const { rows } = await appDb.query(`
+        SELECT DISTINCT sub.id_usuario_app FROM (
+            SELECT va.id_usuario_app
+            FROM comunicacion.salas_chat sc
+            JOIN cache_academico.oferta_asignaturas oa ON oa.id_oferta = sc.id_oferta
+            JOIN cache_academico.v_asignaturas_visibles_chat_alumno va 
+                ON va.id_asignatura = oa.id_asignatura
+            JOIN cache_academico.clases cl ON cl.id_clase = sc.id_clase
+            WHERE sc.id_sala = $1
+            UNION
+            SELECT vp.id_usuario_app
+            FROM comunicacion.salas_chat sc
+            JOIN cache_academico.oferta_asignaturas oa ON oa.id_oferta = sc.id_oferta
+            JOIN cache_academico.v_asignaturas_visibles_chat_profesor vp 
+                ON vp.id_asignatura = oa.id_asignatura
+            JOIN cache_academico.clases cl ON cl.id_clase = sc.id_clase
+            WHERE sc.id_sala = $1
+        ) sub
+    `, [roomId]);
+
+    return rows.map((row) => row.id_usuario_app);
+};
 
 // GET /chat/settings/:roomId — Obtener ajustes de la sala (delegados, soloProfesores)
 router.get("/settings/:roomId", async (req, res) => {
@@ -35,6 +85,119 @@ router.get("/settings/:roomId", async (req, res) => {
     } catch (err) {
         console.error("❌ Error en /chat/settings:", err);
         res.json({ ok: false, error: err.message });
+    }
+});
+
+router.get("/presence/:roomId", async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const memberIds = await getRoomMemberIds(roomId);
+        const snapshot = getPresenceSnapshot(memberIds);
+        return res.json({ ok: true, presence: snapshot });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.get("/events/:roomId", async (req, res) => {
+    try {
+        return res.json({ ok: true, events: await listEventsByRoomDb(req.params.roomId) });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.post("/events", async (req, res) => {
+    try {
+        const { roomId, title, description, startsAt, kind } = req.body || {};
+        if (!roomId || !title || !startsAt) {
+            return res.status(400).json({ ok: false, msg: "roomId, title y startsAt son obligatorios" });
+        }
+
+        const event = await createRoomEventDb({
+            roomId,
+            title,
+            description,
+            startsAt,
+            kind,
+            createdBy: req.currentUser.id_usuario_app,
+            createdByName: req.currentUser.nombre,
+        });
+
+        req.app.get("io")?.to(String(roomId)).emit("chat:event_created", event);
+        return res.json({ ok: true, event });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.get("/polls/:roomId", async (req, res) => {
+    try {
+        return res.json({ ok: true, polls: await listPollsByRoomDb(req.params.roomId) });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.get("/pins/:roomId", async (req, res) => {
+    try {
+        return res.json({ ok: true, pins: await listPinsByRoomDb(req.params.roomId) });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.post("/polls", async (req, res) => {
+    try {
+        const { roomId, question, options, multiple } = req.body || {};
+        const cleanOptions = Array.isArray(options)
+            ? options.map((item) => String(item || "").trim()).filter(Boolean)
+            : [];
+
+        if (!roomId || !question || cleanOptions.length < 2) {
+            return res.status(400).json({ ok: false, msg: "roomId, question y al menos 2 opciones son obligatorios" });
+        }
+
+        const poll = await createRoomPollDb({
+            roomId,
+            question,
+            options: cleanOptions,
+            multiple,
+            createdBy: req.currentUser.id_usuario_app,
+            createdByName: req.currentUser.nombre,
+        });
+
+        req.app.get("io")?.to(String(roomId)).emit("chat:poll_created", poll);
+        return res.json({ ok: true, poll });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.post("/polls/:pollId/vote", async (req, res) => {
+    try {
+        const { pollId } = req.params;
+        const { roomId, optionId } = req.body || {};
+        if (!roomId || !optionId) {
+            return res.status(400).json({ ok: false, msg: "roomId y optionId son obligatorios" });
+        }
+
+        const poll = await voteRoomPollDb({
+            roomId,
+            pollId,
+            optionId,
+            userId: req.currentUser.id_usuario_app,
+            userName: req.currentUser.nombre,
+        });
+
+        if (!poll) {
+            return res.status(404).json({ ok: false, msg: "Encuesta no encontrada" });
+        }
+
+        req.app.get("io")?.to(String(roomId)).emit("chat:poll_updated", poll);
+        return res.json({ ok: true, poll });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
     }
 });
 
