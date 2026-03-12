@@ -23,6 +23,9 @@ export const initCollabTables = async () => {
           room_id TEXT NOT NULL,
           pregunta TEXT NOT NULL,
           multiple BOOLEAN NOT NULL DEFAULT FALSE,
+          expires_at BIGINT,
+          closed_at BIGINT,
+          result_announced BOOLEAN NOT NULL DEFAULT FALSE,
           created_at BIGINT NOT NULL,
           created_by TEXT NOT NULL,
           created_by_name TEXT NOT NULL
@@ -57,6 +60,18 @@ export const initCollabTables = async () => {
           expires_at BIGINT NOT NULL
         );
       `);
+
+      const alterStatements = [
+        `ALTER TABLE comunicacion.chat_encuestas ADD COLUMN expires_at BIGINT`,
+        `ALTER TABLE comunicacion.chat_encuestas ADD COLUMN closed_at BIGINT`,
+        `ALTER TABLE comunicacion.chat_encuestas ADD COLUMN result_announced BOOLEAN NOT NULL DEFAULT FALSE`,
+      ];
+
+      for (const statement of alterStatements) {
+        try {
+          await appDb.query(statement);
+        } catch {}
+      }
     })();
   }
 
@@ -115,6 +130,9 @@ export const listPollsByRoomDb = async (roomId) => {
       e.room_id,
       e.pregunta,
       e.multiple,
+      e.expires_at,
+      e.closed_at,
+      e.result_announced,
       e.created_at,
       e.created_by,
       e.created_by_name,
@@ -139,6 +157,9 @@ export const listPollsByRoomDb = async (roomId) => {
         roomId: row.room_id,
         question: row.pregunta,
         multiple: row.multiple,
+        expiresAt: row.expires_at,
+        closedAt: row.closed_at,
+        resultAnnounced: row.result_announced,
         createdAt: row.created_at,
         createdBy: row.created_by,
         createdByName: row.created_by_name,
@@ -165,7 +186,7 @@ export const listPollsByRoomDb = async (roomId) => {
   return Array.from(pollMap.values());
 };
 
-export const createRoomPollDb = async ({ roomId, question, options, createdBy, createdByName, multiple = false }) => {
+export const createRoomPollDb = async ({ roomId, question, options, createdBy, createdByName, multiple = false, expiresAt = null }) => {
   await initCollabTables();
   const poll = {
     id: `poll_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -177,6 +198,9 @@ export const createRoomPollDb = async ({ roomId, question, options, createdBy, c
       votes: [],
     })),
     multiple: Boolean(multiple),
+    expiresAt: expiresAt ? (typeof expiresAt === "number" ? expiresAt : Date.parse(expiresAt)) : null,
+    closedAt: null,
+    resultAnnounced: false,
     createdAt: Date.now(),
     createdBy: String(createdBy),
     createdByName: String(createdByName || "Usuario"),
@@ -186,9 +210,9 @@ export const createRoomPollDb = async ({ roomId, question, options, createdBy, c
   try {
     await appDb.query(`
       INSERT INTO comunicacion.chat_encuestas
-        (id_encuesta, room_id, pregunta, multiple, created_at, created_by, created_by_name)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
-    `, [poll.id, poll.roomId, poll.question, poll.multiple, poll.createdAt, poll.createdBy, poll.createdByName]);
+        (id_encuesta, room_id, pregunta, multiple, expires_at, closed_at, result_announced, created_at, created_by, created_by_name)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    `, [poll.id, poll.roomId, poll.question, poll.multiple, poll.expiresAt, poll.closedAt, poll.resultAnnounced, poll.createdAt, poll.createdBy, poll.createdByName]);
 
     for (const option of poll.options) {
       await appDb.query(`
@@ -207,6 +231,18 @@ export const createRoomPollDb = async ({ roomId, question, options, createdBy, c
 
 export const voteRoomPollDb = async ({ roomId, pollId, optionId, userId, userName }) => {
   await initCollabTables();
+  const { rows: metaRows } = await appDb.query(`
+    SELECT expires_at, closed_at
+    FROM comunicacion.chat_encuestas
+    WHERE id_encuesta = $1 AND room_id = $2
+  `, [pollId, String(roomId)]);
+
+  if (!metaRows.length) return null;
+  const pollMeta = metaRows[0];
+  if (pollMeta.closed_at || (pollMeta.expires_at && pollMeta.expires_at <= Date.now())) {
+    return null;
+  }
+
   await appDb.query("BEGIN");
   try {
     await appDb.query(`
@@ -228,6 +264,82 @@ export const voteRoomPollDb = async ({ roomId, pollId, optionId, userId, userNam
 
   const polls = await listPollsByRoomDb(roomId);
   return polls.find((poll) => poll.id === pollId) || null;
+};
+
+export const deleteRoomEventDb = async ({ roomId, eventId }) => {
+  await initCollabTables();
+  await appDb.query(`
+    DELETE FROM comunicacion.chat_eventos
+    WHERE id_evento = $1 AND room_id = $2
+  `, [String(eventId), String(roomId)]);
+};
+
+const computePollWinner = (poll) => {
+  const sorted = [...(poll.options || [])].sort((a, b) => (b.votes?.length || 0) - (a.votes?.length || 0));
+  return sorted[0] || null;
+};
+
+export const buildPollResultMessage = (poll) => {
+  const winner = computePollWinner(poll);
+  const winnerText = winner ? `${winner.text} (${winner.votes?.length || 0} votos)` : 'sin votos';
+  return {
+    msg_id: `system_poll_${poll.id}_${Date.now()}`,
+    roomId: poll.roomId,
+    senderId: 'system',
+    senderName: 'TuChat',
+    nombreEmisor: 'TuChat',
+    text: `Resultado de la encuesta "${poll.question}": ${winnerText}`,
+    contenido: `Resultado de la encuesta "${poll.question}": ${winnerText}`,
+    timestamp: Date.now(),
+    read: false,
+    isSystem: true,
+  };
+};
+
+export const closePollDb = async ({ roomId, pollId, announceResults = true }) => {
+  await initCollabTables();
+  await appDb.query(`
+    UPDATE comunicacion.chat_encuestas
+    SET closed_at = COALESCE(closed_at, $3),
+        result_announced = CASE WHEN $4 THEN TRUE ELSE result_announced END
+    WHERE id_encuesta = $1 AND room_id = $2
+  `, [String(pollId), String(roomId), Date.now(), announceResults]);
+
+  const polls = await listPollsByRoomDb(roomId);
+  const poll = polls.find((item) => item.id === pollId) || null;
+  return poll;
+};
+
+export const expirePollsAndCollectAnnouncementsDb = async (roomId) => {
+  await initCollabTables();
+  const { rows } = await appDb.query(`
+    SELECT id_encuesta
+    FROM comunicacion.chat_encuestas
+    WHERE room_id = $1
+      AND expires_at IS NOT NULL
+      AND expires_at <= $2
+      AND closed_at IS NULL
+  `, [String(roomId), Date.now()]);
+
+  const announcements = [];
+  for (const row of rows) {
+    const poll = await closePollDb({ roomId, pollId: row.id_encuesta, announceResults: true });
+    if (poll) {
+      announcements.push({ poll, message: buildPollResultMessage(poll) });
+    }
+  }
+  return announcements;
+};
+
+export const deletePollDb = async ({ roomId, pollId }) => {
+  await initCollabTables();
+  const polls = await listPollsByRoomDb(roomId);
+  const poll = polls.find((item) => item.id === pollId) || null;
+  await appDb.query(`
+    DELETE FROM comunicacion.chat_encuestas
+    WHERE id_encuesta = $1 AND room_id = $2
+  `, [String(pollId), String(roomId)]);
+  return poll;
 };
 
 export const listPinsByRoomDb = async (roomId) => {

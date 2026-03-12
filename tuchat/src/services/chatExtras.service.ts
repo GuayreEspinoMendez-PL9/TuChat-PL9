@@ -38,6 +38,15 @@ export const createRoomEventRequest = async (payload: {
   return data?.event;
 };
 
+export const deleteRoomEventRequest = async (payload: { roomId: string; eventId: string }) => {
+  const headers = await authHeaders();
+  const { data } = await axios.delete(`${API_URL}/chat/events/${payload.eventId}`, {
+    headers,
+    data: { roomId: payload.roomId },
+  });
+  return data;
+};
+
 export const fetchRoomPolls = async (roomId: string) => {
   const headers = await authHeaders();
   const { data } = await axios.get(`${API_URL}/chat/polls/${roomId}`, { headers });
@@ -55,6 +64,7 @@ export const createRoomPollRequest = async (payload: {
   question: string;
   options: string[];
   multiple?: boolean;
+  expiresAt?: string | null;
 }) => {
   const headers = await authHeaders();
   const { data } = await axios.post(`${API_URL}/chat/polls`, payload, { headers });
@@ -72,4 +82,21 @@ export const votePollRequest = async (payload: {
     optionId: payload.optionId,
   }, { headers });
   return data?.poll;
+};
+
+export const closePollRequest = async (payload: { roomId: string; pollId: string }) => {
+  const headers = await authHeaders();
+  const { data } = await axios.post(`${API_URL}/chat/polls/${payload.pollId}/close`, {
+    roomId: payload.roomId,
+  }, { headers });
+  return data?.poll;
+};
+
+export const deletePollRequest = async (payload: { roomId: string; pollId: string }) => {
+  const headers = await authHeaders();
+  const { data } = await axios.delete(`${API_URL}/chat/polls/${payload.pollId}`, {
+    headers,
+    data: { roomId: payload.roomId },
+  });
+  return data;
 };

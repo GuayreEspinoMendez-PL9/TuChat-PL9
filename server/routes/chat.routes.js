@@ -5,8 +5,13 @@ import {
     getPresenceSnapshot,
 } from "../services/collab.store.js";
 import {
+    buildPollResultMessage,
+    closePollDb,
     createRoomEventDb,
     createRoomPollDb,
+    deletePollDb,
+    deleteRoomEventDb,
+    expirePollsAndCollectAnnouncementsDb,
     listEventsByRoomDb,
     listPinsByRoomDb,
     listPollsByRoomDb,
@@ -54,6 +59,40 @@ const getRoomMemberIds = async (roomId) => {
     `, [roomId]);
 
     return rows.map((row) => row.id_usuario_app);
+};
+
+const canManageRoomExtras = async (roomId, currentUser) => {
+    if (currentUser?.tipo_externo === 'PROFESOR' || currentUser?.id_rol === 2) {
+        return true;
+    }
+
+    const privateChat = await appDb.query(
+        `SELECT 1
+         FROM comunicacion.chats_privados
+         WHERE id_chat_privado = $1`,
+        [roomId]
+    );
+    if (privateChat.rows.length > 0) {
+        return false;
+    }
+
+    const { rows } = await appDb.query(
+        `SELECT configuracion FROM comunicacion.salas_chat WHERE id_sala = $1`,
+        [roomId]
+    );
+
+    const config = rows[0]?.configuracion || {};
+    return Array.isArray(config.delegados) && config.delegados.includes(currentUser?.id_usuario_app);
+};
+
+const emitChatSystemMessage = async (req, roomId, message, memberIds = []) => {
+    const io = req.app.get("io");
+    io?.to(String(roomId)).emit("chat:receive", message);
+    memberIds.forEach((userId) => {
+        if (String(userId) !== String(message.senderId)) {
+            io?.to(`user:${userId}`).emit("chat:receive", message);
+        }
+    });
 };
 
 // GET /chat/settings/:roomId — Obtener ajustes de la sala (delegados, soloProfesores)
@@ -113,6 +152,9 @@ router.post("/events", async (req, res) => {
         if (!roomId || !title || !startsAt) {
             return res.status(400).json({ ok: false, msg: "roomId, title y startsAt son obligatorios" });
         }
+        if (!(await canManageRoomExtras(roomId, req.currentUser))) {
+            return res.status(403).json({ ok: false, msg: "Solo profesorado o delegados pueden gestionar eventos" });
+        }
 
         const event = await createRoomEventDb({
             roomId,
@@ -131,9 +173,37 @@ router.post("/events", async (req, res) => {
     }
 });
 
+router.delete("/events/:eventId", async (req, res) => {
+    try {
+        const { eventId } = req.params;
+        const { roomId } = req.body || {};
+        if (!roomId) {
+            return res.status(400).json({ ok: false, msg: "roomId es obligatorio" });
+        }
+        if (!(await canManageRoomExtras(roomId, req.currentUser))) {
+            return res.status(403).json({ ok: false, msg: "Solo profesorado o delegados pueden eliminar eventos" });
+        }
+
+        await deleteRoomEventDb({ roomId, eventId });
+        req.app.get("io")?.to(String(roomId)).emit("chat:event_deleted", { eventId, roomId });
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
 router.get("/polls/:roomId", async (req, res) => {
     try {
-        return res.json({ ok: true, polls: await listPollsByRoomDb(req.params.roomId) });
+        const roomId = req.params.roomId;
+        const announcements = await expirePollsAndCollectAnnouncementsDb(roomId);
+        if (announcements.length > 0) {
+            const memberIds = await getRoomMemberIds(roomId);
+            for (const item of announcements) {
+                req.app.get("io")?.to(String(roomId)).emit("chat:poll_updated", item.poll);
+                await emitChatSystemMessage(req, roomId, item.message, memberIds);
+            }
+        }
+        return res.json({ ok: true, polls: await listPollsByRoomDb(roomId) });
     } catch (err) {
         return res.status(500).json({ ok: false, error: err.message });
     }
@@ -157,12 +227,16 @@ router.post("/polls", async (req, res) => {
         if (!roomId || !question || cleanOptions.length < 2) {
             return res.status(400).json({ ok: false, msg: "roomId, question y al menos 2 opciones son obligatorios" });
         }
+        if (!(await canManageRoomExtras(roomId, req.currentUser))) {
+            return res.status(403).json({ ok: false, msg: "Solo profesorado o delegados pueden crear encuestas" });
+        }
 
         const poll = await createRoomPollDb({
             roomId,
             question,
             options: cleanOptions,
             multiple,
+            expiresAt: req.body?.expiresAt || null,
             createdBy: req.currentUser.id_usuario_app,
             createdByName: req.currentUser.nombre,
         });
@@ -182,6 +256,15 @@ router.post("/polls/:pollId/vote", async (req, res) => {
             return res.status(400).json({ ok: false, msg: "roomId y optionId son obligatorios" });
         }
 
+        const announcements = await expirePollsAndCollectAnnouncementsDb(roomId);
+        if (announcements.length > 0) {
+            const memberIds = await getRoomMemberIds(roomId);
+            for (const item of announcements) {
+                req.app.get("io")?.to(String(roomId)).emit("chat:poll_updated", item.poll);
+                await emitChatSystemMessage(req, roomId, item.message, memberIds);
+            }
+        }
+
         const poll = await voteRoomPollDb({
             roomId,
             pollId,
@@ -191,11 +274,60 @@ router.post("/polls/:pollId/vote", async (req, res) => {
         });
 
         if (!poll) {
-            return res.status(404).json({ ok: false, msg: "Encuesta no encontrada" });
+            return res.status(404).json({ ok: false, msg: "Encuesta no encontrada o ya cerrada" });
         }
 
         req.app.get("io")?.to(String(roomId)).emit("chat:poll_updated", poll);
         return res.json({ ok: true, poll });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.post("/polls/:pollId/close", async (req, res) => {
+    try {
+        const { pollId } = req.params;
+        const { roomId } = req.body || {};
+        if (!roomId) {
+            return res.status(400).json({ ok: false, msg: "roomId es obligatorio" });
+        }
+        if (!(await canManageRoomExtras(roomId, req.currentUser))) {
+            return res.status(403).json({ ok: false, msg: "Solo profesorado o delegados pueden cerrar encuestas" });
+        }
+
+        const poll = await closePollDb({ roomId, pollId, announceResults: true });
+        if (!poll) {
+            return res.status(404).json({ ok: false, msg: "Encuesta no encontrada" });
+        }
+
+        const memberIds = await getRoomMemberIds(roomId);
+        const message = buildPollResultMessage(poll);
+        req.app.get("io")?.to(String(roomId)).emit("chat:poll_updated", poll);
+        await emitChatSystemMessage(req, roomId, message, memberIds);
+        return res.json({ ok: true, poll, message });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+router.delete("/polls/:pollId", async (req, res) => {
+    try {
+        const { pollId } = req.params;
+        const { roomId } = req.body || {};
+        if (!roomId) {
+            return res.status(400).json({ ok: false, msg: "roomId es obligatorio" });
+        }
+        if (!(await canManageRoomExtras(roomId, req.currentUser))) {
+            return res.status(403).json({ ok: false, msg: "Solo profesorado o delegados pueden eliminar encuestas" });
+        }
+
+        const poll = await deletePollDb({ roomId, pollId });
+        req.app.get("io")?.to(String(roomId)).emit("chat:poll_deleted", { roomId, pollId });
+        if (poll) {
+            const memberIds = await getRoomMemberIds(roomId);
+            await emitChatSystemMessage(req, roomId, buildPollResultMessage(poll), memberIds);
+        }
+        return res.json({ ok: true });
     } catch (err) {
         return res.status(500).json({ ok: false, error: err.message });
     }

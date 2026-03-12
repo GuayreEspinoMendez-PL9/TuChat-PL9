@@ -35,8 +35,11 @@ import { decodeJwt } from '../../utils/auth';
 import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
 import { useTheme } from '../../context/ThemeContext';
 import {
+  closePollRequest,
   createRoomEventRequest,
   createRoomPollRequest,
+  deletePollRequest,
+  deleteRoomEventRequest,
   fetchRoomEvents,
   fetchRoomPins,
   fetchRoomPolls,
@@ -284,6 +287,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [eventDate, setEventDate] = useState('');
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollExpiry, setPollExpiry] = useState('');
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null); // New ref for input
@@ -315,6 +319,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   // Calcular si el usuario puede fijar mensajes (profesor O delegado)
   const canPin = esProfesor || delegados.includes(myUserId);
+  const canManageExtras = canPin;
 
   useEffect(() => {
     let cancelled = false;
@@ -570,6 +575,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       setPolls(prev => prev.map(item => item.id === poll.id ? poll : item));
     };
 
+    const handleEventDeleted = ({ eventId }: { eventId: string }) => {
+      setEvents(prev => prev.filter(item => item.id !== eventId));
+    };
+
+    const handlePollDeleted = ({ pollId }: { pollId: string }) => {
+      setPolls(prev => prev.filter(item => item.id !== pollId));
+    };
+
     const handleTyping = ({ userName }: { userName: string }) => {
       setTypingUserName(userName || 'Alguien');
     };
@@ -587,6 +600,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     socket.on("chat:event_created", handleEventCreated);
     socket.on("chat:poll_created", handlePollCreated);
     socket.on("chat:poll_updated", handlePollUpdated);
+    socket.on("chat:event_deleted", handleEventDeleted);
+    socket.on("chat:poll_deleted", handlePollDeleted);
     socket.on("chat:user_typing", handleTyping);
     socket.on("chat:user_stopped_typing", handleStopTyping);
 
@@ -600,6 +615,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       socket.off("chat:event_created", handleEventCreated);
       socket.off("chat:poll_created", handlePollCreated);
       socket.off("chat:poll_updated", handlePollUpdated);
+      socket.off("chat:event_deleted", handleEventDeleted);
+      socket.off("chat:poll_deleted", handlePollDeleted);
       socket.off("chat:user_typing", handleTyping);
       socket.off("chat:user_stopped_typing", handleStopTyping);
     };
@@ -675,6 +692,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   };
 
   const createEvent = async () => {
+    if (!canManageExtras) {
+      Alert.alert('Sin permisos', 'Solo profesorado o delegados pueden crear eventos.');
+      return;
+    }
     if (!eventTitle.trim() || !eventDate.trim()) {
       Alert.alert('Faltan datos', 'Indica al menos un título y una fecha válida.');
       return;
@@ -703,6 +724,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   };
 
   const createPoll = async () => {
+    if (!canManageExtras) {
+      Alert.alert('Sin permisos', 'Solo profesorado o delegados pueden crear encuestas.');
+      return;
+    }
     const cleanOptions = pollOptions.map(option => option.trim()).filter(Boolean);
     if (!pollQuestion.trim() || cleanOptions.length < 2) {
       Alert.alert('Faltan datos', 'La encuesta necesita una pregunta y al menos dos opciones.');
@@ -714,6 +739,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         roomId: id,
         question: pollQuestion.trim(),
         options: cleanOptions,
+        expiresAt: pollExpiry.trim() ? new Date(pollExpiry).toISOString() : null,
       });
 
       if (poll) {
@@ -722,6 +748,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         setShowExtrasPanel('polls');
         setPollQuestion('');
         setPollOptions(['', '']);
+        setPollExpiry('');
       }
     } catch (e) {
       Alert.alert('Error', 'No se pudo crear la encuesta.');
@@ -736,6 +763,35 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }
     } catch (e) {
       Alert.alert('Error', 'No se pudo registrar el voto.');
+    }
+  };
+
+  const deleteEvent = async (eventId: string) => {
+    try {
+      await deleteRoomEventRequest({ roomId: id, eventId });
+      setEvents(prev => prev.filter(item => item.id !== eventId));
+    } catch {
+      Alert.alert('Error', 'No se pudo eliminar el evento.');
+    }
+  };
+
+  const closePoll = async (pollId: string) => {
+    try {
+      const updated = await closePollRequest({ roomId: id, pollId });
+      if (updated) {
+        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
+      }
+    } catch {
+      Alert.alert('Error', 'No se pudo cerrar la encuesta.');
+    }
+  };
+
+  const deletePoll = async (pollId: string) => {
+    try {
+      await deletePollRequest({ roomId: id, pollId });
+      setPolls(prev => prev.filter(item => item.id !== pollId));
+    } catch {
+      Alert.alert('Error', 'No se pudo eliminar la encuesta.');
     }
   };
 
@@ -770,7 +826,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       mentions,
       esProfesor: esProfesor,
       status: 'sending',
-      read: false,
+      read: true,
+      isMe: true,
       replyTo: replyingTo ? {
         id: replyingTo.msg_id,
         senderName: replyingTo.senderName || replyingTo.nombreEmisor || "Usuario",
@@ -796,7 +853,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       ));
     });
 
-    if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', delivered: true });
+    if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', delivered: true, isMe: true, read: true });
     setSending(false);
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
   };
@@ -1065,15 +1122,24 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Próximos eventos</Text>
-              <TouchableOpacity onPress={() => setShowEventModal(true)}>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Nuevo</Text>
-              </TouchableOpacity>
+              {canManageExtras && (
+                <TouchableOpacity onPress={() => setShowEventModal(true)}>
+                  <Text style={{ color: colors.primary, fontWeight: '700' }}>Nuevo</Text>
+                </TouchableOpacity>
+              )}
             </View>
             {upcomingEvents.length === 0 ? (
               <Text style={{ color: colors.textMuted }}>Todavía no hay eventos programados.</Text>
             ) : upcomingEvents.map((event) => (
               <View key={event.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
-                <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{event.title}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700', flex: 1 }}>{event.title}</Text>
+                  {canManageExtras && (
+                    <TouchableOpacity onPress={() => deleteEvent(event.id)} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: colors.dangerBg }}>
+                      <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Eliminar</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
                 {!!event.description && <Text style={{ color: colors.textSecondary, marginTop: 2 }}>{event.description}</Text>}
                 <Text style={{ color: colors.primary, marginTop: 4, fontWeight: '600' }}>
                   {new Date(event.startsAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
@@ -1087,29 +1153,54 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Encuestas rápidas</Text>
-              <TouchableOpacity onPress={() => setShowPollModal(true)}>
-                <Text style={{ color: colors.primary, fontWeight: '700' }}>Nueva</Text>
-              </TouchableOpacity>
+              {canManageExtras && (
+                <TouchableOpacity onPress={() => setShowPollModal(true)}>
+                  <Text style={{ color: colors.primary, fontWeight: '700' }}>Nueva</Text>
+                </TouchableOpacity>
+              )}
             </View>
             {visiblePolls.length === 0 ? (
               <Text style={{ color: colors.textMuted }}>Todavía no hay encuestas activas.</Text>
             ) : visiblePolls.map((poll) => (
               <View key={poll.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
-                <Text style={{ color: colors.textPrimary, fontWeight: '700', marginBottom: 8 }}>{poll.question}</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>{poll.question}</Text>
+                    {!!poll.expiresAt && (
+                      <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
+                        {poll.closedAt ? 'Cerrada' : `Cierra: ${new Date(poll.expiresAt).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
+                      </Text>
+                    )}
+                  </View>
+                  {canManageExtras && (
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      {!poll.closedAt && (
+                        <TouchableOpacity onPress={() => closePoll(poll.id)} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: colors.primaryBg }}>
+                          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity onPress={() => deletePoll(poll.id)} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: colors.dangerBg }}>
+                        <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 12 }}>Eliminar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
                 {poll.options.map((option: any) => {
                   const voted = option.votes?.some((vote: any) => String(vote.userId) === String(myUserId));
                   return (
                     <TouchableOpacity
                       key={option.id}
-                      onPress={() => votePoll(poll.id, option.id)}
+                      onPress={() => !poll.closedAt && votePoll(poll.id, option.id)}
+                      disabled={!!poll.closedAt}
                       style={{
                         paddingHorizontal: 12,
                         paddingVertical: 10,
                         borderRadius: 12,
-                        backgroundColor: voted ? colors.primaryBg : colors.background,
+                        backgroundColor: poll.closedAt ? colors.surfaceHover : voted ? colors.primaryBg : colors.background,
                         borderWidth: 1,
                         borderColor: voted ? colors.primary : colors.border,
                         marginBottom: 8,
+                        opacity: poll.closedAt ? 0.7 : 1,
                       }}
                     >
                       <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{option.text}</Text>
@@ -1782,10 +1873,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           title="Nueva encuesta"
           fields={[
             { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
+            { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional: 2026-03-20 10:30' },
             ...pollOptions.map((option, index) => ({
               value: option,
               onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
               placeholder: `Opción ${index + 1}`,
+              removable: pollOptions.length > 2,
+              onRemove: () => setPollOptions(prev => prev.filter((_, idx) => idx !== index)),
             })),
           ]}
           footerAction={{
@@ -1867,10 +1961,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         title="Nueva encuesta"
         fields={[
           { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
+          { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional: 2026-03-20 10:30' },
           ...pollOptions.map((option, index) => ({
             value: option,
             onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
             placeholder: `Opción ${index + 1}`,
+            removable: pollOptions.length > 2,
+            onRemove: () => setPollOptions(prev => prev.filter((_, idx) => idx !== index)),
           })),
         ]}
         footerAction={{
@@ -1897,46 +1994,54 @@ const QuickFormModal = ({
 }: {
   visible: boolean;
   title: string;
-  fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string }>;
+  fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string; removable?: boolean; onRemove?: () => void }>;
   onClose: () => void;
   onConfirm: () => void;
   confirmLabel: string;
   footerAction?: { label: string; onPress: () => void };
 }) => {
+  const { colors } = useTheme();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', justifyContent: 'center', padding: 20 }}>
-        <View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 18 }}>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 14 }}>{title}</Text>
+      <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 20 }}>
+        <View style={{ backgroundColor: colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: colors.border }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 }}>{title}</Text>
           {fields.map((field, index) => (
-            <TextInput
-              key={`${field.placeholder}-${index}`}
-              value={field.value}
-              onChangeText={field.onChangeText}
-              placeholder={field.placeholder}
-              placeholderTextColor="#94a3b8"
-              style={{
-                borderWidth: 1,
-                borderColor: '#cbd5e1',
-                borderRadius: 12,
-                paddingHorizontal: 12,
-                paddingVertical: 10,
-                color: '#0f172a',
-                marginBottom: 10,
-              }}
-            />
+            <View key={`${field.placeholder}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <TextInput
+                value={field.value}
+                onChangeText={field.onChangeText}
+                placeholder={field.placeholder}
+                placeholderTextColor={colors.placeholder}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: colors.inputBorder,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.inputText,
+                  backgroundColor: colors.inputBg,
+                }}
+              />
+              {field.removable && field.onRemove && (
+                <TouchableOpacity onPress={field.onRemove} style={{ paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.dangerBg }}>
+                  <Text style={{ color: colors.danger, fontWeight: '700' }}>X</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           ))}
           {footerAction && (
             <TouchableOpacity onPress={footerAction.onPress} style={{ marginBottom: 14 }}>
-              <Text style={{ color: '#4f46e5', fontWeight: '700' }}>{footerAction.label}</Text>
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>{footerAction.label}</Text>
             </TouchableOpacity>
           )}
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
             <TouchableOpacity onPress={onClose} style={{ paddingHorizontal: 14, paddingVertical: 10 }}>
-              <Text style={{ color: '#64748b', fontWeight: '700' }}>Cancelar</Text>
+              <Text style={{ color: colors.textSecondary, fontWeight: '700' }}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={onConfirm} style={{ backgroundColor: '#4f46e5', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 }}>
-              <Text style={{ color: '#fff', fontWeight: '700' }}>{confirmLabel}</Text>
+            <TouchableOpacity onPress={onConfirm} style={{ backgroundColor: colors.primary, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 }}>
+              <Text style={{ color: colors.textOnPrimary, fontWeight: '700' }}>{confirmLabel}</Text>
             </TouchableOpacity>
           </View>
         </View>
