@@ -166,6 +166,18 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+const inferMediaType = (fileName?: string, mimeType?: string): 'image' | 'video' | 'file' => {
+  const mime = (mimeType || '').toLowerCase();
+  const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
+
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'heic'].includes(ext)) return 'image';
+  if (['mp4', 'mov', 'webm', 'm4v', 'avi', 'mkv'].includes(ext)) return 'video';
+
+  return 'file';
+};
+
 const fileToBase64Web = (uri: string): Promise<string> => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -911,6 +923,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
       if (result.assets && result.assets.length > 0) {
         const { uri, name, mimeType, size } = result.assets[0];
+        const mediaType = inferMediaType(name, mimeType);
 
         // Validar tamaño
         if (size && size > MAX_FILE_SIZE) {
@@ -926,11 +939,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           } else {
             dataUri = await fileToBase64Native(uri, mimeType || 'application/octet-stream');
           }
-          sendMessage(dataUri, 'file', name || 'archivo', size || 0, mimeType || 'application/octet-stream');
+          sendMessage(dataUri, mediaType, name || 'archivo', size || 0, mimeType || 'application/octet-stream');
         } catch (convErr) {
           console.error("Error convirtiendo archivo a base64:", convErr);
           // Fallback: enviar URI directamente
-          sendMessage(uri, 'file', name || 'archivo', size || 0, mimeType || 'application/octet-stream');
+          sendMessage(uri, mediaType, name || 'archivo', size || 0, mimeType || 'application/octet-stream');
         }
       }
     } catch (err) {
@@ -2197,41 +2210,137 @@ const QuickFormModal = ({
 };
 
 const ImageViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: string | null; onClose: () => void }) => {
-  const screenWidth = Dimensions.get('window').width;
-  const screenHeight = Dimensions.get('window').height;
+  const { colors } = useTheme();
+  const { width, height } = useWindowDimensions();
+  const frameWidth = Math.min(width - 24, 980);
+  const frameHeight = Math.min(height * 0.82, 780);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
-        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10 }} onPress={onClose}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Cerrar</Text>
-        </TouchableOpacity>
-        {uri && <Image source={{ uri }} style={{ width: screenWidth, height: screenHeight * 0.8 }} resizeMode="contain" />}
-      </View>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 12 }}>
+          <TouchableWithoutFeedback>
+            <View
+              style={{
+                width: frameWidth,
+                maxWidth: '100%',
+                borderRadius: 22,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.borderLight,
+                  backgroundColor: colors.surface,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Vista previa de imagen</Text>
+                <TouchableOpacity
+                  onPress={onClose}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    backgroundColor: colors.primaryBg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', padding: 10 }}>
+                {uri && (
+                  <Image
+                    source={{ uri }}
+                    style={{ width: frameWidth - 20, height: frameHeight }}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
 
 const VideoViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: string | null; onClose: () => void }) => {
-  const screenWidth = Dimensions.get('window').width;
-  const screenHeight = Dimensions.get('window').height;
+  const { colors } = useTheme();
+  const { width, height } = useWindowDimensions();
+  const frameWidth = Math.min(width - 24, 1100);
+  const videoWidth = frameWidth - 20;
+  const videoHeight = Math.min(height * 0.72, Math.max(240, videoWidth * 0.5625));
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center' }}>
-        <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10 }} onPress={onClose}>
-          <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Cerrar</Text>
-        </TouchableOpacity>
-        {uri && (
-          <Video
-            source={{ uri }}
-            style={{ width: screenWidth, height: screenHeight * 0.8 }}
-            useNativeControls
-            resizeMode={ResizeMode.CONTAIN}
-            shouldPlay
-          />
-        )}
-      </View>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <TouchableWithoutFeedback onPress={onClose}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: 12 }}>
+          <TouchableWithoutFeedback>
+            <View
+              style={{
+                width: frameWidth,
+                maxWidth: '100%',
+                borderRadius: 22,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+              }}
+            >
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.borderLight,
+                  backgroundColor: colors.surface,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Vista previa de video</Text>
+                <TouchableOpacity
+                  onPress={onClose}
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    borderRadius: 999,
+                    backgroundColor: colors.primaryBg,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Cerrar</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={{ backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', padding: 10 }}>
+                {uri && (
+                  <Video
+                    source={{ uri }}
+                    style={{ width: videoWidth, height: videoHeight, backgroundColor: '#000' }}
+                    useNativeControls
+                    resizeMode={ResizeMode.CONTAIN}
+                    shouldPlay={Platform.OS !== 'web'}
+                    isLooping={false}
+                  />
+                )}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
     </Modal>
   );
 };
