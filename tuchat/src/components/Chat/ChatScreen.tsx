@@ -2326,16 +2326,31 @@ const VideoViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: st
                 </TouchableOpacity>
               </View>
               <View style={{ backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', padding: 10 }}>
-                {uri && (
+                {uri && Platform.OS === 'web' ? (
+                  <video
+                    src={uri}
+                    controls
+                    autoPlay
+                    playsInline
+                    style={{
+                      width: '100%',
+                      maxWidth: videoWidth,
+                      maxHeight: videoHeight,
+                      display: 'block',
+                      borderRadius: 14,
+                      backgroundColor: '#000',
+                    }}
+                  />
+                ) : uri ? (
                   <Video
                     source={{ uri }}
-                    style={{ width: videoWidth, height: videoHeight, backgroundColor: '#000' }}
+                    style={{ width: videoWidth, height: videoHeight, backgroundColor: '#000', borderRadius: 14 }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={Platform.OS !== 'web'}
+                    shouldPlay
                     isLooping={false}
                   />
-                )}
+                ) : null}
               </View>
             </View>
           </TouchableWithoutFeedback>
