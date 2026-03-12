@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { Video, ResizeMode } from 'expo-av';
 import { router, useFocusEffect } from 'expo-router';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { styles } from './chat.styles';
 import {
   getMessagesByRoom,
@@ -116,6 +117,18 @@ const extractEmojiList = (payload: unknown): string[] => {
   }
 
   return Array.from(new Set(collected));
+};
+
+const formatDateTimeLocal = (date: Date) => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const toDateTimeLocalValue = (value: string) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return formatDateTimeLocal(parsed);
 };
 
 // ─── FILE HELPERS ────────────────────────────────────────
@@ -279,7 +292,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [myPresenceStatus, setMyPresenceStatus] = useState<'available' | 'in_class' | 'busy'>('available');
   const [events, setEvents] = useState<any[]>([]);
   const [polls, setPolls] = useState<any[]>([]);
-  const [showExtrasPanel, setShowExtrasPanel] = useState<'events' | 'polls' | null>(null);
+  const [showExtrasPanel, setShowExtrasPanel] = useState<'events' | 'polls' | 'mentions' | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [eventTitle, setEventTitle] = useState('');
@@ -290,6 +303,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [pollExpiry, setPollExpiry] = useState('');
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const hasAutoScrolledRef = useRef(false);
   const inputRef = useRef<TextInput>(null); // New ref for input
   const typingTimeoutRef = useRef<any>(null);
 
@@ -317,9 +331,26 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && width >= 768;
 
+  const scrollToBottom = (animated = true) => {
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated });
+    });
+  };
+
   // Calcular si el usuario puede fijar mensajes (profesor O delegado)
   const canPin = esProfesor || delegados.includes(myUserId);
   const canManageExtras = canPin;
+
+  useEffect(() => {
+    hasAutoScrolledRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (loading || messages.length === 0 || hasAutoScrolledRef.current) return;
+    hasAutoScrolledRef.current = true;
+    const timer = setTimeout(() => scrollToBottom(false), 80);
+    return () => clearTimeout(timer);
+  }, [loading, messages.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -674,6 +705,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     const next = `${input}${token}`;
     setInput(next);
     saveDraftLocal(id, next);
+    setShowInputEmojiPicker(false);
     inputRef.current?.focus();
   };
 
@@ -702,11 +734,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
 
     try {
+      const parsedEventDate = new Date(eventDate);
+      if (Number.isNaN(parsedEventDate.getTime())) {
+        Alert.alert('Fecha invÃ¡lida', 'Selecciona una fecha y hora vÃ¡lidas para el evento.');
+        return;
+      }
+
       const event = await createRoomEventRequest({
         roomId: id,
         title: eventTitle.trim(),
         description: eventDescription.trim(),
-        startsAt: new Date(eventDate).toISOString(),
+        startsAt: parsedEventDate.toISOString(),
         kind: 'academico',
       });
 
@@ -735,11 +773,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
 
     try {
+      const parsedPollExpiry = pollExpiry.trim() ? new Date(pollExpiry) : null;
+      if (parsedPollExpiry && Number.isNaN(parsedPollExpiry.getTime())) {
+        Alert.alert('Fecha invÃ¡lida', 'Selecciona una fecha y hora vÃ¡lidas para el cierre de la encuesta.');
+        return;
+      }
+
       const poll = await createRoomPollRequest({
         roomId: id,
         question: pollQuestion.trim(),
         options: cleanOptions,
-        expiresAt: pollExpiry.trim() ? new Date(pollExpiry).toISOString() : null,
+        expiresAt: parsedPollExpiry ? parsedPollExpiry.toISOString() : null,
       });
 
       if (poll) {
@@ -855,7 +899,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', delivered: true, isMe: true, read: true });
     setSending(false);
-    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    setTimeout(() => scrollToBottom(true), 100);
   };
 
   const pickDocument = async () => {
@@ -1053,10 +1097,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       <View style={{
         paddingHorizontal: 16,
         paddingTop: 10,
-        paddingBottom: 4,
+        paddingBottom: 8,
         gap: 10,
       }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
           {(['available', 'in_class', 'busy'] as const).map((statusKey) => {
             const meta = PRESENCE_META[statusKey];
             const selected = myPresenceStatus === statusKey;
@@ -1094,7 +1138,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Encuestas</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => quickMention('@todos ')}
+            onPress={() => setShowExtrasPanel(prev => prev === 'mentions' ? null : 'mentions')}
             style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
           >
             <AtSign size={15} color={colors.textSecondary} />
@@ -1102,8 +1146,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           </TouchableOpacity>
         </ScrollView>
 
-        {myMentionBadge.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+        {showExtrasPanel === 'mentions' && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 12 }}>
+            <TouchableOpacity onPress={() => quickMention('@todos ')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primaryBg }}>
+              <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 12 }}>@todos</Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => quickMention('@delegados ')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.primaryBg }}>
               <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 12 }}>@delegados</Text>
             </TouchableOpacity>
@@ -1221,8 +1268,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         keyExtractor={(item) => item.msg_id}
         contentContainerStyle={[styles.messagesList, { paddingHorizontal: 35 }]}
         onContentSizeChange={() => {
-          // Only scroll to end if we are near the bottom or sending
-          if (sending) flatListRef.current?.scrollToEnd({ animated: true });
+          if (!hasAutoScrolledRef.current && !loading && messages.length > 0) {
+            hasAutoScrolledRef.current = true;
+            scrollToBottom(false);
+            return;
+          }
+          if (sending) scrollToBottom(true);
         }}
         onScrollToIndexFailed={(info) => {
           flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
@@ -1862,7 +1913,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           fields={[
             { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
             { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
-            { value: eventDate, onChangeText: setEventDate, placeholder: '2026-03-20 10:30' },
+            { value: eventDate, onChangeText: setEventDate, placeholder: 'Fecha y hora del evento', type: 'datetime' },
           ]}
           confirmLabel="Crear evento"
           onClose={() => setShowEventModal(false)}
@@ -1873,7 +1924,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           title="Nueva encuesta"
           fields={[
             { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
-            { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional: 2026-03-20 10:30' },
+            { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional', type: 'datetime' },
             ...pollOptions.map((option, index) => ({
               value: option,
               onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
@@ -1950,7 +2001,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         fields={[
           { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
           { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
-          { value: eventDate, onChangeText: setEventDate, placeholder: '2026-03-20 10:30' },
+          { value: eventDate, onChangeText: setEventDate, placeholder: 'Fecha y hora del evento', type: 'datetime' },
         ]}
         confirmLabel="Crear evento"
         onClose={() => setShowEventModal(false)}
@@ -1961,7 +2012,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         title="Nueva encuesta"
         fields={[
           { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
-          { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional: 2026-03-20 10:30' },
+          { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional', type: 'datetime' },
           ...pollOptions.map((option, index) => ({
             value: option,
             onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
@@ -1994,40 +2045,135 @@ const QuickFormModal = ({
 }: {
   visible: boolean;
   title: string;
-  fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string; removable?: boolean; onRemove?: () => void }>;
+  fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string; type?: 'text' | 'datetime'; removable?: boolean; onRemove?: () => void }>;
   onClose: () => void;
   onConfirm: () => void;
   confirmLabel: string;
   footerAction?: { label: string; onPress: () => void };
 }) => {
   const { colors } = useTheme();
+  const [iosPickerField, setIosPickerField] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!visible) setIosPickerField(null);
+  }, [visible]);
+
+  const openNativeDatePicker = (field: { value: string; onChangeText: (value: string) => void; placeholder: string }, index: number) => {
+    const initialDate = field.value ? new Date(field.value) : new Date();
+    const safeDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
+
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: safeDate,
+        mode: 'date',
+        is24Hour: true,
+        onChange: (_, selectedDate) => {
+          if (!selectedDate) return;
+          DateTimePickerAndroid.open({
+            value: selectedDate,
+            mode: 'time',
+            is24Hour: true,
+            onChange: (_timeEvent, selectedTime) => {
+              if (!selectedTime) return;
+              const next = new Date(selectedDate);
+              next.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+              field.onChangeText(next.toISOString());
+            },
+          });
+        },
+      });
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      setIosPickerField((current) => (current === index ? null : index));
+    }
+  };
+
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 20 }}>
         <View style={{ backgroundColor: colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: colors.border }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 }}>{title}</Text>
           {fields.map((field, index) => (
-            <View key={`${field.placeholder}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <TextInput
-                value={field.value}
-                onChangeText={field.onChangeText}
-                placeholder={field.placeholder}
-                placeholderTextColor={colors.placeholder}
-                style={{
-                  flex: 1,
-                  borderWidth: 1,
-                  borderColor: colors.inputBorder,
-                  borderRadius: 12,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                  color: colors.inputText,
-                  backgroundColor: colors.inputBg,
-                }}
-              />
-              {field.removable && field.onRemove && (
-                <TouchableOpacity onPress={field.onRemove} style={{ paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.dangerBg }}>
-                  <Text style={{ color: colors.danger, fontWeight: '700' }}>X</Text>
-                </TouchableOpacity>
+            <View key={`${field.placeholder}-${index}`} style={{ marginBottom: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {field.type === 'datetime' ? (
+                  Platform.OS === 'web' ? (
+                    <input
+                      value={toDateTimeLocalValue(field.value)}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        field.onChangeText(nextValue ? new Date(nextValue).toISOString() : '');
+                      }}
+                      placeholder={field.placeholder}
+                      type="datetime-local"
+                      style={{
+                        flex: 1,
+                        borderWidth: 1,
+                        borderColor: colors.inputBorder,
+                        borderRadius: 12,
+                        padding: '10px 12px',
+                        color: colors.inputText,
+                        backgroundColor: colors.inputBg,
+                      } as React.CSSProperties}
+                    />
+                  ) : (
+                    <TouchableOpacity
+                      onPress={() => openNativeDatePicker(field, index)}
+                      style={{
+                        flex: 1,
+                        borderWidth: 1,
+                        borderColor: colors.inputBorder,
+                        borderRadius: 12,
+                        paddingHorizontal: 12,
+                        paddingVertical: 12,
+                        backgroundColor: colors.inputBg,
+                      }}
+                    >
+                      <Text style={{ color: field.value ? colors.inputText : colors.placeholder }}>
+                        {field.value
+                          ? new Date(field.value).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                          : field.placeholder}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                ) : (
+                  <TextInput
+                    value={field.value}
+                    onChangeText={field.onChangeText}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={colors.placeholder}
+                    style={{
+                      flex: 1,
+                      borderWidth: 1,
+                      borderColor: colors.inputBorder,
+                      borderRadius: 12,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      color: colors.inputText,
+                      backgroundColor: colors.inputBg,
+                    }}
+                  />
+                )}
+                
+                {field.removable && field.onRemove && (
+                  <TouchableOpacity onPress={field.onRemove} style={{ paddingHorizontal: 10, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.dangerBg }}>
+                    <Text style={{ color: colors.danger, fontWeight: '700' }}>X</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {field.type === 'datetime' && Platform.OS === 'ios' && iosPickerField === index && (
+                <View style={{ marginTop: 8, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.inputBg }}>
+                  <DateTimePicker
+                    value={field.value ? new Date(field.value) : new Date()}
+                    mode="datetime"
+                    display="inline"
+                    onChange={(_, selectedDate) => {
+                      if (selectedDate) field.onChangeText(selectedDate.toISOString());
+                    }}
+                  />
+                </View>
               )}
             </View>
           ))}

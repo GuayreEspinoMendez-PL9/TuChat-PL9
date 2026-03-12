@@ -273,18 +273,19 @@ export const styles = StyleSheet.create({
 
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     backgroundColor: '#F8FAFC',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     paddingHorizontal: 4,
-    paddingVertical: 4,
-    minHeight: 48,
+    paddingVertical: 6,
+    minHeight: 52,
   },
 
   attachButton: {
-    padding: 10,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -294,8 +295,10 @@ export const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1E293B',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 8,
     maxHeight: 100,
+    textAlignVertical: 'center',
+    alignSelf: 'center',
     ...Platform.select({
       web: {
         outlineStyle: 'none' as any,
@@ -310,7 +313,8 @@ export const styles = StyleSheet.create({
     backgroundColor: '#6366F1',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
+    marginLeft: 6,
+    alignSelf: 'center',
     ...Platform.select({
       ios: {
         shadowColor: '#6366F1',

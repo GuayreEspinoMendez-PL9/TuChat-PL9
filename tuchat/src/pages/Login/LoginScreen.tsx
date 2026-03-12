@@ -63,6 +63,7 @@ export default function LoginScreen() {
   const buttonScale = useRef(new Animated.Value(1)).current;
   const inputScaleUser = useRef(new Animated.Value(1)).current;
   const inputScalePass = useRef(new Animated.Value(1)).current;
+  const passwordInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     const subscription = Dimensions.addEventListener("change", ({ window }) => {
@@ -283,6 +284,8 @@ export default function LoginScreen() {
                         onChangeText={setIdentificador}
                         style={styles.input}
                         autoCapitalize="none"
+                        returnKeyType="next"
+                        onSubmitEditing={() => passwordInputRef.current?.focus()}
                         onFocus={() => handleInputFocus('user', inputScaleUser)}
                         onBlur={() => handleInputBlur(inputScaleUser)}
                       />
@@ -305,12 +308,15 @@ export default function LoginScreen() {
                         <LockIcon focused={focusedInput === 'password'} />
                       </View>
                       <TextInput
+                        ref={passwordInputRef}
                         placeholder="Ingrese su contraseña"
                         placeholderTextColor="#94a3b8"
                         value={password}
                         onChangeText={setPassword}
                         secureTextEntry={!showPassword}
                         style={[styles.input, { paddingRight: 50 }]}
+                        returnKeyType="go"
+                        onSubmitEditing={handleLogin}
                         onFocus={() => handleInputFocus('password', inputScalePass)}
                         onBlur={() => handleInputBlur(inputScalePass)}
                       />
