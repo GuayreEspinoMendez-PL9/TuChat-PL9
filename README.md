@@ -1,119 +1,266 @@
 # TUCHAT
 
-Plataforma de comunicacion academica para centros educativos, con soporte web y movil.
+Plataforma de comunicacion academica para centros educativos, con cliente web y movil y backend en tiempo real.
 
-Acceso web: https://tu-chat-pl-9.vercel.app
+Acceso web publicado: `https://tu-chat-pl-9.vercel.app`
 
-## Plataformas
+## Stack
+
+- Cliente: Expo + React Native + Expo Router
+- Tiempo real: Socket.IO
+- Backend: Express
+- Persistencia local:
+  - Movil: SQLite (`expo-sqlite`)
+  - Web: `localStorage`
+
+## Plataformas soportadas
+
 - Web
 - Android
 - iOS
 
-## Funcionalidades de la aplicacion
+## Funcionalidades actuales
 
 ### Acceso y sesion
-- Inicio de sesion con identificador institucional.
-- Cierre de sesion desde el menu principal.
-- Redireccion por perfil de usuario.
 
-### Inicio y navegacion de chats
-- Vista de conversaciones con dos pestañas:
-- Grupos academicos.
-- Chats privados.
-- Indicadores de mensajes no leidos por chat y por seccion.
+- Inicio de sesion con usuario institucional.
+- Cierre de sesion desde la aplicacion.
+- Carga de perfil y rol de usuario.
+
+### Chats y navegacion
+
+- Lista de conversaciones dividida en:
+  - Grupos academicos
+  - Chats privados
 - Vista responsive:
-- En escritorio se muestra lista + chat en paralelo.
-- En movil se abre la conversacion en pantalla completa.
+  - Escritorio: listado + chat en paralelo
+  - Movil: conversacion a pantalla completa
+- Conteo de no leidos por chat y por seccion.
+- Navegacion directa al mensaje cuando se abre un resultado de busqueda o un elemento importante.
 
 ### Mensajeria en tiempo real
+
 - Envio y recepcion instantanea de mensajes.
-- Estados de mensaje (enviado, entregado, leido).
-- Respuesta a mensajes (hilos ligeros dentro de la conversacion).
-- Copiado rapido de contenido.
+- Estados de mensaje:
+  - Enviado
+  - Entregado
+  - Leido
+- Respuesta a mensajes.
 - Reacciones con emojis.
-- Menus de acciones por mensaje.
+- Copia rapida de mensajes.
+- Indicador de escritura.
+- Estado de presencia:
+  - Disponible
+  - En clase
+  - Ocupado
+
+### Mensajeria academica avanzada
+
+- Hilos tematicos por `threadTopic` dentro del grupo.
+- Tipos de mensaje docente:
+  - Anuncio oficial
+  - Obligatorio leer
+  - Material evaluable
+  - Cambio urgente
+- Confirmacion de lectura fuerte con lista de lectores.
+- Filtros por hilo dentro del chat.
+
+### Busqueda avanzada
+
+- Busqueda global por:
+  - Texto del mensaje
+  - Archivo
+  - Persona
+  - Tipo de mensaje
+  - Hilo
+  - Fecha
+  - Eventos
+  - Encuestas
+  - Pines
+- Filtros rapidos:
+  - Importantes
+  - Archivos
+  - Lectura fuerte
+- Apertura directa del chat y del punto relevante:
+  - Mensaje concreto
+  - Panel de eventos
+  - Panel de encuestas
+  - Info del chat
+
+### Bandeja de importantes
+
+- Vista "Solo importante" desde el inicio.
+- Incluye:
+  - Mensajes docentes marcados como importantes
+  - Eventos
+  - Encuestas
+  - Pines activos
 
 ### Archivos y multimedia
+
 - Envio de imagenes, videos y documentos.
-- Vista previa de imagen y video dentro del chat.
-- Apertura/descarga de archivos adjuntos.
-- Validacion de tamano maximo en adjuntos para evitar errores de envio.
+- Vista previa de imagen y video.
+- Centro de archivos dentro de `ChatInfoScreen`.
+- Filtros por tipo:
+  - Documentos
+  - Imagenes
+  - Videos
+  - Enlaces
+  - Importantes
+  - Lectura fuerte
+- Acciones desde archivos:
+  - Abrir recurso
+  - Ir al mensaje original
 
-### Mensajes fijados (pins)
-- Fijar mensajes relevantes dentro del chat.
-- Categorizacion visual de pines.
-- Seleccion de color para cada pin.
-- Duracion configurable:
-- Presets (24 horas, 7 dias, 1 mes).
-- Duracion personalizada (minutos, horas o dias).
-- Banner de pines activos con vista expandida.
-- Desfijado de mensajes con permisos.
+### Pines, eventos y encuestas
 
-### Gestion del chat de clase
-- Vista de informacion del chat.
-- Lista de participantes por rol (profesorado/alumnado).
-- Configuracion de permisos de escritura en grupos:
-- Todos pueden escribir.
-- Solo profesorado.
-- Profesorado + delegados.
-- Seleccion de delegados en el propio chat.
+- Mensajes fijados con categoria, color y duracion.
+- Eventos por sala con fecha y descripcion.
+- Encuestas por sala con votacion y cierre.
+- Persistencia local de:
+  - Pines
+  - Eventos
+  - Encuestas
+
+### Gestion del chat
+
+- Informacion del chat con participantes.
+- Separacion visual entre profesorado y alumnado.
+- Configuracion de permisos de escritura:
+  - Todos
+  - Solo profesorado
+  - Profesorado y delegados
+- Seleccion de delegados.
 
 ### Llamadas
+
 - Llamadas de audio.
 - Llamadas de video.
-- Controles durante llamada:
-- Silenciar microfono.
-- Activar/desactivar camara.
+- Flujo tipo sala en tiempo real con WebRTC.
+- Controles de microfono y camara.
 - Compartir pantalla en web.
-- Conteo de participantes en tiempo real.
 
-### Perfil
-- Visualizacion de datos personales y academicos.
-- Cambio de contraseña desde la app.
+### Temas y experiencia visual
 
-### Ajustes
-- Activacion/desactivacion de notificaciones.
-- Control de sonidos.
-- Descarga automatica de medios.
-- Selector de tema visual:
-- Claro, oscuro, sistema.
-- Variantes de color adicionales.
-- Limpieza de mensajes antiguos.
-- Acceso a sincronizacion con web.
+- `ThemeContext` con modos:
+  - Light
+  - Dark
+  - System
+  - Green
+  - Red
+  - Yellow
+- Uso de tema aplicado en cliente para colores base, superficies, overlays, inputs, badges y pantallas principales.
 
-### Sincronizacion entre movil y web
-- Flujo de emparejamiento mediante codigo QR.
-- Importacion de mensajes en sesion web.
-- Indicadores de progreso y estado.
-- Confirmacion final de sincronizacion.
+### Sincronizacion movil-web
 
-### FAQ y ayuda
-- Pantalla de preguntas frecuentes con buscador.
-- Respuestas rapidas de uso comun.
+- Emparejamiento por codigo QR.
+- Transferencia de mensajes locales a sesion web.
+- Seguimiento de progreso.
 
-## Panel de administracion
+### Panel de administracion
 
-Incluye un panel completo para gestion academica y operativa:
-- Resumen general con metricas.
-- Gestion de centros.
-- Gestion de personas (alumnos/profesores).
-- Gestion de cursos escolares.
-- Gestion de planes de estudio.
-- Gestion de asignaturas.
-- Gestion de ofertas.
-- Gestion de clases.
-- Matriculas.
-- Asignaciones de profesorado.
-- Gestion de usuarios de la app.
-- Gestion de salas de chat.
-- Auditoria de acciones administrativas.
-- Asistente para alta guiada de clases.
+El proyecto incluye panel administrativo para gestion academica y operativa:
 
-## Ejecucion en local (resumen)
-1. Iniciar backend.
-2. Iniciar app desde `tuchat/` con Expo.
-3. Abrir en web o dispositivo movil.
+- Centros
+- Personas
+- Cursos escolares
+- Planes
+- Asignaturas
+- Ofertas
+- Clases
+- Matriculas
+- Usuarios de app
+- Salas de chat
+- Auditoria
+
+## Persistencia local
+
+### Movil
+
+Se usa SQLite para almacenar:
+
+- Mensajes
+- Borradores
+- Pines
+- Metadata indexable para busqueda
+- Estados de lectura fuerte
+
+### Web
+
+Se usa `localStorage` para almacenar:
+
+- Historial por chat
+- Borradores
+- Pines
+- Eventos
+- Encuestas
 
 ## Estructura del repositorio
-- `tuchat/`: aplicacion cliente (web + movil).
-- `server/`: servicios del backend.
+
+- `tuchat/`: cliente Expo para web y movil
+- `server/`: backend Express + Socket.IO
+
+## Ejecucion local
+
+### Backend
+
+Desde `server/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Comandos disponibles:
+
+- `npm run dev`
+- `npm start`
+
+### Cliente
+
+Desde `tuchat/`:
+
+```bash
+npm install
+npm run start
+```
+
+Comandos disponibles:
+
+- `npm run start`
+- `npm run web`
+- `npm run android`
+- `npm run ios`
+
+## Validacion recomendada
+
+### Validacion tecnica
+
+- Cliente:
+
+```bash
+cd tuchat
+npx tsc --noEmit
+```
+
+### Pruebas manuales recomendadas
+
+- Enviar mensajes normales y mensajes docentes con tipo.
+- Confirmar lectura fuerte desde otro usuario.
+- Crear evento, encuesta y pin.
+- Buscar por texto, fecha, archivo, evento, encuesta y pin.
+- Abrir "Solo importante" y navegar al chat correcto.
+- Revisar `ChatInfoScreen > Archivos` en web y movil.
+- Verificar persistencia tras cerrar y reabrir la app.
+
+## Estado actual
+
+El proyecto ya dispone de una base funcional de comunicacion academica en tiempo real con:
+
+- almacenamiento local web y movil
+- navegacion responsive
+- mensajeria avanzada orientada a aula
+- busqueda indexada
+- centro de archivos
+- bandeja de importantes
+- soporte de eventos, encuestas y pines

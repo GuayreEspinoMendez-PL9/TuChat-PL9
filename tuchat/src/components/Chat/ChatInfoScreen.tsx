@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Platform, ActivityIndicator, ScrollView
+  Platform, ActivityIndicator, ScrollView, TextInput, Linking
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { router } from 'expo-router';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 import { fetchRoomPresence } from '../../services/chatExtras.service';
+import { getFilesByRoom } from '../../db/database';
+import { getFileCategory, isImportantMessage, normalizeMessage } from '../../db/messageModel';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -18,20 +21,20 @@ const getStorageItem = async (key: string) => {
 };
 
 // Iconos
-const UserIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#6366f1" style={{ width: 20, height: 20 }}>
+const UserIcon = ({ color }: { color: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
   </Svg>
 );
 
-const ShieldIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#6366f1" style={{ width: 20, height: 20 }}>
+const ShieldIcon = ({ color }: { color: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
   </Svg>
 );
 
-const CheckIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#fff" style={{ width: 14, height: 14 }}>
+const CheckIcon = ({ color }: { color: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke={color} style={{ width: 14, height: 14 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
   </Svg>
 );
@@ -40,17 +43,22 @@ interface ChatInfoScreenProps {
   roomId: string;
   nombre: string;
   esProfesor?: boolean; // Ahora es opcional porque lo validaremos dentro
+  onOpenMessage?: (message: any) => void;
 }
 
 type PermissionMode = 'todos' | 'solo_profesor' | 'profesor_delegados';
 
-export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: ChatInfoScreenProps) => {
+export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onOpenMessage }: ChatInfoScreenProps) => {
   const [participantes, setParticipantes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('todos');
   const [delegados, setDelegados] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [presenceByUser, setPresenceByUser] = useState<Record<string, any>>({});
+  const [activeTab, setActiveTab] = useState<'participants' | 'files'>('participants');
+  const [sharedFiles, setSharedFiles] = useState<any[]>([]);
+  const [fileQuery, setFileQuery] = useState('');
+  const [fileFilter, setFileFilter] = useState<'all' | 'image' | 'video' | 'file' | 'link' | 'important' | 'requiresAck'>('all');
   
   // ✅ NUEVO ESTADO: Para asegurar que el rol es correcto
   const [esProfesorInterno, setEsProfesorInterno] = useState(false);
@@ -97,6 +105,8 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
         } catch (e) {
           console.log("No se pudo cargar presencia:", e);
         }
+
+        setSharedFiles(typeof getFilesByRoom === 'function' ? getFilesByRoom(roomId).map(normalizeMessage) : []);
       } catch (e) {
         console.error("Error en ChatInfoScreen:", e);
       } finally {
@@ -140,6 +150,54 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
 
   const profesores = participantes.filter(p => p.es_profesor);
   const alumnos = participantes.filter(p => !p.es_profesor);
+  const filteredFiles = sharedFiles.filter((message) => {
+    const normalized = normalizeMessage(message);
+    const query = fileQuery.trim().toLowerCase();
+    const matchesQuery = !query || [
+      normalized.fileName,
+      normalized.text,
+      normalized.senderName,
+      normalized.threadTopic,
+      normalized.messageType,
+    ].filter(Boolean).join(' ').toLowerCase().includes(query);
+
+    if (!matchesQuery) return false;
+    if (fileFilter === 'all') return true;
+    if (fileFilter === 'important') return isImportantMessage(normalized);
+    if (fileFilter === 'requiresAck') return Boolean(normalized.requiresAck);
+    return getFileCategory(normalized) === fileFilter;
+  });
+
+  const handleOpenFileMessage = (message: any) => {
+    if (onOpenMessage) {
+      onOpenMessage(message);
+      return;
+    }
+
+    router.push({
+      pathname: '/chat',
+      params: {
+        id: roomId,
+        nombre,
+        targetMsgId: message.msg_id,
+      }
+    });
+  };
+
+  const handleOpenFileAsset = async (message: any) => {
+    const url = message.image || (typeof message.text === 'string' && /^https?:\/\//i.test(message.text) ? message.text : null);
+    if (!url) {
+      handleOpenFileMessage(message);
+      return;
+    }
+
+    try {
+      await Linking.openURL(url);
+    } catch {
+      handleOpenFileMessage(message);
+    }
+  };
+
   const getPresenceLabel = (userId: string) => {
     const current = presenceByUser[String(userId)];
     if (!current) return 'Desconectado';
@@ -160,41 +218,43 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#6366f1" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
+  const themedSection = { backgroundColor: colors.surface, borderColor: colors.border };
+
   // Componentes locales de UI...
   const RadioButton = ({ selected, onPress, label, description }: any) => (
     <TouchableOpacity
-      style={[styles.radioOption, selected && styles.radioOptionSelected]}
+      style={[styles.radioOption, { backgroundColor: selected ? colors.primaryBg : colors.surface, borderColor: selected ? colors.primary : colors.border }]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-        {selected && <View style={styles.radioInner} />}
+      <View style={[styles.radioCircle, { borderColor: selected ? colors.primary : colors.border }]}>
+        {selected && <View style={[styles.radioInner, { backgroundColor: colors.primary }]} />}
       </View>
       <View style={styles.radioContent}>
-        <Text style={[styles.radioLabel, selected && styles.radioLabelSelected]}>{label}</Text>
-        {description && <Text style={styles.radioDescription}>{description}</Text>}
+        <Text style={[styles.radioLabel, { color: selected ? colors.primary : colors.textPrimary }]}>{label}</Text>
+        {description && <Text style={[styles.radioDescription, { color: colors.textSecondary }]}>{description}</Text>}
       </View>
     </TouchableOpacity>
   );
 
   const Checkbox = ({ checked, onPress, label, sublabel }: any) => (
     <TouchableOpacity style={styles.checkboxRow} onPress={onPress} activeOpacity={0.7}>
-      <View style={[styles.checkbox, checked && styles.checkboxChecked]}>{checked && <CheckIcon />}</View>
+      <View style={[styles.checkbox, { borderColor: checked ? colors.primary : colors.border, backgroundColor: checked ? colors.primary : 'transparent' }]}>{checked && <CheckIcon color={colors.textOnPrimary} />}</View>
       <View style={styles.checkboxContent}>
-        <Text style={styles.checkboxLabel}>{label}</Text>
-        {sublabel && <Text style={styles.checkboxSublabel}>{sublabel}</Text>}
+        <Text style={[styles.checkboxLabel, { color: colors.textPrimary }]}>{label}</Text>
+        {sublabel && <Text style={[styles.checkboxSublabel, { color: colors.textMuted }]}>{sublabel}</Text>}
       </View>
     </TouchableOpacity>
   );
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
-      <View style={[styles.headerSection, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <View style={[styles.headerSection, themedSection]}>
         <View style={[styles.avatarLarge, { backgroundColor: colors.primary }]}>
           <Text style={styles.avatarLargeText}>{nombre.charAt(0).toUpperCase()}</Text>
         </View>
@@ -204,15 +264,15 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
 
       {/* ✅ SECCIÓN CORREGIDA: Usamos esProfesorInterno */}
       {esProfesorInterno && (
-        <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={[styles.section, themedSection]}>
           <View style={styles.sectionHeader}>
-            <ShieldIcon />
+            <ShieldIcon color={colors.primary} />
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Permisos del chat</Text>
-            {saving && <ActivityIndicator size="small" color="#6366f1" style={{ marginLeft: 8 }} />}
+            {saving && <ActivityIndicator size="small" color={colors.primary} style={{ marginLeft: 8 }} />}
           </View>
 
           <View style={[styles.permissionsCard, { backgroundColor: colors.background }]}>
-            <Text style={styles.permissionsLabel}>¿Quién puede enviar mensajes?</Text>
+            <Text style={[styles.permissionsLabel, { color: colors.textSecondary }]}>¿Quién puede enviar mensajes?</Text>
             <RadioButton
               selected={permissionMode === 'todos'}
               onPress={() => updatePermissions('todos')}
@@ -234,7 +294,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
 
             {permissionMode === 'profesor_delegados' && alumnos.length > 0 && (
               <View style={styles.delegadosSection}>
-                <Text style={styles.delegadosTitle}>Seleccionar delegados:</Text>
+                <Text style={[styles.delegadosTitle, { color: colors.textSecondary }]}>Seleccionar delegados:</Text>
                 {alumnos.map((alumno) => (
                   <Checkbox
                     key={alumno.id}
@@ -251,13 +311,22 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
       )}
 
       {/* Lista de participantes */}
-      <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+      <View style={[styles.section, themedSection]}>
         <View style={styles.sectionHeader}>
-          <UserIcon />
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Participantes ({participantes.length})</Text>
+          <UserIcon color={colors.primary} />
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{activeTab === 'participants' ? `Participantes (${participantes.length})` : `Archivos (${sharedFiles.length})`}</Text>
         </View>
 
-        {profesores.length > 0 && (
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+          <TouchableOpacity onPress={() => setActiveTab('participants')} style={[styles.radioOption, { flex: 1, marginBottom: 0, backgroundColor: activeTab === 'participants' ? colors.primaryBg : colors.background, borderColor: activeTab === 'participants' ? colors.primary : colors.border }]}>
+            <Text style={{ color: activeTab === 'participants' ? colors.primary : colors.textPrimary, fontWeight: '700' }}>Participantes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setActiveTab('files')} style={[styles.radioOption, { flex: 1, marginBottom: 0, backgroundColor: activeTab === 'files' ? colors.primaryBg : colors.background, borderColor: activeTab === 'files' ? colors.primary : colors.border }]}>
+            <Text style={{ color: activeTab === 'files' ? colors.primary : colors.textPrimary, fontWeight: '700' }}>Archivos</Text>
+          </TouchableOpacity>
+        </View>
+
+        {activeTab === 'participants' && profesores.length > 0 && (
           <View style={styles.participantGroup}>
             <Text style={[styles.groupLabel, { color: colors.textMuted }]}>Profesores</Text>
             {profesores.map((profesor) => (
@@ -274,7 +343,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
           </View>
         )}
 
-        {alumnos.length > 0 && (
+        {activeTab === 'participants' && alumnos.length > 0 && (
           <View style={styles.participantGroup}>
             <Text style={[styles.groupLabel, { color: colors.textMuted }]}>Alumnos</Text>
             {alumnos.map((alumno) => (
@@ -287,8 +356,8 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
                   <View style={styles.participantMeta}>
                     <Text style={[styles.participantRole, { color: colors.textSecondary }]}>Alumno • {getPresenceLabel(alumno.id)}</Text>
                     {delegados.includes(alumno.id) && (
-                      <View style={styles.delegadoBadge}>
-                        <Text style={styles.delegadoBadgeText}>Delegado</Text>
+                      <View style={[styles.delegadoBadge, { backgroundColor: colors.primaryBg }]}>
+                        <Text style={[styles.delegadoBadgeText, { color: colors.primary }]}>Delegado</Text>
                       </View>
                     )}
                   </View>
@@ -297,6 +366,67 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
             ))}
           </View>
         )}
+
+        {activeTab === 'files' && (
+          <View>
+            <TextInput
+              value={fileQuery}
+              onChangeText={setFileQuery}
+              placeholder="Buscar por nombre, hilo o remitente"
+              placeholderTextColor={colors.textMuted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12, color: colors.textPrimary, backgroundColor: colors.background }}
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12 }}>
+              {[
+                ['all', 'Todos'],
+                ['file', 'Docs'],
+                ['image', 'Imagenes'],
+                ['video', 'Videos'],
+                ['link', 'Enlaces'],
+                ['important', 'Importantes'],
+                ['requiresAck', 'Lectura fuerte'],
+              ].map(([key, label]) => {
+                const selected = fileFilter === key;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => setFileFilter(key as typeof fileFilter)}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                  >
+                    <Text style={{ color: selected ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            {filteredFiles.length === 0 ? (
+              <Text style={{ color: colors.textMuted }}>No hay coincidencias en el centro de archivos.</Text>
+            ) : filteredFiles.map((file) => (
+              <TouchableOpacity key={file.msg_id} style={styles.participantItem} activeOpacity={0.8} onPress={() => handleOpenFileMessage(file)}>
+                <View style={[styles.participantAvatar, { backgroundColor: colors.primaryBg }]}>
+                  <Text style={[styles.participantAvatarText, { color: colors.primary }]}>{(file.fileName || file.mediaType || 'F').charAt(0).toUpperCase()}</Text>
+                </View>
+                <View style={styles.participantInfo}>
+                  <Text style={[styles.participantName, { color: colors.textPrimary }]} numberOfLines={1}>{file.fileName || file.text || 'Archivo'}</Text>
+                  <Text style={[styles.participantRole, { color: colors.textSecondary }]} numberOfLines={1}>
+                    {[file.mediaType || 'enlace', file.threadTopic, file.messageType].filter(Boolean).join(' · ')}
+                  </Text>
+                  <Text style={[styles.checkboxSublabel, { color: colors.textMuted }]} numberOfLines={1}>
+                    {(file.senderName || 'Usuario')} · {new Date(file.timestamp).toLocaleDateString('es-ES')}
+                  </Text>
+                </View>
+                <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                  <TouchableOpacity onPress={() => handleOpenFileAsset(file)} style={[styles.actionPill, { backgroundColor: colors.primary }]}>
+                    <Text style={[styles.actionPillText, { color: colors.textOnPrimary }]}>Abrir</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleOpenFileMessage(file)} style={[styles.actionPill, { backgroundColor: colors.primaryBg }]}>
+                    <Text style={[styles.actionPillText, { color: colors.primary }]}>Ir al mensaje</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
       </View>
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -304,46 +434,50 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp }: C
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
-  headerSection: { alignItems: 'center', paddingVertical: 24, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
-  avatarLarge: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#6366f1', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  container: { flex: 1, backgroundColor: 'transparent' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent' },
+  headerSection: { alignItems: 'center', paddingVertical: 24, backgroundColor: 'transparent', borderBottomWidth: 1, borderBottomColor: 'transparent' },
+  avatarLarge: { width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   avatarLargeText: { fontSize: 32, fontWeight: '600', color: '#fff' },
-  chatName: { fontSize: 20, fontWeight: '600', color: '#1e293b', marginBottom: 4 },
-  chatSubtitle: { fontSize: 14, color: '#64748b' },
-  section: { marginTop: 16, backgroundColor: '#fff', borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#e2e8f0', paddingHorizontal: 16, paddingVertical: 16 },
+  chatName: { fontSize: 20, fontWeight: '600', marginBottom: 4 },
+  chatSubtitle: { fontSize: 14 },
+  section: { marginTop: 16, backgroundColor: 'transparent', borderTopWidth: 1, borderBottomWidth: 1, borderColor: 'transparent', paddingHorizontal: 16, paddingVertical: 16 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b', marginLeft: 8 },
-  permissionsCard: { backgroundColor: '#f8fafc', borderRadius: 12, padding: 16 },
-  permissionsLabel: { fontSize: 14, fontWeight: '500', color: '#475569', marginBottom: 12 },
-  radioOption: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e2e8f0' },
-  radioOptionSelected: { backgroundColor: '#eef2ff', borderColor: '#6366f1' },
-  radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', marginRight: 12, marginTop: 2 },
-  radioCircleSelected: { borderColor: '#6366f1' },
-  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#6366f1' },
+  sectionTitle: { fontSize: 16, fontWeight: '600', marginLeft: 8 },
+  permissionsCard: { backgroundColor: 'transparent', borderRadius: 12, padding: 16 },
+  permissionsLabel: { fontSize: 14, fontWeight: '500', marginBottom: 12 },
+  radioOption: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 12, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8, borderWidth: 1 },
+  radioOptionSelected: {},
+  radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, justifyContent: 'center', alignItems: 'center', marginRight: 12, marginTop: 2 },
+  radioCircleSelected: {},
+  radioInner: { width: 10, height: 10, borderRadius: 5 },
   radioContent: { flex: 1 },
-  radioLabel: { fontSize: 15, fontWeight: '500', color: '#334155' },
-  radioLabelSelected: { color: '#4f46e5' },
-  radioDescription: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  delegadosSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#e2e8f0' },
-  delegadosTitle: { fontSize: 14, fontWeight: '500', color: '#475569', marginBottom: 12 },
+  radioLabel: { fontSize: 15, fontWeight: '500' },
+  radioLabelSelected: {},
+  radioDescription: { fontSize: 13, marginTop: 2 },
+  delegadosSection: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'transparent' },
+  delegadosTitle: { fontSize: 14, fontWeight: '500', marginBottom: 12 },
   checkboxRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8 },
-  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#cbd5e1', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  checkboxChecked: { backgroundColor: '#6366f1', borderColor: '#6366f1' },
+  checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  checkboxChecked: {},
   checkboxContent: { flex: 1 },
-  checkboxLabel: { fontSize: 15, color: '#334155' },
-  checkboxSublabel: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
+  checkboxLabel: { fontSize: 15 },
+  checkboxSublabel: { fontSize: 12, marginTop: 2 },
   participantGroup: { marginBottom: 16 },
-  groupLabel: { fontSize: 12, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  groupLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   participantItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
-  participantAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#e0e7ff', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  participantAvatarText: { fontSize: 16, fontWeight: '600', color: '#6366f1' },
+  participantAvatar: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  participantAvatarText: { fontSize: 16, fontWeight: '600' },
   participantInfo: { flex: 1 },
-  participantName: { fontSize: 15, fontWeight: '500', color: '#1e293b' },
+  participantName: { fontSize: 15, fontWeight: '500' },
   participantMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  participantRole: { fontSize: 13, color: '#64748b' },
-  delegadoBadge: { backgroundColor: '#fef3c7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginLeft: 8 },
-  delegadoBadgeText: { fontSize: 11, fontWeight: '600', color: '#d97706' },
+  participantRole: { fontSize: 13 },
+  delegadoBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, marginLeft: 8 },
+  delegadoBadgeText: { fontSize: 11, fontWeight: '600' },
+  actionPill: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  actionPillSecondary: {},
+  actionPillText: { fontSize: 11, fontWeight: '700' },
+  actionPillTextSecondary: {},
 });
 
 export default ChatInfoScreen;

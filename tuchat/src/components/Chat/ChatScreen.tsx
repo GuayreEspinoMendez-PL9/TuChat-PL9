@@ -19,8 +19,13 @@ import {
   saveDraftLocal,
   getDraftLocal,
   markMessagesAsRead,
+  updateMessageAckReaders,
   toggleReactionFn,
   savePinnedMessage,
+  saveRoomEventLocal,
+  saveRoomPollLocal,
+  removeRoomEventLocal,
+  removeRoomPollLocal,
   getPinnedMessagesByRoom,
   removePinnedMessage,
   cleanExpiredPins
@@ -71,6 +76,15 @@ const PRESENCE_META: Record<string, { label: string; color: string }> = {
   busy: { label: 'Ocupado', color: '#EA580C' },
   offline: { label: 'Desconectado', color: '#94A3B8' },
 };
+
+const TEACHER_MESSAGE_TYPES = [
+  { id: 'announcement', label: 'Anuncio oficial' },
+  { id: 'required_read', label: 'Obligatorio leer' },
+  { id: 'assessable', label: 'Material evaluable' },
+  { id: 'urgent', label: 'Cambio urgente' },
+] as const;
+
+const THREAD_TOPICS = ['General', 'Examen', 'Tarea 3', 'Dudas', 'Material'] as const;
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -273,11 +287,13 @@ interface ChatScreenProps {
   nombre: string;
   tipo?: string;
   esProfesor?: boolean;
+  targetMsgId?: string;
+  targetPanel?: 'events' | 'polls' | 'mentions' | 'info';
   isEmbedded?: boolean;
   onBack?: () => void;
 }
 
-export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorProp = false, isEmbedded = false, onBack }: ChatScreenProps) => {
+export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorProp = false, targetMsgId, targetPanel, isEmbedded = false, onBack }: ChatScreenProps) => {
   const { colors } = useTheme();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
@@ -314,10 +330,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollExpiry, setPollExpiry] = useState('');
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
+  const [selectedThreadTopic, setSelectedThreadTopic] = useState<string>('General');
+  const [teacherMessageType, setTeacherMessageType] = useState<string | null>(null);
+  const [requiresAck, setRequiresAck] = useState(false);
+  const [showComposerMeta, setShowComposerMeta] = useState(false);
+  const [activeThreadFilter, setActiveThreadFilter] = useState<string>('Todos');
   const flatListRef = useRef<FlatList>(null);
   const hasAutoScrolledRef = useRef(false);
   const inputRef = useRef<TextInput>(null); // New ref for input
   const typingTimeoutRef = useRef<any>(null);
+  const hasScrolledToTargetRef = useRef(false);
 
   // States for Reactions
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
@@ -468,6 +490,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             setEvents(eventsData || []);
             setPolls(pollsData || []);
             setPinnedMessages(pinsData || []);
+            if (typeof saveRoomEventLocal === 'function') {
+              (eventsData || []).forEach((event: any) => saveRoomEventLocal({ ...event, roomId: id, roomName: nombre }));
+            }
+            if (typeof saveRoomPollLocal === 'function') {
+              (pollsData || []).forEach((poll: any) => saveRoomPollLocal({ ...poll, roomId: id, roomName: nombre }));
+            }
             if (typeof cleanExpiredPins === 'function') cleanExpiredPins();
             if (typeof savePinnedMessage === 'function') {
               (pinsData || []).forEach((pin: any) => savePinnedMessage(pin));
@@ -513,6 +541,15 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     if (!socket) return;
     socket.emit("presence:set_status", { status: myPresenceStatus });
   }, [socket, myPresenceStatus]);
+
+  useEffect(() => {
+    if (!targetPanel) return;
+    if (targetPanel === 'info') {
+      setShowInfo(true);
+      return;
+    }
+    setShowExtrasPanel(targetPanel);
+  }, [targetPanel]);
 
   useEffect(() => {
     if (!socket) return;
@@ -599,6 +636,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     const handleEventCreated = (event: any) => {
       if (String(event?.roomId) !== String(id)) return;
+      if (typeof saveRoomEventLocal === 'function') saveRoomEventLocal({ ...event, roomName: nombre });
       setEvents(prev => {
         if (prev.some(item => item.id === event.id)) return prev;
         return [...prev, event].sort((a, b) => a.startsAt - b.startsAt);
@@ -607,6 +645,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     const handlePollCreated = (poll: any) => {
       if (String(poll?.roomId) !== String(id)) return;
+      if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...poll, roomName: nombre });
       setPolls(prev => {
         if (prev.some(item => item.id === poll.id)) return prev;
         return [poll, ...prev];
@@ -615,14 +654,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     const handlePollUpdated = (poll: any) => {
       if (String(poll?.roomId) !== String(id)) return;
+      if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...poll, roomName: nombre });
       setPolls(prev => prev.map(item => item.id === poll.id ? poll : item));
     };
 
     const handleEventDeleted = ({ eventId }: { eventId: string }) => {
+      if (typeof removeRoomEventLocal === 'function') removeRoomEventLocal(eventId);
       setEvents(prev => prev.filter(item => item.id !== eventId));
     };
 
     const handlePollDeleted = ({ pollId }: { pollId: string }) => {
+      if (typeof removeRoomPollLocal === 'function') removeRoomPollLocal(pollId);
       setPolls(prev => prev.filter(item => item.id !== pollId));
     };
 
@@ -632,6 +674,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     const handleStopTyping = () => {
       setTypingUserName(null);
+    };
+
+    const handleStrongRead = ({ msg_id, reader }: { msg_id: string; reader: any }) => {
+      setMessages(prev => prev.map(message => {
+        if (message.msg_id !== msg_id) return message;
+        const currentReaders = Array.isArray(message.ackReaders) ? message.ackReaders : [];
+        if (currentReaders.some((item: any) => String(item.userId) === String(reader.userId))) {
+          return message;
+        }
+        const nextReaders = [...currentReaders, reader];
+        if (typeof updateMessageAckReaders === 'function') updateMessageAckReaders(msg_id, nextReaders);
+        return { ...message, ackReaders: nextReaders };
+      }));
     };
 
     socket.on("chat:receive", handleNewMessage);
@@ -647,6 +702,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     socket.on("chat:poll_deleted", handlePollDeleted);
     socket.on("chat:user_typing", handleTyping);
     socket.on("chat:user_stopped_typing", handleStopTyping);
+    socket.on("chat:update_strong_read", handleStrongRead);
 
     return () => {
       socket.off("chat:receive", handleNewMessage);
@@ -662,6 +718,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       socket.off("chat:poll_deleted", handlePollDeleted);
       socket.off("chat:user_typing", handleTyping);
       socket.off("chat:user_stopped_typing", handleStopTyping);
+      socket.off("chat:update_strong_read", handleStrongRead);
     };
   }, [socket, id, refreshUnreadCounts, myUserId]);
 
@@ -760,8 +817,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         kind: 'academico',
       });
 
-      if (event) {
-        setEvents(prev => [...prev, event].sort((a, b) => a.startsAt - b.startsAt));
+	      if (event) {
+	        if (typeof saveRoomEventLocal === 'function') saveRoomEventLocal({ ...event, roomId: id, roomName: nombre });
+	        setEvents(prev => [...prev, event].sort((a, b) => a.startsAt - b.startsAt));
         setShowEventModal(false);
         setShowExtrasPanel('events');
         setEventTitle('');
@@ -798,8 +856,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         expiresAt: parsedPollExpiry ? parsedPollExpiry.toISOString() : null,
       });
 
-      if (poll) {
-        setPolls(prev => [poll, ...prev]);
+	      if (poll) {
+	        if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...poll, roomId: id, roomName: nombre });
+	        setPolls(prev => [poll, ...prev]);
         setShowPollModal(false);
         setShowExtrasPanel('polls');
         setPollQuestion('');
@@ -813,9 +872,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const votePoll = async (pollId: string, optionId: string) => {
     try {
-      const updated = await votePollRequest({ roomId: id, pollId, optionId });
-      if (updated) {
-        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
+	      const updated = await votePollRequest({ roomId: id, pollId, optionId });
+	      if (updated) {
+	        if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...updated, roomId: id, roomName: nombre });
+	        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
       }
     } catch (e) {
       Alert.alert('Error', 'No se pudo registrar el voto.');
@@ -823,9 +883,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   };
 
   const deleteEvent = async (eventId: string) => {
-    try {
-      await deleteRoomEventRequest({ roomId: id, eventId });
-      setEvents(prev => prev.filter(item => item.id !== eventId));
+	    try {
+	      await deleteRoomEventRequest({ roomId: id, eventId });
+	      if (typeof removeRoomEventLocal === 'function') removeRoomEventLocal(eventId);
+	      setEvents(prev => prev.filter(item => item.id !== eventId));
     } catch {
       Alert.alert('Error', 'No se pudo eliminar el evento.');
     }
@@ -833,9 +894,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const closePoll = async (pollId: string) => {
     try {
-      const updated = await closePollRequest({ roomId: id, pollId });
-      if (updated) {
-        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
+	      const updated = await closePollRequest({ roomId: id, pollId });
+	      if (updated) {
+	        if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...updated, roomId: id, roomName: nombre });
+	        setPolls(prev => prev.map(item => item.id === updated.id ? updated : item));
       }
     } catch {
       Alert.alert('Error', 'No se pudo cerrar la encuesta.');
@@ -843,9 +905,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   };
 
   const deletePoll = async (pollId: string) => {
-    try {
-      await deletePollRequest({ roomId: id, pollId });
-      setPolls(prev => prev.filter(item => item.id !== pollId));
+	    try {
+	      await deletePollRequest({ roomId: id, pollId });
+	      if (typeof removeRoomPollLocal === 'function') removeRoomPollLocal(pollId);
+	      setPolls(prev => prev.filter(item => item.id !== pollId));
     } catch {
       Alert.alert('Error', 'No se pudo eliminar la encuesta.');
     }
@@ -867,6 +930,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     const msg = {
       msg_id: msgId,
       roomId: id,
+      roomName: nombre,
       text: textoLimpio || (mediaType === 'file' ? fileName : ''),
       contenido: textoLimpio,
       image: mediaUri || null,
@@ -880,6 +944,15 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       timestamp: Date.now(),
       recipients: miembros,
       mentions,
+      threadTopic: selectedThreadTopic,
+      messageType: teacherMessageType,
+      requiresAck,
+      ackReaders: [],
+      metadata: {
+        important: ['announcement', 'required_read', 'assessable', 'urgent'].includes(teacherMessageType || ''),
+        threadTopic: selectedThreadTopic,
+        messageType: teacherMessageType,
+      },
       esProfesor: esProfesor,
       status: 'sending',
       read: true,
@@ -897,6 +970,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     saveDraftLocal(id, "");
     socket.emit("chat:stop_typing", { roomId: id });
     setReplyingTo(null); // Clear reply state
+    setTeacherMessageType(null);
+    setRequiresAck(false);
+    setSelectedThreadTopic('General');
 
     // Enviar por socket
     // If it is a file, we might need a different event or same 'chat:send_media'
@@ -1008,6 +1084,24 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     );
   }
 
+  function scrollToMessage(targetMsgId: string) {
+    const index = messages.findIndex(m => m.msg_id === targetMsgId);
+    if (index !== -1) {
+      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+      // Optional: Trigger a highlight animation here
+      setHoveredMessageId(targetMsgId);
+      setTimeout(() => setHoveredMessageId(null), 1000);
+    } else {
+      console.log("Message not found (might be paginated)");
+    }
+  }
+
+  const handleOpenMessageFromInfo = (message: any) => {
+    setShowInfo(false);
+    setActiveThreadFilter('Todos');
+    setTimeout(() => scrollToMessage(message.msg_id), 180);
+  };
+
   // Modal de info del chat
   if (showInfo) {
     return (
@@ -1024,22 +1118,22 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           roomId={id}
           nombre={nombre}
           esProfesor={esProfesor}
+          onOpenMessage={handleOpenMessageFromInfo}
         />
       </View>
     );
   }
 
-  const scrollToMessage = (targetMsgId: string) => {
-    const index = messages.findIndex(m => m.msg_id === targetMsgId);
-    if (index !== -1) {
-      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-      // Optional: Trigger a highlight animation here
-      setHoveredMessageId(targetMsgId);
-      setTimeout(() => setHoveredMessageId(null), 1000);
-    } else {
-      console.log("Message not found (might be paginated)");
+  useEffect(() => {
+    if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
+    if (activeThreadFilter !== 'Todos') {
+      setActiveThreadFilter('Todos');
     }
-  };
+    const found = messages.some((message) => message.msg_id === targetMsgId);
+    if (!found) return;
+    hasScrolledToTargetRef.current = true;
+    setTimeout(() => scrollToMessage(targetMsgId), 150);
+  }, [targetMsgId, messages]);
 
   const CellRenderer = (props: any) => {
     const item = messages[props.index];
@@ -1055,6 +1149,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
   const upcomingEvents = events.filter((event: any) => (event?.startsAt || 0) >= Date.now()).slice(0, 3);
   const visiblePolls = polls.slice(0, 3);
+  const threadOptions = ['Todos', ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean)))];
+  const filteredMessages = activeThreadFilter === 'Todos'
+    ? messages
+    : messages.filter((message) => message.threadTopic === activeThreadFilter);
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
     .slice(0, 4)
@@ -1113,6 +1211,26 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         paddingBottom: 8,
         gap: 10,
       }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
+          {threadOptions.map((topic) => (
+            <TouchableOpacity
+              key={topic}
+              onPress={() => setActiveThreadFilter(topic)}
+              style={{
+                paddingHorizontal: 12,
+                paddingVertical: 7,
+                borderRadius: 999,
+                backgroundColor: activeThreadFilter === topic ? colors.primary : colors.surface,
+                borderWidth: 1,
+                borderColor: activeThreadFilter === topic ? colors.primary : colors.border,
+              }}
+            >
+              <Text style={{ color: activeThreadFilter === topic ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>
+                {topic}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
           {(['available', 'in_class', 'busy'] as const).map((statusKey) => {
             const meta = PRESENCE_META[statusKey];
@@ -1277,7 +1395,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       {/* Lista de mensajes */}
       <FlatList
         ref={flatListRef}
-        data={messages}
+        data={filteredMessages}
         keyExtractor={(item) => item.msg_id}
         contentContainerStyle={[styles.messagesList, { paddingHorizontal: 35 }]}
         onContentSizeChange={() => {
@@ -1315,7 +1433,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           const reactions = item.reactions || [];
 
           // Heuristic: If it's one of the last 3 messages, open UP.
-          const isNearBottom = index >= messages.length - 3;
+          const isNearBottom = index >= filteredMessages.length - 3;
 
           return (
             <View
@@ -1513,9 +1631,49 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                   })()}
 
                   {/* Texto */}
+                  {(item.threadTopic || item.messageType || item.requiresAck) && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                      {item.threadTopic && (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.primaryBg }}>
+                          <Text style={{ color: isMe ? colors.textOnPrimary : colors.primary, fontSize: 11, fontWeight: '700' }}>{item.threadTopic}</Text>
+                        </View>
+                      )}
+                      {item.messageType && (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.dangerBg }}>
+                          <Text style={{ color: isMe ? colors.textOnPrimary : colors.danger, fontSize: 11, fontWeight: '700' }}>{item.messageType}</Text>
+                        </View>
+                      )}
+                      {item.requiresAck && (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.successBg }}>
+                          <Text style={{ color: isMe ? colors.textOnPrimary : colors.success, fontSize: 11, fontWeight: '700' }}>Lectura fuerte</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
                   {(item.text || item.contenido) && item.mediaType !== 'file' && (
                     <Text style={[styles.messageText, isMe ? { color: colors.bubbleOwnText } : { color: colors.bubbleOtherText }]}>
                       {item.text || item.contenido}
+                    </Text>
+                  )}
+
+                  {item.requiresAck && !isMe && !item.ackReaders?.some((reader: any) => String(reader.userId) === String(myUserId)) && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        const reader = { userId: myUserId, userName: myUserName, readAt: Date.now() };
+                        const nextReaders = [...(item.ackReaders || []), reader];
+                        setMessages(prev => prev.map(message => message.msg_id === item.msg_id ? { ...message, ackReaders: nextReaders } : message));
+                        if (typeof updateMessageAckReaders === 'function') updateMessageAckReaders(item.msg_id, nextReaders);
+                        socket?.emit("chat:strong_read", { msg_id: item.msg_id, roomId: id, userId: myUserId, userName: myUserName });
+                      }}
+                      style={{ marginTop: 8, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.primaryBg }}
+                    >
+                      <Text style={{ color: isMe ? colors.textOnPrimary : colors.primary, fontWeight: '700', fontSize: 12 }}>Confirmar lectura</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {item.requiresAck && (
+                    <Text style={{ marginTop: 6, color: isMe ? 'rgba(255,255,255,0.8)' : colors.textMuted, fontSize: 11 }}>
+                      Lecturas: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0}
                     </Text>
                   )}
 
@@ -1754,6 +1912,32 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
       {/* Input */}
       <View style={[styles.inputContainer, isEmbedded && { paddingBottom: 16 }, replyingTo && { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+        {(showComposerMeta || teacherMessageType || requiresAck || selectedThreadTopic !== 'General') && (
+          <View style={{ paddingHorizontal: 16, paddingTop: 10, gap: 8 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {THREAD_TOPICS.map((topic) => (
+                <TouchableOpacity key={topic} onPress={() => setSelectedThreadTopic(topic)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: selectedThreadTopic === topic ? colors.primary : colors.surfaceHover }}>
+                  <Text style={{ color: selectedThreadTopic === topic ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{topic}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            {canManageExtras && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <TouchableOpacity onPress={() => setTeacherMessageType(null)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: !teacherMessageType ? colors.primary : colors.surfaceHover }}>
+                  <Text style={{ color: !teacherMessageType ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Normal</Text>
+                </TouchableOpacity>
+                {TEACHER_MESSAGE_TYPES.map((type) => (
+                  <TouchableOpacity key={type.id} onPress={() => setTeacherMessageType(type.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: teacherMessageType === type.id ? colors.primary : colors.surfaceHover }}>
+                    <Text style={{ color: teacherMessageType === type.id ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{type.label}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity onPress={() => setRequiresAck(prev => !prev)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: requiresAck ? colors.primary : colors.surfaceHover }}>
+                  <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Lectura fuerte</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+          </View>
+        )}
         {showInputEmojiPicker && (
           <View style={{
             position: 'absolute',
@@ -1826,6 +2010,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         )}
 
         <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+          <TouchableOpacity onPress={() => setShowComposerMeta(prev => !prev)} style={styles.attachButton}>
+            <FileText size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => { setShowInputEmojiPicker(false); handleAttachment(); }} style={styles.attachButton}>
             <PaperclipIcon />
           </TouchableOpacity>

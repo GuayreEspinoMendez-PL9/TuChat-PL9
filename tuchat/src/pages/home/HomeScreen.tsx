@@ -2,14 +2,14 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, ActivityIndicator, RefreshControl,
   TouchableOpacity, Platform, StyleSheet, useWindowDimensions,
-  Modal, Pressable, Image
+  Modal, Pressable, Image, TextInput
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { router, useFocusEffect } from "expo-router";
 import { useSocket } from '../../context/SocketContext';
-import { markMessagesAsRead, getMessagesByRoom } from '../../db/database';
+import { getImportantMessages, markMessagesAsRead, getMessagesByRoom, searchMessagesAdvanced } from '../../db/database';
 import { ChatScreen } from '../../components/Chat/ChatScreen';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -122,11 +122,21 @@ export const HomeScreen = () => {
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [userRol, setUserRol] = useState<number | null>(null);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const [importantVisible, setImportantVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilters, setSearchFilters] = useState({
+    onlyImportant: false,
+    onlyFiles: false,
+    requiresAck: false,
+  });
 
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
   const { unreadCounts, refreshUnreadCounts } = useSocket();
   const [lastMessages, setLastMessages] = useState<Record<string, any>>({});
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [importantItems, setImportantItems] = useState<any[]>([]);
 
   const fetchUserData = async () => {
     try {
@@ -219,14 +229,33 @@ export const HomeScreen = () => {
   useEffect(() => {
     fetchUserData();
     fetchChats();
+    setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages() : []);
   }, [fetchChats]);
 
   useFocusEffect(
     useCallback(() => {
       refreshUnreadCounts();
       fetchChats();
+      setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages() : []);
     }, [refreshUnreadCounts, fetchChats])
   );
+
+  useEffect(() => {
+    if (!searchQuery.trim() && !searchFilters.onlyImportant && !searchFilters.onlyFiles && !searchFilters.requiresAck) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchResults(typeof searchMessagesAdvanced === 'function' ? searchMessagesAdvanced({
+      query: searchQuery,
+      onlyImportant: searchFilters.onlyImportant,
+      onlyFiles: searchFilters.onlyFiles,
+      requiresAck: searchFilters.requiresAck,
+    }) : []);
+  }, [searchQuery, searchFilters]);
+
+  const toggleSearchFilter = (key: 'onlyImportant' | 'onlyFiles' | 'requiresAck') => {
+    setSearchFilters((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const handleChatPress = (item: any) => {
     if (typeof markMessagesAsRead === 'function') markMessagesAsRead(item.id_chat);
@@ -244,6 +273,31 @@ export const HomeScreen = () => {
         }
       });
     }
+  };
+
+  const openMessageResult = (item: any) => {
+    setSearchVisible(false);
+    setImportantVisible(false);
+    if (isDesktop) {
+      setSelectedChat({
+        id_chat: item.roomId,
+        nombre: item.roomName || item.senderName || 'Chat',
+        tipo: 'grupo',
+        targetMsgId: item.msg_id,
+        targetPanel: item.targetPanel,
+      });
+      return;
+    }
+
+    router.push({
+      pathname: "/chat",
+      params: {
+        id: item.roomId,
+        nombre: item.roomName || 'Chat',
+        targetMsgId: item.msg_id,
+        targetPanel: item.targetPanel,
+      }
+    });
   };
 
   const handleLogout = async () => {
@@ -371,7 +425,7 @@ export const HomeScreen = () => {
       animationType="fade"
       onRequestClose={() => setMenuVisible(false)}
     >
-      <Pressable style={s.menuOverlay} onPress={() => setMenuVisible(false)}>
+      <Pressable style={[s.menuOverlay, { backgroundColor: colors.overlay }]} onPress={() => setMenuVisible(false)}>
         <View style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface }]}>
           <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('profile')}>
             <ProfileIcon color={colors.textSecondary} />
@@ -421,6 +475,13 @@ export const HomeScreen = () => {
           <TuChatLogoImage size={30} />
           <Text style={s.mainTitle}>TuChat</Text>
         </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity onPress={() => setSearchVisible(true)} style={s.menuButton} activeOpacity={0.7}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Buscar</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setImportantVisible(true)} style={s.menuButton} activeOpacity={0.7}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Importante</Text>
+          </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setMenuVisible(true)}
           style={s.menuButton}
@@ -428,6 +489,7 @@ export const HomeScreen = () => {
         >
           <DotsVerticalIcon />
         </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs */}
@@ -508,6 +570,79 @@ export const HomeScreen = () => {
         />
       )}
 
+      <Modal visible={searchVisible} transparent animationType="fade" onRequestClose={() => setSearchVisible(false)}>
+        <Pressable style={[s.menuOverlay, { backgroundColor: colors.overlay }]} onPress={() => setSearchVisible(false)}>
+          <Pressable style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface, width: isDesktop ? 460 : 360, maxHeight: '80%' }]}>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar por mensaje, archivo, persona, encuesta, evento, pin o fecha"
+              placeholderTextColor={colors.textMuted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, margin: 16, color: colors.textPrimary, backgroundColor: colors.background }}
+            />
+            <View style={{ paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <TouchableOpacity onPress={() => toggleSearchFilter('onlyImportant')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyImportant ? colors.primary : colors.border, backgroundColor: searchFilters.onlyImportant ? colors.primaryBg : colors.background }}>
+                <Text style={{ color: searchFilters.onlyImportant ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Importantes</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => toggleSearchFilter('onlyFiles')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyFiles ? colors.primary : colors.border, backgroundColor: searchFilters.onlyFiles ? colors.primaryBg : colors.background }}>
+                <Text style={{ color: searchFilters.onlyFiles ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Archivos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => toggleSearchFilter('requiresAck')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.requiresAck ? colors.primary : colors.border, backgroundColor: searchFilters.requiresAck ? colors.primaryBg : colors.background }}>
+                <Text style={{ color: searchFilters.requiresAck ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Lectura fuerte</Text>
+              </TouchableOpacity>
+              {(searchQuery || searchFilters.onlyImportant || searchFilters.onlyFiles || searchFilters.requiresAck) ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSearchQuery('');
+                    setSearchFilters({ onlyImportant: false, onlyFiles: false, requiresAck: false });
+                  }}
+                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+                >
+                  <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item) => item.msg_id}
+              renderItem={({ item }) => (
+                <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{item.roomName || item.roomId}</Text>
+                  <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || item.messageType || 'Sin contenido'}</Text>
+                  <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
+                    {[item.itemType, item.threadTopic, item.messageType, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Sin resultados con los filtros actuales.</Text>}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal visible={importantVisible} transparent animationType="fade" onRequestClose={() => setImportantVisible(false)}>
+        <Pressable style={[s.menuOverlay, { backgroundColor: colors.overlay }]} onPress={() => setImportantVisible(false)}>
+          <Pressable style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface, width: isDesktop ? 460 : 360, maxHeight: '80%' }]}>
+            <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 18, padding: 16, paddingBottom: 8 }}>Solo importante</Text>
+            <FlatList
+              data={importantItems}
+              keyExtractor={(item) => item.msg_id}
+              renderItem={({ item }) => (
+                <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+                  <Text style={{ color: colors.primary, fontWeight: '700', marginBottom: 4 }}>{item.messageType || 'Importante'}</Text>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{item.roomName || item.roomId}</Text>
+                  <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || 'Sin contenido'}</Text>
+                  <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
+                    {[item.itemType, item.threadTopic, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes.</Text>}
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Menú desplegable */}
       <DropdownMenu />
     </View>
@@ -531,6 +666,8 @@ export const HomeScreen = () => {
               id={selectedChat.id_chat}
               nombre={selectedChat.nombre}
               tipo={selectedChat.tipo}
+              targetMsgId={selectedChat.targetMsgId}
+              targetPanel={selectedChat.targetPanel}
               isEmbedded={true}
               onBack={() => setSelectedChat(null)}
             />

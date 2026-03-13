@@ -1,3 +1,10 @@
+import {
+  buildMetadataIndex,
+  isFileMessage,
+  matchMessageAgainstSearch,
+  normalizeMessage,
+} from './messageModel';
+
 export const initDB = () => {
   console.log("DB: Usando LocalStorage (Web Mode)");
 };
@@ -5,11 +12,18 @@ export const initDB = () => {
 export const saveMessageLocal = (msg: any) => {
   try {
     const key = `chat_${msg.roomId}`;
-    const history = JSON.parse(localStorage.getItem(key) || '[]');
-    if (!history.find((m: any) => m.msg_id === msg.msg_id)) {
-      const newMessage = { ...msg, read: msg.isMe ? true : false };
-      localStorage.setItem(key, JSON.stringify([...history, newMessage]));
+    const history = JSON.parse(localStorage.getItem(key) || '[]').map(normalizeMessage);
+    const nextMessage = normalizeMessage({
+      ...msg,
+      read: typeof msg.read === 'boolean' ? msg.read : Boolean(msg.isMe),
+    });
+    const index = history.findIndex((m: any) => m.msg_id === msg.msg_id);
+    if (index >= 0) {
+      history[index] = nextMessage;
+    } else {
+      history.push(nextMessage);
     }
+    localStorage.setItem(key, JSON.stringify(history));
   } catch (e) { console.error("Error saveMessageLocal Web", e); }
 };
 
@@ -32,8 +46,22 @@ export const markMessagesAsRead = (roomId: string) => {
 
 export const getMessagesByRoom = (roomId: string): any[] => {
   try {
-    return JSON.parse(localStorage.getItem(`chat_${roomId}`) || '[]');
+    return JSON.parse(localStorage.getItem(`chat_${roomId}`) || '[]').map(normalizeMessage);
   } catch (e) { return []; }
+};
+
+export const updateMessageAckReaders = (msgId: string, ackReaders: any[]) => {
+  try {
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (!key.startsWith('chat_')) continue;
+      const history = JSON.parse(localStorage.getItem(key) || '[]');
+      const next = history.map((message: any) =>
+        message.msg_id === msgId ? { ...message, ackReaders: ackReaders || [] } : message
+      );
+      localStorage.setItem(key, JSON.stringify(next));
+    }
+  } catch (e) { console.error("Error updateMessageAckReaders Web", e); }
 };
 
 export const saveDraftLocal = (roomId: string, content: string) => {
@@ -136,6 +164,8 @@ export const toggleReactionLocal = toggleReactionFn;
 // ═══════════════════════════════════════════════════════════
 
 const PINS_KEY = 'tuchat_pins';
+const EVENTS_KEY = 'tuchat_events';
+const POLLS_KEY = 'tuchat_polls';
 
 const getAllPins = (): any[] => {
   try {
@@ -275,5 +305,169 @@ export const getMessagesForSync = (days: number = 30): { roomId: string; message
   } catch (e) {
     console.error("Error getMessagesForSync:", e);
     return [];
+  }
+};
+
+const getAllMessages = (): any[] => {
+  try {
+    const keys = Object.keys(localStorage).filter((key) => key.startsWith('chat_'));
+    return keys.flatMap((key) => JSON.parse(localStorage.getItem(key) || '[]').map(normalizeMessage));
+  } catch (e) {
+    console.error("Error getAllMessages Web:", e);
+    return [];
+  }
+};
+
+const getStoredEvents = (roomId?: string): any[] => {
+  try {
+    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    return items
+      .filter((item: any) => !roomId || String(item.roomId) === String(roomId))
+      .map((item: any) => ({
+        msg_id: `event:${item.id}`,
+        ...item,
+        text: item.title,
+        timestamp: item.startsAt || item.createdAt,
+        itemType: 'event',
+        targetPanel: 'events',
+        important: true,
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const getStoredPolls = (roomId?: string): any[] => {
+  try {
+    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
+    return items
+      .filter((item: any) => !roomId || String(item.roomId) === String(roomId))
+      .map((item: any) => ({
+        msg_id: `poll:${item.id}`,
+        ...item,
+        text: item.question,
+        timestamp: item.createdAt,
+        itemType: 'poll',
+        targetPanel: 'polls',
+        important: true,
+      }));
+  } catch {
+    return [];
+  }
+};
+
+const getStoredPins = (roomId?: string): any[] => {
+  try {
+    const now = Date.now();
+    return getAllPins()
+      .filter((item: any) => (!roomId || String(item.roomId) === String(roomId)) && item.expiresAt > now)
+      .map((item: any) => ({
+        msg_id: item.msgId || `pin:${item.id}`,
+        ...item,
+        timestamp: item.pinnedAt,
+        itemType: 'pin',
+        targetPanel: item.msgId ? undefined : 'info',
+        important: true,
+      }));
+  } catch {
+    return [];
+  }
+};
+
+export const getImportantMessages = (): any[] => {
+  return [
+    ...getAllMessages().filter((message: any) => Boolean(message.important)),
+    ...getStoredEvents(),
+    ...getStoredPolls(),
+    ...getStoredPins(),
+  ]
+    .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+};
+
+export const getFilesByRoom = (roomId: string): any[] => {
+  return getMessagesByRoom(roomId).filter(isFileMessage);
+};
+
+export const searchMessagesAdvanced = (queryOrOptions: string | any): any[] => {
+  const options = typeof queryOrOptions === 'string'
+    ? { query: queryOrOptions }
+    : (queryOrOptions || {});
+  if (!String(options.query || '').trim() && !options.onlyImportant && !options.onlyFiles && !options.requiresAck && !options.threadTopic && !options.messageType) {
+    return [];
+  }
+  return [
+    ...getAllMessages(),
+    ...getStoredEvents(options.roomId),
+    ...getStoredPolls(options.roomId),
+    ...getStoredPins(options.roomId),
+  ]
+    .filter((message: any) => matchMessageAgainstSearch(message, options))
+    .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
+};
+
+export const saveRoomEventLocal = (event: any) => {
+  try {
+    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    const next = {
+      ...event,
+      startsAt: event.startsAt ? new Date(event.startsAt).getTime() : Date.now(),
+      createdAt: event.createdAt ? new Date(event.createdAt).getTime() : Date.now(),
+      metadataIndex: buildMetadataIndex({
+        text: event.title,
+        roomName: event.roomName,
+        senderName: event.createdByName,
+        metadata: { description: event.description, kind: 'evento' },
+        timestamp: event.startsAt || event.createdAt,
+      }),
+    };
+    const index = items.findIndex((item: any) => item.id === event.id);
+    if (index >= 0) items[index] = next;
+    else items.push(next);
+    localStorage.setItem(EVENTS_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error("Error saveRoomEventLocal Web:", e);
+  }
+};
+
+export const removeRoomEventLocal = (eventId: string) => {
+  try {
+    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    localStorage.setItem(EVENTS_KEY, JSON.stringify(items.filter((item: any) => item.id !== eventId)));
+  } catch (e) {
+    console.error("Error removeRoomEventLocal Web:", e);
+  }
+};
+
+export const saveRoomPollLocal = (poll: any) => {
+  try {
+    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
+    const next = {
+      ...poll,
+      expiresAt: poll.expiresAt ? new Date(poll.expiresAt).getTime() : null,
+      closedAt: poll.closedAt ? new Date(poll.closedAt).getTime() : null,
+      createdAt: poll.createdAt ? new Date(poll.createdAt).getTime() : Date.now(),
+      metadataIndex: buildMetadataIndex({
+        text: poll.question,
+        roomName: poll.roomName,
+        senderName: poll.createdByName,
+        metadata: { options: (poll.options || []).map((item: any) => item.text || ''), kind: 'encuesta' },
+        timestamp: poll.expiresAt || poll.createdAt,
+      }),
+    };
+    const index = items.findIndex((item: any) => item.id === poll.id);
+    if (index >= 0) items[index] = next;
+    else items.push(next);
+    localStorage.setItem(POLLS_KEY, JSON.stringify(items));
+  } catch (e) {
+    console.error("Error saveRoomPollLocal Web:", e);
+  }
+};
+
+export const removeRoomPollLocal = (pollId: string) => {
+  try {
+    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
+    localStorage.setItem(POLLS_KEY, JSON.stringify(items.filter((item: any) => item.id !== pollId)));
+  } catch (e) {
+    console.error("Error removeRoomPollLocal Web:", e);
   }
 };

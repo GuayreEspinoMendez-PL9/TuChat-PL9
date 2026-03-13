@@ -134,6 +134,34 @@ const PRESENCE_LABELS = {
   offline: "Desconectado",
 };
 
+const IMPORTANT_MESSAGE_TYPES = new Set(["announcement", "required_read", "assessable", "urgent"]);
+
+function buildIndexedMessage(payload) {
+  const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+  const messageType = payload?.messageType || metadata.messageType || null;
+  const threadTopic = payload?.threadTopic || metadata.threadTopic || null;
+  const requiresAck = Boolean(payload?.requiresAck);
+  const important = Boolean(payload?.important || metadata.important || IMPORTANT_MESSAGE_TYPES.has(String(messageType || "")));
+
+  return {
+    ...payload,
+    text: payload?.text ?? payload?.contenido ?? "",
+    contenido: payload?.contenido ?? payload?.text ?? "",
+    messageType,
+    threadTopic,
+    requiresAck,
+    important,
+    ackReaders: Array.isArray(payload?.ackReaders) ? payload.ackReaders : [],
+    metadata: {
+      ...metadata,
+      important,
+      messageType,
+      threadTopic,
+      requiresAck,
+    },
+  };
+}
+
 // Función para cargar ajustes desde BD (roomId = id_sala)
 async function cargarAjustesSala(roomId) {
   try {
@@ -299,12 +327,12 @@ io.on("connection", async (socket) => {
       return socket.emit("error_permisos", { msg: "Chat restringido" });
     }
 
-    const message = {
+    const message = buildIndexedMessage({
       ...payload,
       contenido: contenido || payload.text, // Aseguramos que tenga algo
       timestamp: Date.now(),
       read: false
-    };
+    });
 
     // A. Envío a la sala (Para los que están dentro del chat abierto)
     io.to(roomId).emit("chat:receive", message);
@@ -373,11 +401,11 @@ io.on("connection", async (socket) => {
     // 1. Extraemos los datos (payload trae el campo 'image' con el base64)
     const { roomId, senderId, recipients, image, nombreEmisor } = payload;
 
-    const message = {
+    const message = buildIndexedMessage({
       ...payload,
       timestamp: Date.now(),
       read: false
-    };
+    });
 
     // 2. IMPORTANTE: Reenviar a la sala
     // Esto hace que el Usuario 2 reciba el objeto con el campo 'image'
@@ -432,6 +460,18 @@ io.on("connection", async (socket) => {
   socket.on("chat:read_receipt", ({ msg_id, roomId }) => {
     // Reenviar a la sala para que el emisor vea el doble tick azul
     io.to(roomId).emit("chat:update_read_status", { msg_id });
+  });
+
+  socket.on("chat:strong_read", ({ msg_id, roomId, userId: readerId, userName }) => {
+    if (!msg_id || !roomId || !readerId) return;
+    io.to(roomId).emit("chat:update_strong_read", {
+      msg_id,
+      reader: {
+        userId: readerId,
+        userName: userName || 'Usuario',
+        readAt: Date.now(),
+      }
+    });
   });
 
   // ==================================
