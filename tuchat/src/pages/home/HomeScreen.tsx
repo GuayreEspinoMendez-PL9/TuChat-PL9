@@ -9,7 +9,7 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { router, useFocusEffect } from "expo-router";
 import { useSocket } from '../../context/SocketContext';
-import { getImportantMessages, markMessagesAsRead, getMessagesByRoom, searchMessagesAdvanced } from '../../db/database';
+import { dismissImportantItem, getImportantMessages, markMessagesAsRead, getMessagesByRoom, searchMessagesAdvanced } from '../../db/database';
 import { ChatScreen } from '../../components/Chat/ChatScreen';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -122,6 +122,7 @@ export const HomeScreen = () => {
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [menuVisible, setMenuVisible] = useState(false);
   const [userRol, setUserRol] = useState<number | null>(null);
+  const [userId, setUserId] = useState<string>('');
   const [searchVisible, setSearchVisible] = useState(false);
   const [importantVisible, setImportantVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,6 +150,7 @@ export const HomeScreen = () => {
         setUserType(userData.tipo || userData.tipo_externo || 'ALUMNO');
         setUserName(userData.nombre || '');
         setUserRol(userData.id_rol || null);
+        setUserId(String(userData.id || userData.id_usuario_app || userData.sub || ''));
       }
     } catch (e) {
       console.error("Error obteniendo datos de usuario:", e);
@@ -226,19 +228,27 @@ export const HomeScreen = () => {
     }
   }, []);
 
+  const refreshImportantItems = useCallback(() => {
+    setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId) : []);
+  }, [userId]);
+
   useEffect(() => {
     fetchUserData();
     fetchChats();
-    setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages() : []);
-  }, [fetchChats]);
+    refreshImportantItems();
+  }, [fetchChats, refreshImportantItems]);
 
   useFocusEffect(
     useCallback(() => {
       refreshUnreadCounts();
       fetchChats();
-      setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages() : []);
-    }, [refreshUnreadCounts, fetchChats])
+      refreshImportantItems();
+    }, [refreshUnreadCounts, fetchChats, refreshImportantItems])
   );
+
+  useEffect(() => {
+    refreshImportantItems();
+  }, [refreshImportantItems, unreadCounts, importantVisible]);
 
   useEffect(() => {
     if (!searchQuery.trim() && !searchFilters.onlyImportant && !searchFilters.onlyFiles && !searchFilters.requiresAck) {
@@ -321,6 +331,11 @@ export const HomeScreen = () => {
     } catch (e) {
       console.error("Error al cerrar sesión:", e);
     }
+  };
+
+  const hideImportantItem = (item: any) => {
+    if (typeof dismissImportantItem === 'function') dismissImportantItem(item.msg_id, userId);
+    setImportantItems((prev) => prev.filter((current) => current.msg_id !== item.msg_id));
   };
 
   const handleMenuOption = (option: string) => {
@@ -595,7 +610,7 @@ export const HomeScreen = () => {
                 <Text style={{ color: searchFilters.onlyFiles ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Archivos</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => toggleSearchFilter('requiresAck')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.requiresAck ? colors.primary : colors.border, backgroundColor: searchFilters.requiresAck ? colors.primaryBg : colors.background }}>
-                <Text style={{ color: searchFilters.requiresAck ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Lectura fuerte</Text>
+                <Text style={{ color: searchFilters.requiresAck ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Checker</Text>
               </TouchableOpacity>
               {(searchQuery || searchFilters.onlyImportant || searchFilters.onlyFiles || searchFilters.requiresAck) ? (
                 <TouchableOpacity
@@ -613,13 +628,18 @@ export const HomeScreen = () => {
               data={searchResults}
               keyExtractor={(item) => item.msg_id}
               renderItem={({ item }) => (
-                <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+                <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+                  <TouchableOpacity onPress={() => openMessageResult(item)}>
                   <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
                   <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || item.messageType || 'Sin contenido'}</Text>
                   <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
-                    {[item.itemType, item.threadTopic, item.messageType, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje'}
+                    {[item.itemType, item.threadTopic, item.messageType, item.requiresAck ? 'Checker' : null].filter(Boolean).join(' · ') || 'Mensaje'}
                   </Text>
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => hideImportantItem(item)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover, borderWidth: 1, borderColor: colors.border }}>
+                    <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Ocultar</Text>
+                  </TouchableOpacity>
+                </View>
               )}
               ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Sin resultados con los filtros actuales.</Text>}
             />
@@ -640,7 +660,7 @@ export const HomeScreen = () => {
                   <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
                   <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || 'Sin contenido'}</Text>
                   <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
-                    {[item.itemType, item.threadTopic, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
+                    {[item.itemType, item.threadTopic, item.requiresAck ? 'Checker' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
                   </Text>
                 </TouchableOpacity>
               )}

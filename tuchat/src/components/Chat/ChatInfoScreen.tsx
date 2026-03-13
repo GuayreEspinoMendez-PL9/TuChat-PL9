@@ -384,7 +384,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
                 ['video', 'Videos'],
                 ['link', 'Enlaces'],
                 ['important', 'Importantes'],
-                ['requiresAck', 'Lectura fuerte'],
+                ['requiresAck', 'Checker'],
               ].map(([key, label]) => {
                 const selected = fileFilter === key;
                 return (

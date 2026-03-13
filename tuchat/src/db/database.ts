@@ -95,6 +95,12 @@ export const initDB = () => {
       optionsJson TEXT,
       metadataIndex TEXT
     );
+    CREATE TABLE IF NOT EXISTS importantes_descartados (
+      userId TEXT,
+      itemId TEXT,
+      dismissedAt INTEGER,
+      PRIMARY KEY (userId, itemId)
+    );
   `);
 
   // Migration for existing tables
@@ -120,9 +126,19 @@ export const saveMessageLocal = (msg: any) => {
 
     db.runSync(
       'INSERT OR REPLACE INTO mensajes_locales (msg_id, roomId, roomName, senderId, senderName, text, image, mediaType, fileName, timestamp, read, reactions, replyTo, metadata, threadTopic, messageType, important, metadataIndex, requiresAck, ackReaders) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [serialized.msg_id, serialized.roomId, serialized.roomName || null, serialized.senderId, serialized.senderName || "Usuario", serialized.text, serialized.image, serialized.mediaType || 'image', serialized.fileName || null, serialized.timestamp, isRead, serialized.reactions, serialized.replyTo, serialized.metadata, serialized.threadTopic || null, serialized.messageType || null, serialized.important ? 1 : 0, serialized.metadataIndex || '', serialized.requiresAck ? 1 : 0, serialized.ackReaders]
+      [serialized.msg_id, serialized.roomId, serialized.roomName || null, serialized.senderId, serialized.senderName || "Usuario", serialized.text, serialized.image, serialized.mediaType || null, serialized.fileName || null, serialized.timestamp, isRead, serialized.reactions, serialized.replyTo, serialized.metadata, serialized.threadTopic || null, serialized.messageType || null, serialized.important ? 1 : 0, serialized.metadataIndex || '', serialized.requiresAck ? 1 : 0, serialized.ackReaders]
     );
   } catch (e) { console.error("Error saveMessageLocal:", e); }
+};
+
+const isImportantDismissed = (userId?: string, itemId?: string) => {
+  if (!db || !userId || !itemId) return false;
+  try {
+    const row: any = db.getFirstSync('SELECT 1 as dismissed FROM importantes_descartados WHERE userId = ? AND itemId = ?', [String(userId), String(itemId)]);
+    return Boolean(row?.dismissed);
+  } catch {
+    return false;
+  }
 };
 
 export const getUnreadCountByRoom = (roomId: string): number => {
@@ -256,7 +272,7 @@ const getStoredPins = (roomId?: string) => {
   return rows.map(normalizePinRecord);
 };
 
-export const getImportantMessages = (): any[] => {
+export const getImportantMessages = (userId?: string): any[] => {
   if (!db) return [];
   try {
     const rows: any[] = db.getAllSync(`SELECT * FROM mensajes_locales WHERE important = 1 ORDER BY timestamp DESC`);
@@ -265,10 +281,21 @@ export const getImportantMessages = (): any[] => {
       ...getStoredEvents(),
       ...getStoredPolls(),
       ...getStoredPins(),
-    ].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    ]
+      .filter((item) => !isImportantDismissed(userId, item.msg_id))
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   } catch (e) {
     console.error("Error getImportantMessages:", e);
     return [];
+  }
+};
+
+export const dismissImportantItem = (itemId: string, userId?: string) => {
+  if (!db || !itemId || !userId) return;
+  try {
+    db.runSync('INSERT OR REPLACE INTO importantes_descartados (userId, itemId, dismissedAt) VALUES (?, ?, ?)', [String(userId), String(itemId), Date.now()]);
+  } catch (e) {
+    console.error("Error dismissImportantItem:", e);
   }
 };
 

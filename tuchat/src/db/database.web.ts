@@ -27,6 +27,22 @@ export const saveMessageLocal = (msg: any) => {
   } catch (e) { console.error("Error saveMessageLocal Web", e); }
 };
 
+const DISMISSED_IMPORTANT_KEY = 'tuchat_dismissed_important';
+
+const getDismissedImportant = (): Record<string, string[]> => {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISSED_IMPORTANT_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const isImportantDismissed = (userId?: string, itemId?: string) => {
+  if (!userId || !itemId) return false;
+  const all = getDismissedImportant();
+  return Array.isArray(all[userId]) && all[userId].includes(itemId);
+};
+
 export const getUnreadCountByRoom = (roomId: string): number => {
   try {
     const history = JSON.parse(localStorage.getItem(`chat_${roomId}`) || '[]');
@@ -374,13 +390,14 @@ const getStoredPins = (roomId?: string): any[] => {
   }
 };
 
-export const getImportantMessages = (): any[] => {
+export const getImportantMessages = (userId?: string): any[] => {
   return [
     ...getAllMessages().filter((message: any) => Boolean(message.important)),
     ...getStoredEvents(),
     ...getStoredPolls(),
     ...getStoredPins(),
   ]
+    .filter((item: any) => !isImportantDismissed(userId, item.msg_id))
     .sort((a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0));
 };
 
@@ -460,6 +477,17 @@ export const saveRoomPollLocal = (poll: any) => {
     localStorage.setItem(POLLS_KEY, JSON.stringify(items));
   } catch (e) {
     console.error("Error saveRoomPollLocal Web:", e);
+  }
+};
+
+export const dismissImportantItem = (itemId: string, userId?: string) => {
+  if (!itemId || !userId) return;
+  try {
+    const all = getDismissedImportant();
+    const next = Array.from(new Set([...(all[userId] || []), itemId]));
+    localStorage.setItem(DISMISSED_IMPORTANT_KEY, JSON.stringify({ ...all, [userId]: next }));
+  } catch (e) {
+    console.error("Error dismissImportantItem Web:", e);
   }
 };
 

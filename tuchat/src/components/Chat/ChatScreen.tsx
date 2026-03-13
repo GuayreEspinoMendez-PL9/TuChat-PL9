@@ -84,7 +84,8 @@ const TEACHER_MESSAGE_TYPES = [
   { id: 'urgent', label: 'Cambio urgente' },
 ] as const;
 
-const THREAD_TOPICS = ['General', 'Examen', 'Tarea 3', 'Dudas', 'Material'] as const;
+const THREAD_TOPICS = ['General', 'Examen', 'Tarea', 'Dudas', 'Material'] as const;
+const CONVERSATION_FILTERS = ['Todos', 'Importantes', 'Checker', 'Menciones', 'Encuestas', 'Eventos'] as const;
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -335,6 +336,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [requiresAck, setRequiresAck] = useState(false);
   const [showComposerMeta, setShowComposerMeta] = useState(false);
   const [activeThreadFilter, setActiveThreadFilter] = useState<string>('Todos');
+  const [showThreadFilterMenu, setShowThreadFilterMenu] = useState(false);
+  const [expandedCheckerInfoId, setExpandedCheckerInfoId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const hasAutoScrolledRef = useRef(false);
   const inputRef = useRef<TextInput>(null); // New ref for input
@@ -914,7 +917,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
-  const sendMessage = async (mediaUri?: string, mediaType: 'image' | 'video' | 'file' = 'image', fileName?: string, fileSize?: number, mimeType?: string) => {
+  const sendMessage = async (mediaUri?: string, mediaType: 'text' | 'image' | 'video' | 'file' = 'text', fileName?: string, fileSize?: number, mimeType?: string) => {
     console.log("SENDING MESSAGE...", { input, mediaUri: mediaUri?.substring(0, 60), socket: !!socket, myUserId, mediaType, fileName });
     if (!input.trim() && !mediaUri) return;
     if (!socket) {
@@ -1149,10 +1152,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
   const upcomingEvents = events.filter((event: any) => (event?.startsAt || 0) >= Date.now()).slice(0, 3);
   const visiblePolls = polls.slice(0, 3);
-  const threadOptions = ['Todos', ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean)))];
-  const filteredMessages = activeThreadFilter === 'Todos'
-    ? messages
-    : messages.filter((message) => message.threadTopic === activeThreadFilter);
+  const threadOptions = [
+    ...CONVERSATION_FILTERS,
+    ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean))),
+  ];
+  const filteredMessages = (() => {
+    if (activeThreadFilter === 'Todos') return messages;
+    if (activeThreadFilter === 'Importantes') return messages.filter((message) => message.important || message.messageType);
+    if (activeThreadFilter === 'Checker') return messages.filter((message) => message.requiresAck);
+    if (activeThreadFilter === 'Menciones') return messages.filter((message) => messageMentionsCurrentUser(message, myUserId, myUserName));
+    if (activeThreadFilter === 'Encuestas') return messages.filter((message) => String(message.messageType || '').includes('poll'));
+    if (activeThreadFilter === 'Eventos') return messages.filter((message) => String(message.messageType || '').includes('event'));
+    return messages.filter((message) => message.threadTopic === activeThreadFilter);
+  })();
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
     .slice(0, 4)
@@ -1160,6 +1172,52 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       id: member.id,
       label: `@${(member.nombre || '').split(' ')[0]}`,
     }));
+
+  const selectConversationFilter = (filter: string) => {
+    setActiveThreadFilter(filter);
+    setShowThreadFilterMenu(false);
+    if (filter === 'Eventos') {
+      setShowExtrasPanel('events');
+      return;
+    }
+    if (filter === 'Encuestas') {
+      setShowExtrasPanel('polls');
+      return;
+    }
+  };
+
+  const getUserDisplayName = (userId: string) => {
+    const normalizedUserId = String(userId);
+    if (normalizedUserId === String(myUserId)) return myUserName || 'Tú';
+    const detailed = memberDetails.find((member) => String(member.id) === normalizedUserId);
+    if (detailed?.nombre) return detailed.nombre;
+    const fromPresence = presenceByUser[normalizedUserId];
+    if (fromPresence?.userName) return fromPresence.userName;
+    if (fromPresence?.nombre) return fromPresence.nombre;
+    return `Usuario ${normalizedUserId.slice(0, 8)}`;
+  };
+
+  const getCheckerBreakdown = (message: any) => {
+    const readers = Array.isArray(message?.ackReaders) ? message.ackReaders : [];
+    const readSet = new Set(readers.map((reader: any) => String(reader.userId)));
+    const sourceMembers = memberDetails.length > 0
+      ? memberDetails.map((member: any) => ({ userId: String(member.id), userName: member.nombre || getUserDisplayName(String(member.id)) }))
+      : miembros.map((memberId: string) => ({ userId: String(memberId), userName: getUserDisplayName(String(memberId)) }));
+
+    const confirmed = sourceMembers.filter((member) => readSet.has(String(member.userId)));
+    const pending = sourceMembers.filter((member) => !readSet.has(String(member.userId)));
+
+    const normalizedConfirmed = readers.map((reader: any) => ({
+      userId: String(reader.userId),
+      userName: reader.userName || getUserDisplayName(String(reader.userId)),
+      readAt: reader.readAt,
+    }));
+
+    return {
+      confirmed: normalizedConfirmed.length > 0 ? normalizedConfirmed : confirmed,
+      pending,
+    };
+  };
 
   const content = (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1211,26 +1269,60 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         paddingBottom: 8,
         gap: 10,
       }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
-          {threadOptions.map((topic) => (
-            <TouchableOpacity
-              key={topic}
-              onPress={() => setActiveThreadFilter(topic)}
-              style={{
-                paddingHorizontal: 12,
-                paddingVertical: 7,
-                borderRadius: 999,
-                backgroundColor: activeThreadFilter === topic ? colors.primary : colors.surface,
-                borderWidth: 1,
-                borderColor: activeThreadFilter === topic ? colors.primary : colors.border,
-              }}
-            >
-              <Text style={{ color: activeThreadFilter === topic ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>
-                {topic}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <View style={{ position: 'relative' }}>
+          <TouchableOpacity
+            onPress={() => setShowThreadFilterMenu((prev) => !prev)}
+            style={{
+              alignSelf: 'flex-start',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}
+          >
+            <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 12 }}>
+              Vista: {activeThreadFilter}
+            </Text>
+          </TouchableOpacity>
+          {showThreadFilterMenu && (
+            <View style={{
+              position: 'absolute',
+              top: 42,
+              left: 0,
+              zIndex: 30,
+              minWidth: 190,
+              backgroundColor: colors.surface,
+              borderWidth: 1,
+              borderColor: colors.border,
+              borderRadius: 14,
+              padding: 8,
+              shadowColor: '#000',
+              shadowOpacity: 0.12,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 6,
+            }}>
+              {threadOptions.map((topic) => (
+                <TouchableOpacity
+                  key={topic}
+                  onPress={() => selectConversationFilter(topic)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 9,
+                    borderRadius: 10,
+                    backgroundColor: activeThreadFilter === topic ? colors.primaryBg : 'transparent',
+                  }}
+                >
+                  <Text style={{ color: activeThreadFilter === topic ? colors.primary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>
+                    {topic}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
           {(['available', 'in_class', 'busy'] as const).map((statusKey) => {
             const meta = PRESENCE_META[statusKey];
@@ -1645,7 +1737,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                       )}
                       {item.requiresAck && (
                         <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.successBg }}>
-                          <Text style={{ color: isMe ? colors.textOnPrimary : colors.success, fontSize: 11, fontWeight: '700' }}>Lectura fuerte</Text>
+                          <Text style={{ color: isMe ? colors.textOnPrimary : colors.success, fontSize: 11, fontWeight: '700' }}>Checker</Text>
                         </View>
                       )}
                     </View>
@@ -1667,14 +1759,36 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                       }}
                       style={{ marginTop: 8, alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.16)' : colors.primaryBg }}
                     >
-                      <Text style={{ color: isMe ? colors.textOnPrimary : colors.primary, fontWeight: '700', fontSize: 12 }}>Confirmar lectura</Text>
+                      <Text style={{ color: isMe ? colors.textOnPrimary : colors.primary, fontWeight: '700', fontSize: 12 }}>Marcar checker</Text>
                     </TouchableOpacity>
                   )}
 
                   {item.requiresAck && (
-                    <Text style={{ marginTop: 6, color: isMe ? 'rgba(255,255,255,0.8)' : colors.textMuted, fontSize: 11 }}>
-                      Lecturas: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0}
-                    </Text>
+                    <View style={{ marginTop: 6, gap: 6 }}>
+                      <TouchableOpacity
+                        onPress={() => setExpandedCheckerInfoId((current) => current === item.msg_id ? null : item.msg_id)}
+                        style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.14)' : colors.surfaceHover }}
+                      >
+                        <Text style={{ color: isMe ? 'rgba(255,255,255,0.9)' : colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
+                          Checker: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0} · Info
+                        </Text>
+                      </TouchableOpacity>
+                      {expandedCheckerInfoId === item.msg_id && (() => {
+                        const checker = getCheckerBreakdown(item);
+                        return (
+                          <View style={{ padding: 10, borderRadius: 12, backgroundColor: isMe ? 'rgba(255,255,255,0.12)' : colors.surfaceHover, borderWidth: 1, borderColor: isMe ? 'rgba(255,255,255,0.18)' : colors.border }}>
+                            <Text style={{ color: isMe ? colors.textOnPrimary : colors.textPrimary, fontWeight: '700', fontSize: 12, marginBottom: 6 }}>Confirmados</Text>
+                            <Text style={{ color: isMe ? 'rgba(255,255,255,0.85)' : colors.textSecondary, fontSize: 12 }}>
+                              {checker.confirmed.length > 0 ? checker.confirmed.map((member: any) => member.userName).join(', ') : 'Nadie todavia'}
+                            </Text>
+                            <Text style={{ color: isMe ? colors.textOnPrimary : colors.textPrimary, fontWeight: '700', fontSize: 12, marginTop: 10, marginBottom: 6 }}>Pendientes</Text>
+                            <Text style={{ color: isMe ? 'rgba(255,255,255,0.85)' : colors.textSecondary, fontSize: 12 }}>
+                              {checker.pending.length > 0 ? checker.pending.map((member: any) => member.userName).join(', ') : 'Nadie pendiente'}
+                            </Text>
+                          </View>
+                        );
+                      })()}
+                    </View>
                   )}
 
                   {/* Hora y ticks */}
@@ -1932,7 +2046,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity onPress={() => setRequiresAck(prev => !prev)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: requiresAck ? colors.primary : colors.surfaceHover }}>
-                  <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Lectura fuerte</Text>
+                  <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Checker</Text>
                 </TouchableOpacity>
               </ScrollView>
             )}
@@ -2066,6 +2180,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           setOpenMenuId(null);
           setShowReactionPicker(null);
           setShowInputEmojiPicker(false);
+          setShowThreadFilterMenu(false);
           setSelectedMessageId(null);
         }}>
           {content}
@@ -2149,12 +2264,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
       <React.Fragment>
-        <TouchableWithoutFeedback onPress={() => {
-          setOpenMenuId(null);
-          setShowReactionPicker(null);
-          setShowInputEmojiPicker(false);
-          setSelectedMessageId(null);
-        }}>
+      <TouchableWithoutFeedback onPress={() => {
+        setOpenMenuId(null);
+        setShowReactionPicker(null);
+        setShowInputEmojiPicker(false);
+        setShowThreadFilterMenu(false);
+        setSelectedMessageId(null);
+      }}>
           {content}
         </TouchableWithoutFeedback>
       </React.Fragment>
