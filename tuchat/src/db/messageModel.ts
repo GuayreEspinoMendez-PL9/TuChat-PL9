@@ -45,6 +45,9 @@ export const isImportantMessage = (message: any): boolean => {
 export const isFileMessage = (message: any): boolean => {
   if (!message) return false;
   if (FILE_MEDIA_TYPES.has(String(message.mediaType || ''))) return true;
+  if (message.image) return true;
+  if (String(message.mimeType || '').startsWith('image/')) return true;
+  if (String(message.mimeType || '').startsWith('video/')) return true;
   if (message.fileName) return true;
   return /^https?:\/\//i.test(String(message.text || ''));
 };
@@ -52,8 +55,8 @@ export const isFileMessage = (message: any): boolean => {
 export const getFileCategory = (message: any): 'image' | 'video' | 'link' | 'file' | 'other' => {
   if (!message) return 'other';
   if (/^https?:\/\//i.test(String(message.text || ''))) return 'link';
-  if (message.mediaType === 'image') return 'image';
-  if (message.mediaType === 'video') return 'video';
+  if (message.mediaType === 'image' || String(message.mimeType || '').startsWith('image/')) return 'image';
+  if (message.mediaType === 'video' || String(message.mimeType || '').startsWith('video/')) return 'video';
   if (message.mediaType === 'file' || message.fileName) return 'file';
   return 'other';
 };

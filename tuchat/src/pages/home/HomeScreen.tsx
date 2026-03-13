@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, ActivityIndicator, RefreshControl,
   TouchableOpacity, Platform, StyleSheet, useWindowDimensions,
   Modal, Pressable, Image, TextInput
 } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
@@ -111,7 +112,7 @@ const MessageStatus = ({ status }: { status: 'sent' | 'delivered' | 'read' }) =>
 // ============ COMPONENTE PRINCIPAL ============
 
 export const HomeScreen = () => {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const [chats, setChats] = useState<any[]>([]);
   const [privateChats, setPrivateChats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -123,8 +124,7 @@ export const HomeScreen = () => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [userRol, setUserRol] = useState<number | null>(null);
   const [userId, setUserId] = useState<string>('');
-  const [searchVisible, setSearchVisible] = useState(false);
-  const [importantVisible, setImportantVisible] = useState(false);
+  const [panelMode, setPanelMode] = useState<'chats' | 'search' | 'important'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilters, setSearchFilters] = useState({
     onlyImportant: false,
@@ -248,7 +248,7 @@ export const HomeScreen = () => {
 
   useEffect(() => {
     refreshImportantItems();
-  }, [refreshImportantItems, unreadCounts, importantVisible]);
+  }, [refreshImportantItems, unreadCounts, panelMode]);
 
   useEffect(() => {
     if (!searchQuery.trim() && !searchFilters.onlyImportant && !searchFilters.onlyFiles && !searchFilters.requiresAck) {
@@ -293,8 +293,6 @@ export const HomeScreen = () => {
   };
 
   const openMessageResult = (item: any) => {
-    setSearchVisible(false);
-    setImportantVisible(false);
     if (isDesktop) {
       setSelectedChat({
         id_chat: item.roomId,
@@ -336,6 +334,11 @@ export const HomeScreen = () => {
   const hideImportantItem = (item: any) => {
     if (typeof dismissImportantItem === 'function') dismissImportantItem(item.msg_id, userId);
     setImportantItems((prev) => prev.filter((current) => current.msg_id !== item.msg_id));
+  };
+
+  const handleTabChange = (tab: 'grupos' | 'privados') => {
+    setActiveTab(tab);
+    setPanelMode('chats');
   };
 
   const handleMenuOption = (option: string) => {
@@ -438,9 +441,11 @@ export const HomeScreen = () => {
   const currentChats = activeTab === 'grupos' ? chats : privateChats;
   const gruposUnread = chats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
   const privadosUnread = privateChats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
+  const isSearchMode = panelMode === 'search';
+  const isImportantMode = panelMode === 'important';
 
   // ============ MENÚ DESPLEGABLE ============
-  const DropdownMenu = () => (
+  const dropdownMenu = (
     <Modal
       visible={menuVisible}
       transparent
@@ -489,7 +494,7 @@ export const HomeScreen = () => {
     </Modal>
   );
 
-  const ChatList = () => (
+  const chatListContent = (
     <View style={[s.chatListContainer, isDesktop && s.chatListContainerDesktop, { backgroundColor: colors.surface }]}>
       {/* Header con logo + título + menú 3 puntos */}
       <View style={[s.header, isDesktop && s.headerDesktop, { backgroundColor: colors.primary }]}>
@@ -498,12 +503,6 @@ export const HomeScreen = () => {
           <Text style={s.mainTitle}>TuChat</Text>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <TouchableOpacity onPress={() => setSearchVisible(true)} style={s.menuButton} activeOpacity={0.7}>
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Buscar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setImportantVisible(true)} style={s.menuButton} activeOpacity={0.7}>
-            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>Importante</Text>
-          </TouchableOpacity>
         <TouchableOpacity
           onPress={() => setMenuVisible(true)}
           style={s.menuButton}
@@ -514,11 +513,29 @@ export const HomeScreen = () => {
         </View>
       </View>
 
+      <View style={[s.quickActionsBar, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          onPress={() => setPanelMode('search')}
+          style={[s.quickActionIconButton, { backgroundColor: isSearchMode ? colors.primaryBg : colors.background, borderColor: isSearchMode ? colors.primary : colors.border }]}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="magnify" size={20} color={isSearchMode ? colors.primary : colors.textPrimary} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setPanelMode('important')}
+          style={[s.quickActionButton, { backgroundColor: isImportantMode ? colors.primaryBg : colors.background, borderColor: isImportantMode ? colors.primary : colors.border }]}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="tray-full" size={18} color={isImportantMode ? colors.primary : colors.textPrimary} />
+          <Text style={[s.quickActionText, { color: isImportantMode ? colors.primary : colors.textPrimary }]}>Importantes</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Tabs */}
       <View style={[s.tabsContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <TouchableOpacity
           style={[s.tab, activeTab === 'grupos' && { borderBottomColor: colors.primary }]}
-          onPress={() => setActiveTab('grupos')}
+          onPress={() => handleTabChange('grupos')}
         >
           <UsersIcon color={activeTab === 'grupos' ? colors.primary : colors.textSecondary} />
           <Text style={[s.tabText, { color: colors.textSecondary }, activeTab === 'grupos' && { color: colors.primary }]}>Grupos</Text>
@@ -531,7 +548,7 @@ export const HomeScreen = () => {
 
         <TouchableOpacity
           style={[s.tab, activeTab === 'privados' && { borderBottomColor: colors.primary }]}
-          onPress={() => setActiveTab('privados')}
+          onPress={() => handleTabChange('privados')}
         >
           <UserIcon color={activeTab === 'privados' ? colors.primary : colors.textSecondary} />
           <Text style={[s.tabText, { color: colors.textSecondary }, activeTab === 'privados' && { color: colors.primary }]}>
@@ -545,12 +562,11 @@ export const HomeScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Lista de chats */}
       {loading ? (
         <View style={s.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
-      ) : (
+      ) : panelMode === 'chats' ? (
         <FlatList
           data={currentChats}
           keyExtractor={(item) => item.id_chat.toString()}
@@ -590,88 +606,86 @@ export const HomeScreen = () => {
             </View>
           }
         />
-      )}
-
-      <Modal visible={searchVisible} transparent animationType="fade" onRequestClose={() => setSearchVisible(false)}>
-        <Pressable style={[s.menuOverlay, { backgroundColor: colors.overlay }]} onPress={() => setSearchVisible(false)}>
-          <Pressable style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface, width: isDesktop ? 460 : 360, maxHeight: '80%' }]}>
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Buscar por mensaje, archivo, persona, encuesta, evento, pin o fecha"
-              placeholderTextColor={colors.textMuted}
-              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, margin: 16, color: colors.textPrimary, backgroundColor: colors.background }}
-            />
-            <View style={{ paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              <TouchableOpacity onPress={() => toggleSearchFilter('onlyImportant')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyImportant ? colors.primary : colors.border, backgroundColor: searchFilters.onlyImportant ? colors.primaryBg : colors.background }}>
-                <Text style={{ color: searchFilters.onlyImportant ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Importantes</Text>
+      ) : panelMode === 'search' ? (
+        <View style={s.sidePanelBody}>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar por mensaje, archivo, persona, encuesta, evento, pin o fecha"
+            placeholderTextColor={colors.textMuted}
+            style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, margin: 16, marginBottom: 12, color: colors.textPrimary, backgroundColor: colors.background }}
+          />
+          <View style={{ paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            <TouchableOpacity onPress={() => toggleSearchFilter('onlyImportant')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyImportant ? colors.primary : colors.border, backgroundColor: searchFilters.onlyImportant ? colors.primaryBg : colors.background }}>
+              <Text style={{ color: searchFilters.onlyImportant ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Importantes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => toggleSearchFilter('onlyFiles')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyFiles ? colors.primary : colors.border, backgroundColor: searchFilters.onlyFiles ? colors.primaryBg : colors.background }}>
+              <Text style={{ color: searchFilters.onlyFiles ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Archivos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => toggleSearchFilter('requiresAck')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.requiresAck ? colors.primary : colors.border, backgroundColor: searchFilters.requiresAck ? colors.primaryBg : colors.background }}>
+              <Text style={{ color: searchFilters.requiresAck ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Checker</Text>
+            </TouchableOpacity>
+            {(searchQuery || searchFilters.onlyImportant || searchFilters.onlyFiles || searchFilters.requiresAck) ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchQuery('');
+                  setSearchFilters({ onlyImportant: false, onlyFiles: false, requiresAck: false });
+                }}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
+              >
+                <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => toggleSearchFilter('onlyFiles')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyFiles ? colors.primary : colors.border, backgroundColor: searchFilters.onlyFiles ? colors.primaryBg : colors.background }}>
-                <Text style={{ color: searchFilters.onlyFiles ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Archivos</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => toggleSearchFilter('requiresAck')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.requiresAck ? colors.primary : colors.border, backgroundColor: searchFilters.requiresAck ? colors.primaryBg : colors.background }}>
-                <Text style={{ color: searchFilters.requiresAck ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Checker</Text>
-              </TouchableOpacity>
-              {(searchQuery || searchFilters.onlyImportant || searchFilters.onlyFiles || searchFilters.requiresAck) ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    setSearchQuery('');
-                    setSearchFilters({ onlyImportant: false, onlyFiles: false, requiresAck: false });
-                  }}
-                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface }}
-                >
-                  <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Limpiar</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
-            <FlatList
-              data={searchResults}
-              keyExtractor={(item) => item.msg_id}
-              renderItem={({ item }) => (
-                <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
-                  <TouchableOpacity onPress={() => openMessageResult(item)}>
+            ) : null}
+          </View>
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.msg_id}
+            contentContainerStyle={s.list}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => (
+              <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+                <TouchableOpacity onPress={() => openMessageResult(item)}>
                   <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
                   <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || item.messageType || 'Sin contenido'}</Text>
                   <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
                     {[item.itemType, item.threadTopic, item.messageType, item.requiresAck ? 'Checker' : null].filter(Boolean).join(' · ') || 'Mensaje'}
                   </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => hideImportantItem(item)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover, borderWidth: 1, borderColor: colors.border }}>
-                    <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Ocultar</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Sin resultados con los filtros actuales.</Text>}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal visible={importantVisible} transparent animationType="fade" onRequestClose={() => setImportantVisible(false)}>
-        <Pressable style={[s.menuOverlay, { backgroundColor: colors.overlay }]} onPress={() => setImportantVisible(false)}>
-          <Pressable style={[s.menuContainer, isDesktop && s.menuContainerDesktop, { backgroundColor: colors.surface, width: isDesktop ? 460 : 360, maxHeight: '80%' }]}>
-            <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 18, padding: 16, paddingBottom: 8 }}>Solo importante</Text>
-            <FlatList
-              data={importantItems}
-              keyExtractor={(item) => item.msg_id}
-              renderItem={({ item }) => (
-                <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
-                  <Text style={{ color: colors.primary, fontWeight: '700', marginBottom: 4 }}>{item.messageType || 'Importante'}</Text>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
-                  <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || 'Sin contenido'}</Text>
-                  <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
-                    {[item.itemType, item.threadTopic, item.requiresAck ? 'Checker' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
-                  </Text>
                 </TouchableOpacity>
-              )}
-              ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes.</Text>}
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+                <TouchableOpacity onPress={() => hideImportantItem(item)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover, borderWidth: 1, borderColor: colors.border }}>
+                  <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Ocultar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Sin resultados con los filtros actuales.</Text>}
+          />
+        </View>
+      ) : (
+        <FlatList
+          data={importantItems}
+          keyExtractor={(item) => item.msg_id}
+          contentContainerStyle={s.list}
+          renderItem={({ item }) => (
+            <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
+              <TouchableOpacity onPress={() => openMessageResult(item)}>
+                <Text style={{ color: colors.primary, fontWeight: '700', marginBottom: 4 }}>{item.messageType || 'Importante'}</Text>
+                <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
+                <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || 'Sin contenido'}</Text>
+                <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
+                  {[item.itemType, item.threadTopic, item.requiresAck ? 'Checker' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => hideImportantItem(item)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover, borderWidth: 1, borderColor: colors.border }}>
+                <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Quitar de mi bandeja</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes.</Text>}
+        />
+      )}
+
 
       {/* Menú desplegable */}
-      <DropdownMenu />
+      {dropdownMenu}
     </View>
   );
 
@@ -686,7 +700,7 @@ export const HomeScreen = () => {
   if (isDesktop) {
     return (
       <View style={[s.desktopContainer, { backgroundColor: colors.background }]}>
-        <ChatList />
+        {chatListContent}
         <View style={[s.chatPanelContainer, { backgroundColor: colors.background }]}>
           {selectedChat ? (
             <ChatScreen
@@ -706,7 +720,7 @@ export const HomeScreen = () => {
     );
   }
 
-  return <View style={[s.container, { backgroundColor: colors.background }]}><ChatList /></View>;
+  return <View style={[s.container, { backgroundColor: colors.background }]}>{chatListContent}</View>;
 };
 
 // ============ ESTILOS ============
@@ -717,6 +731,11 @@ const s = StyleSheet.create({
   chatListContainer: { flex: 1 },
   chatListContainerDesktop: { width: 380, maxWidth: 380, borderRightWidth: 1, borderRightColor: '#e2e8f0' }, // border will be themed
   chatPanelContainer: { flex: 1 },
+  quickActionsBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, borderBottomWidth: 1 },
+  quickActionIconButton: { width: 48, minHeight: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  quickActionButton: { flex: 1, minHeight: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
+  quickActionText: { fontSize: 14, fontWeight: '700' },
+  sidePanelBody: { flex: 1 },
 
   emptyChatPanel: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyChatTitle: { fontSize: 26, fontWeight: '300', marginTop: 20, marginBottom: 10 },

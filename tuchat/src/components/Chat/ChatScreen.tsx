@@ -321,7 +321,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [myPresenceStatus, setMyPresenceStatus] = useState<'available' | 'in_class' | 'busy'>('available');
   const [events, setEvents] = useState<any[]>([]);
   const [polls, setPolls] = useState<any[]>([]);
-  const [showExtrasPanel, setShowExtrasPanel] = useState<'events' | 'polls' | 'mentions' | null>(null);
+  const [showExtrasPanel, setShowExtrasPanel] = useState<'events' | 'polls' | 'mentions' | 'threads' | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [showPollModal, setShowPollModal] = useState(false);
   const [eventTitle, setEventTitle] = useState('');
@@ -339,6 +339,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [showThreadFilterMenu, setShowThreadFilterMenu] = useState(false);
   const [expandedCheckerInfoId, setExpandedCheckerInfoId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
+  const pendingScrollTargetRef = useRef<string | null>(null);
   const hasAutoScrolledRef = useRef(false);
   const inputRef = useRef<TextInput>(null); // New ref for input
   const typingTimeoutRef = useRef<any>(null);
@@ -1099,21 +1100,29 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   }
 
   function scrollToMessage(targetMsgId: string) {
-    const index = messages.findIndex(m => m.msg_id === targetMsgId);
+    const index = filteredMessages.findIndex(m => m.msg_id === targetMsgId);
     if (index !== -1) {
+      pendingScrollTargetRef.current = null;
       flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-      // Optional: Trigger a highlight animation here
       setHoveredMessageId(targetMsgId);
-      setTimeout(() => setHoveredMessageId(null), 1000);
+      setTimeout(() => setHoveredMessageId(null), 1400);
     } else {
-      console.log("Message not found (might be paginated)");
+      pendingScrollTargetRef.current = targetMsgId;
+      if (activeThreadFilter !== 'Todos') {
+        setActiveThreadFilter('Todos');
+      }
     }
   }
 
   const handleOpenMessageFromInfo = (message: any) => {
     setShowInfo(false);
-    setActiveThreadFilter('Todos');
-    setTimeout(() => scrollToMessage(message.msg_id), 180);
+    pendingScrollTargetRef.current = message.msg_id;
+    if (showExtrasPanel) setShowExtrasPanel(null);
+    if (activeThreadFilter !== 'Todos') {
+      setActiveThreadFilter('Todos');
+      return;
+    }
+    setTimeout(() => scrollToMessage(message.msg_id), 120);
   };
 
   // Modal de info del chat
@@ -1165,6 +1174,15 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     if (activeThreadFilter === 'Eventos') return messages.filter((message) => String(message.messageType || '').includes('event'));
     return messages.filter((message) => message.threadTopic === activeThreadFilter);
   })();
+
+  useEffect(() => {
+    if (!pendingScrollTargetRef.current || filteredMessages.length === 0) return;
+    const targetId = pendingScrollTargetRef.current;
+    if (!filteredMessages.some((message) => message.msg_id === targetId)) return;
+    const timeoutId = setTimeout(() => scrollToMessage(targetId), 80);
+    return () => clearTimeout(timeoutId);
+  }, [filteredMessages]);
+
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
     .slice(0, 4)
@@ -1184,6 +1202,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       setShowExtrasPanel('polls');
       return;
     }
+    setShowExtrasPanel('threads');
   };
 
   const getUserDisplayName = (userId: string) => {
@@ -1269,60 +1288,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         paddingBottom: 8,
         gap: 10,
       }}>
-        <View style={{ position: 'relative' }}>
-          <TouchableOpacity
-            onPress={() => setShowThreadFilterMenu((prev) => !prev)}
-            style={{
-              alignSelf: 'flex-start',
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderRadius: 999,
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 12 }}>
-              Vista: {activeThreadFilter}
-            </Text>
-          </TouchableOpacity>
-          {showThreadFilterMenu && (
-            <View style={{
-              position: 'absolute',
-              top: 42,
-              left: 0,
-              zIndex: 30,
-              minWidth: 190,
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.border,
-              borderRadius: 14,
-              padding: 8,
-              shadowColor: '#000',
-              shadowOpacity: 0.12,
-              shadowRadius: 10,
-              shadowOffset: { width: 0, height: 4 },
-              elevation: 6,
-            }}>
-              {threadOptions.map((topic) => (
-                <TouchableOpacity
-                  key={topic}
-                  onPress={() => selectConversationFilter(topic)}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 9,
-                    borderRadius: 10,
-                    backgroundColor: activeThreadFilter === topic ? colors.primaryBg : 'transparent',
-                  }}
-                >
-                  <Text style={{ color: activeThreadFilter === topic ? colors.primary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>
-                    {topic}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, alignItems: 'center', paddingRight: 12 }}>
           {(['available', 'in_class', 'busy'] as const).map((statusKey) => {
             const meta = PRESENCE_META[statusKey];
@@ -1367,7 +1332,31 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             <AtSign size={15} color={colors.textSecondary} />
             <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Menciones</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowExtrasPanel(prev => prev === 'threads' ? null : 'threads')}
+            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+          >
+            <ChevronDown size={15} color={colors.textSecondary} />
+            <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{activeThreadFilter}</Text>
+          </TouchableOpacity>
         </ScrollView>
+
+        {showExtrasPanel === 'threads' && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 12 }}>
+            {threadOptions.map((topic) => {
+              const selected = activeThreadFilter === topic;
+              return (
+                <TouchableOpacity
+                  key={topic}
+                  onPress={() => selectConversationFilter(topic)}
+                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: selected ? colors.primaryBg : colors.surface, borderWidth: 1, borderColor: selected ? colors.primary : colors.border }}
+                >
+                  <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{topic}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
 
         {showExtrasPanel === 'mentions' && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 12 }}>
@@ -1500,6 +1489,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         }}
         onScrollToIndexFailed={(info) => {
           flatListRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
+          if (pendingScrollTargetRef.current) {
+            setTimeout(() => scrollToMessage(pendingScrollTargetRef.current as string), 120);
+          }
         }}
         onScrollBeginDrag={() => {
           setOpenMenuId(null);

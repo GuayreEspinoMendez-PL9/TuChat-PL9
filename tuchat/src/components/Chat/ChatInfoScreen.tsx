@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   Platform, ActivityIndicator, ScrollView, TextInput, Linking
@@ -10,8 +10,8 @@ import { router } from 'expo-router';
 import { useSocket } from '../../context/SocketContext';
 import { useTheme } from '../../context/ThemeContext';
 import { fetchRoomPresence } from '../../services/chatExtras.service';
-import { getFilesByRoom } from '../../db/database';
-import { getFileCategory, isImportantMessage, normalizeMessage } from '../../db/messageModel';
+import { getFilesByRoom, getMessagesByRoom } from '../../db/database';
+import { getFileCategory, isFileMessage, isImportantMessage, normalizeMessage } from '../../db/messageModel';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -66,6 +66,29 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
   const { socket } = useSocket();
   const { colors } = useTheme();
 
+  const loadSharedFiles = useCallback(() => {
+    try {
+      const roomMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(roomId) : [];
+      const normalizedRoomFiles = roomMessages
+        .map(normalizeMessage)
+        .filter((message) => isFileMessage(message))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      if (normalizedRoomFiles.length > 0) {
+        setSharedFiles(normalizedRoomFiles);
+        return;
+      }
+
+      const fallbackFiles = typeof getFilesByRoom === 'function'
+        ? getFilesByRoom(roomId).map(normalizeMessage).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+        : [];
+      setSharedFiles(fallbackFiles);
+    } catch (e) {
+      console.error('Error cargando archivos compartidos:', e);
+      setSharedFiles([]);
+    }
+  }, [roomId]);
+
   useEffect(() => {
     const fetchDatos = async () => {
       try {
@@ -106,7 +129,7 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
           console.log("No se pudo cargar presencia:", e);
         }
 
-        setSharedFiles(typeof getFilesByRoom === 'function' ? getFilesByRoom(roomId).map(normalizeMessage) : []);
+        loadSharedFiles();
       } catch (e) {
         console.error("Error en ChatInfoScreen:", e);
       } finally {
@@ -115,7 +138,13 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
     };
 
     fetchDatos();
-  }, [roomId]);
+  }, [roomId, loadSharedFiles]);
+
+  useEffect(() => {
+    loadSharedFiles();
+    const intervalId = setInterval(loadSharedFiles, activeTab === 'files' ? 900 : 1500);
+    return () => clearInterval(intervalId);
+  }, [activeTab, loadSharedFiles]);
 
   const updatePermissions = (mode: PermissionMode, newDelegados?: string[]) => {
     if (!roomId) return;
