@@ -1091,6 +1091,28 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setTimeout(() => scrollToMessage(targetMsgId), 150);
   }, [targetMsgId, messages]);
 
+  const threadOptions = [
+    ...CONVERSATION_FILTERS,
+    ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean))),
+  ];
+  const filteredMessages = (() => {
+    if (activeThreadFilter === 'Todos') return messages;
+    if (activeThreadFilter === 'Importantes') return messages.filter((message) => message.important || message.messageType);
+    if (activeThreadFilter === 'Checker') return messages.filter((message) => message.requiresAck);
+    if (activeThreadFilter === 'Menciones') return messages.filter((message) => messageMentionsCurrentUser(message, myUserId, myUserName));
+    if (activeThreadFilter === 'Encuestas') return messages.filter((message) => String(message.messageType || '').includes('poll'));
+    if (activeThreadFilter === 'Eventos') return messages.filter((message) => String(message.messageType || '').includes('event'));
+    return messages.filter((message) => message.threadTopic === activeThreadFilter);
+  })();
+
+  useEffect(() => {
+    if (!pendingScrollTargetRef.current || filteredMessages.length === 0) return;
+    const targetId = pendingScrollTargetRef.current;
+    if (!filteredMessages.some((message) => message.msg_id === targetId)) return;
+    const timeoutId = setTimeout(() => scrollToMessage(targetId), 80);
+    return () => clearTimeout(timeoutId);
+  }, [filteredMessages]);
+
   if (loading) {
     return (
       <View style={[styles.loadingContainer, isEmbedded && { paddingTop: 0 }, { backgroundColor: colors.background }]}>
@@ -1161,27 +1183,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
   const upcomingEvents = events.filter((event: any) => (event?.startsAt || 0) >= Date.now()).slice(0, 3);
   const visiblePolls = polls.slice(0, 3);
-  const threadOptions = [
-    ...CONVERSATION_FILTERS,
-    ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean))),
-  ];
-  const filteredMessages = (() => {
-    if (activeThreadFilter === 'Todos') return messages;
-    if (activeThreadFilter === 'Importantes') return messages.filter((message) => message.important || message.messageType);
-    if (activeThreadFilter === 'Checker') return messages.filter((message) => message.requiresAck);
-    if (activeThreadFilter === 'Menciones') return messages.filter((message) => messageMentionsCurrentUser(message, myUserId, myUserName));
-    if (activeThreadFilter === 'Encuestas') return messages.filter((message) => String(message.messageType || '').includes('poll'));
-    if (activeThreadFilter === 'Eventos') return messages.filter((message) => String(message.messageType || '').includes('event'));
-    return messages.filter((message) => message.threadTopic === activeThreadFilter);
-  })();
-
-  useEffect(() => {
-    if (!pendingScrollTargetRef.current || filteredMessages.length === 0) return;
-    const targetId = pendingScrollTargetRef.current;
-    if (!filteredMessages.some((message) => message.msg_id === targetId)) return;
-    const timeoutId = setTimeout(() => scrollToMessage(targetId), 80);
-    return () => clearTimeout(timeoutId);
-  }, [filteredMessages]);
 
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
