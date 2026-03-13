@@ -1076,6 +1076,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return 'sent';
   };
 
+  useEffect(() => {
+    if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
+    if (activeThreadFilter !== 'Todos') {
+      setActiveThreadFilter('Todos');
+    }
+    const found = messages.some((message) => message.msg_id === targetMsgId);
+    if (!found) return;
+    hasScrolledToTargetRef.current = true;
+    setTimeout(() => scrollToMessage(targetMsgId), 150);
+  }, [targetMsgId, messages]);
+
   if (loading) {
     return (
       <View style={[styles.loadingContainer, isEmbedded && { paddingTop: 0 }, { backgroundColor: colors.background }]}>
@@ -1123,17 +1134,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       </View>
     );
   }
-
-  useEffect(() => {
-    if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
-    if (activeThreadFilter !== 'Todos') {
-      setActiveThreadFilter('Todos');
-    }
-    const found = messages.some((message) => message.msg_id === targetMsgId);
-    if (!found) return;
-    hasScrolledToTargetRef.current = true;
-    setTimeout(() => scrollToMessage(targetMsgId), 150);
-  }, [targetMsgId, messages]);
 
   const CellRenderer = (props: any) => {
     const item = messages[props.index];

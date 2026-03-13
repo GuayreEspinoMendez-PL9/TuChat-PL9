@@ -257,6 +257,13 @@ export const HomeScreen = () => {
     setSearchFilters((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const resolveChatName = (item: any) => {
+    if (item?.roomName) return item.roomName;
+    const roomId = String(item?.roomId || '');
+    const matched = [...chats, ...privateChats].find((chat) => String(chat.id_chat) === roomId);
+    return matched?.nombre || item?.senderName || roomId || 'Chat';
+  };
+
   const handleChatPress = (item: any) => {
     if (typeof markMessagesAsRead === 'function') markMessagesAsRead(item.id_chat);
     refreshUnreadCounts();
@@ -281,7 +288,7 @@ export const HomeScreen = () => {
     if (isDesktop) {
       setSelectedChat({
         id_chat: item.roomId,
-        nombre: item.roomName || item.senderName || 'Chat',
+        nombre: resolveChatName(item),
         tipo: 'grupo',
         targetMsgId: item.msg_id,
         targetPanel: item.targetPanel,
@@ -290,13 +297,13 @@ export const HomeScreen = () => {
     }
 
     router.push({
-      pathname: "/chat",
-      params: {
-        id: item.roomId,
-        nombre: item.roomName || 'Chat',
-        targetMsgId: item.msg_id,
-        targetPanel: item.targetPanel,
-      }
+        pathname: "/chat",
+        params: {
+          id: item.roomId,
+          nombre: resolveChatName(item),
+          targetMsgId: item.msg_id,
+          targetPanel: item.targetPanel,
+        }
     });
   };
 
@@ -607,7 +614,7 @@ export const HomeScreen = () => {
               keyExtractor={(item) => item.msg_id}
               renderItem={({ item }) => (
                 <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{item.roomName || item.roomId}</Text>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
                   <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || item.messageType || 'Sin contenido'}</Text>
                   <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
                     {[item.itemType, item.threadTopic, item.messageType, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje'}
@@ -630,7 +637,7 @@ export const HomeScreen = () => {
               renderItem={({ item }) => (
                 <TouchableOpacity onPress={() => openMessageResult(item)} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.borderLight }}>
                   <Text style={{ color: colors.primary, fontWeight: '700', marginBottom: 4 }}>{item.messageType || 'Importante'}</Text>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{item.roomName || item.roomId}</Text>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }} numberOfLines={1}>{resolveChatName(item)}</Text>
                   <Text style={{ color: colors.textSecondary }} numberOfLines={2}>{item.text || item.fileName || 'Sin contenido'}</Text>
                   <Text style={{ color: colors.textMuted, marginTop: 4, fontSize: 12 }}>
                     {[item.itemType, item.threadTopic, item.requiresAck ? 'Lectura fuerte' : null].filter(Boolean).join(' · ') || 'Mensaje destacado'}
