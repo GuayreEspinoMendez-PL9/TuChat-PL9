@@ -212,8 +212,8 @@ const fileToBase64Native = async (uri: string, mimeType: string): Promise<string
 };
 
 // --- ICONOS SVG ---
-const ChevronLeftIcon = () => (
-  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#1e293b" style={{ width: 24, height: 24 }}>
+const ChevronLeftIcon = ({ color = '#1e293b' }: { color?: string }) => (
+  <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke={color} style={{ width: 24, height: 24 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
   </Svg>
 );
@@ -1153,10 +1153,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       <View style={{ flex: 1 }}>
         <View style={[styles.header, isEmbedded && { paddingTop: 16 }, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => setShowInfo(false)} style={styles.backButton}>
-            <ChevronLeftIcon />
+            <ChevronLeftIcon color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerInfo}>
-            <Text style={styles.headerTitle}>Info del chat</Text>
+            <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>Info del chat</Text>
           </View>
         </View>
         <ChatInfoScreen
