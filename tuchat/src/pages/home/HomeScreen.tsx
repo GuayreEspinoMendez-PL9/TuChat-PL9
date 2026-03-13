@@ -300,6 +300,7 @@ export const HomeScreen = () => {
         tipo: 'grupo',
         targetMsgId: item.msg_id,
         targetPanel: item.targetPanel,
+        navigationKey: `${item.roomId}:${item.msg_id || item.targetPanel || 'chat'}:${Date.now()}`,
       });
       return;
     }
@@ -704,6 +705,7 @@ export const HomeScreen = () => {
         <View style={[s.chatPanelContainer, { backgroundColor: colors.background }]}>
           {selectedChat ? (
             <ChatScreen
+              key={selectedChat.navigationKey || `${selectedChat.id_chat}:${selectedChat.targetMsgId || selectedChat.targetPanel || 'chat'}`}
               id={selectedChat.id_chat}
               nombre={selectedChat.nombre}
               tipo={selectedChat.tipo}

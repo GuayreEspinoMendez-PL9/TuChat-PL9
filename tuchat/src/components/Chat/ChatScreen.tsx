@@ -2020,7 +2020,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       {/* Input */}
       <View style={[styles.inputContainer, isEmbedded && { paddingBottom: 16 }, replyingTo && { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
         {(showComposerMeta || teacherMessageType || requiresAck || selectedThreadTopic !== 'General') && (
-          <View style={{ paddingHorizontal: 16, paddingTop: 10, gap: 8 }}>
+          <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, gap: 8 }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
               {THREAD_TOPICS.map((topic) => (
                 <TouchableOpacity key={topic} onPress={() => setSelectedThreadTopic(topic)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: selectedThreadTopic === topic ? colors.primary : colors.surfaceHover }}>

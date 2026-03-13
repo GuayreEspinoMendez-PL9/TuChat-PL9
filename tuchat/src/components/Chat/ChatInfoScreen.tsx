@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  Platform, ActivityIndicator, ScrollView, TextInput, Linking
+  Platform, ActivityIndicator, ScrollView, TextInput
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import axios from 'axios';
@@ -211,20 +211,6 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
         targetMsgId: message.msg_id,
       }
     });
-  };
-
-  const handleOpenFileAsset = async (message: any) => {
-    const url = message.image || (typeof message.text === 'string' && /^https?:\/\//i.test(message.text) ? message.text : null);
-    if (!url) {
-      handleOpenFileMessage(message);
-      return;
-    }
-
-    try {
-      await Linking.openURL(url);
-    } catch {
-      handleOpenFileMessage(message);
-    }
   };
 
   const getPresenceLabel = (userId: string) => {
@@ -444,9 +430,6 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                  <TouchableOpacity onPress={() => handleOpenFileAsset(file)} style={[styles.actionPill, { backgroundColor: colors.primary }]}>
-                    <Text style={[styles.actionPillText, { color: colors.textOnPrimary }]}>Abrir</Text>
-                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => handleOpenFileMessage(file)} style={[styles.actionPill, { backgroundColor: colors.primaryBg }]}>
                     <Text style={[styles.actionPillText, { color: colors.primary }]}>Ir al mensaje</Text>
                   </TouchableOpacity>
