@@ -47,7 +47,7 @@ const AVATAR_COLORS = [
 
 // ─── Iconos ───────────────────────────────────────────────
 const MicIcon = ({ muted }: { muted: boolean }) => (
-  <Svg viewBox="0 0 24 24" fill="none" stroke={muted ? '#ef4444' : '#fff'} strokeWidth={2} style={{ width: 24, height: 24 }}>
+  <Svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} style={{ width: 24, height: 24 }}>
     {muted ? (
       <>
         <Path d="M2 2l20 20M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -63,7 +63,7 @@ const MicIcon = ({ muted }: { muted: boolean }) => (
 );
 
 const VideoIcon = ({ disabled }: { disabled: boolean }) => (
-  <Svg viewBox="0 0 24 24" fill="none" stroke={disabled ? '#ef4444' : '#fff'} strokeWidth={2} style={{ width: 24, height: 24 }}>
+  <Svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2} style={{ width: 24, height: 24 }}>
     {disabled ? (
       <>
         <Path d="m2 2 20 20M10.66 5H14l3.5 3.5v6.17" strokeLinecap="round" strokeLinejoin="round" />
@@ -86,6 +86,9 @@ const ScreenShareIcon = () => (
 interface ParticipantInfo {
   userId: string;
   stream: any;
+  cameraStream?: any;
+  screenStream?: any;
+  audioStream?: any;
   connected: boolean;
 }
 
@@ -110,6 +113,12 @@ const getFallbackName = (id: string) => {
   return `Usuario ${normalized.slice(0, 6)}`;
 };
 
+const looksLikeScreenTrack = (track: any) => {
+  const label = String(track?.label || '').toLowerCase();
+  const displaySurface = track?.getSettings?.()?.displaySurface;
+  return !!displaySurface || /screen|window|display|monitor|tab/.test(label);
+};
+
 // ─── Componente principal ─────────────────────────────────
 export default function MeetScreen() {
   const params = useLocalSearchParams();
@@ -130,6 +139,7 @@ export default function MeetScreen() {
   const [screenSharers, setScreenSharers] = useState<Map<string, string>>(new Map());
   const [selectedMainStream, setSelectedMainStream] = useState<string | null>(null);
   const [speakingStates, setSpeakingStates] = useState<Record<string, boolean>>({});
+  const [participantVolumes, setParticipantVolumes] = useState<Record<string, number>>({});
 
   // Contador para forzar re-mount de <video> tras renegociación (pantalla compartida)
   const [renegotiationCount, setRenegotiationCount] = useState(0);
@@ -143,6 +153,7 @@ export default function MeetScreen() {
   const screenStreamRef = useRef<any>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
   const audioAnalyzersRef = useRef<Map<string, { intervalId: number; cleanup: () => void }>>(new Map());
+  const mediaElementRefs = useRef<Map<string, HTMLMediaElement>>(new Map());
   const [, forceUpdate] = useState(0);
 
   // ─── Validación ───────────────────────────────────────
@@ -303,19 +314,76 @@ export default function MeetScreen() {
     });
   };
 
+  const getOutgoingTrackEntries = () => {
+    const entries: Array<{ track: any; stream: any; kind: 'audio' | 'video'; source: 'camera' | 'screen' | 'audio' }> = [];
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: localStreamRef.current, kind: 'audio', source: 'audio' });
+      });
+      localStreamRef.current.getVideoTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: localStreamRef.current, kind: 'video', source: 'camera' });
+      });
+    }
+
+    if (screenStreamRef.current) {
+      screenStreamRef.current.getAudioTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: screenStreamRef.current, kind: 'audio', source: 'screen' });
+      });
+      screenStreamRef.current.getVideoTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: screenStreamRef.current, kind: 'video', source: 'screen' });
+      });
+    }
+
+    return entries;
+  };
+
+  const getParticipantPlaybackStream = (participant: any) => {
+    if (Platform.OS !== 'web' || typeof MediaStream === 'undefined' || !participant) return participant?.audioStream || participant?.stream || null;
+    const merged = new MediaStream();
+    const seen = new Set<string>();
+    [participant.audioStream, participant.screenStream, participant.cameraStream, participant.stream]
+      .filter(Boolean)
+      .forEach((stream: any) => {
+        stream.getAudioTracks?.().forEach((track: any) => {
+          if (seen.has(track.id)) return;
+          seen.add(track.id);
+          merged.addTrack(track);
+        });
+      });
+    return merged.getAudioTracks().length ? merged : null;
+  };
+
+  const getParticipantVolume = (participantKey: string) => participantVolumes[participantKey] ?? 100;
+
+  const setMediaElementRef = (key: string, el: HTMLMediaElement | null, volume = 100) => {
+    if (!el) {
+      mediaElementRefs.current.delete(key);
+      return;
+    }
+    el.volume = Math.max(0, Math.min(1, volume / 100));
+    mediaElementRefs.current.set(key, el);
+  };
+
+  const updateParticipantVolume = (participantKey: string, volume: number) => {
+    setParticipantVolumes(prev => ({ ...prev, [participantKey]: volume }));
+    const element = mediaElementRefs.current.get(participantKey);
+    if (element) element.volume = Math.max(0, Math.min(1, volume / 100));
+  };
+
   // ─── PeerConnection ───────────────────────────────────
   const createPeerConnection = (socketId: string, participantUserId: string) => {
     console.log(`🔗 Creando PC con ${socketId}`);
     const PC = Platform.OS === 'web' ? RTCPeerConnection : WebRTC.RTCPeerConnection;
     const pc = new PC(iceConfiguration);
 
-    const currentStream = localStreamRef.current;
-    if (currentStream) {
+    const outgoingTracks = getOutgoingTrackEntries();
+    if (outgoingTracks.length) {
       if (Platform.OS === 'web') {
-        currentStream.getTracks().forEach((track: any) => pc.addTrack(track, currentStream));
-        console.log(`📡 Añadidos ${currentStream.getTracks().length} tracks locales a PC ${socketId}`);
-      } else {
-        pc.addStream(currentStream);
+        outgoingTracks.forEach(({ track, stream }) => pc.addTrack(track, stream));
+        console.log(`📡 Añadidos ${outgoingTracks.length} tracks locales a PC ${socketId}`);
+      } else if (localStreamRef.current) {
+        pc.addStream(localStreamRef.current);
       }
     } else if (Platform.OS === 'web') {
       // Sin stream local (ej: ordenador sin cámara/micro), SIEMPRE añadir transceivers.
@@ -355,7 +423,23 @@ export default function MeetScreen() {
           console.log(`🎬 Track recibido de ${socketId}: ${e.track.kind}`);
           setParticipants(prev => {
             const newMap = new Map(prev);
-            newMap.set(socketId, { userId: participantUserId, stream: e.streams[0], connected: true });
+            const previous = newMap.get(socketId) || { userId: participantUserId, connected: true };
+            const incomingStream = e.streams[0];
+            const isScreen = e.track.kind === 'video' && looksLikeScreenTrack(e.track);
+            const nextParticipant: ParticipantInfo = {
+              ...previous,
+              userId: previous.userId || participantUserId,
+              connected: true,
+              stream: isScreen ? (previous.stream || incomingStream) : incomingStream
+            };
+
+            if (e.track.kind === 'audio') nextParticipant.audioStream = incomingStream;
+            if (e.track.kind === 'video' && isScreen) nextParticipant.screenStream = incomingStream;
+            if (e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = incomingStream;
+            if (!nextParticipant.cameraStream && e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = incomingStream;
+            if (!nextParticipant.stream) nextParticipant.stream = incomingStream;
+
+            newMap.set(socketId, nextParticipant);
             return newMap;
           });
           forceUpdate(n => n + 1);
@@ -398,7 +482,7 @@ export default function MeetScreen() {
   };
 
   // ─── Renegociación (compartir pantalla) ───────────────
-  const renegotiateWithAllPeers = async (newStream: any) => {
+  const renegotiateWithAllPeers = async () => {
     console.log('🔄 Iniciando renegociación para', peersRef.current.size, 'peers');
 
     for (const [socketId, peer] of peersRef.current.entries()) {
@@ -437,36 +521,14 @@ export default function MeetScreen() {
 
       if (Platform.OS === 'web') {
         const senders = pc.getSenders();
-        const newTracks = newStream.getTracks();
-        let needsFullRenegotiation = false;
-
-        for (const newTrack of newTracks) {
-          const matchingSender = senders.find((s: any) => s.track?.kind === newTrack.kind);
-          if (matchingSender) {
-            try {
-              await matchingSender.replaceTrack(newTrack);
-              console.log(`🔄 replaceTrack OK: ${newTrack.kind} → ${socketId}`);
-            } catch (e) {
-              console.warn(`⚠️ replaceTrack falló, forzando renegociación:`, e);
-              needsFullRenegotiation = true;
-              break;
-            }
-          } else {
-            needsFullRenegotiation = true;
-          }
-        }
-
-        if (!needsFullRenegotiation) {
-          console.log(`✅ replaceTrack fue suficiente para ${socketId}, sin renegociación`);
-          continue;
-        }
-
-        // Renegociación completa (nuevo tipo de track)
-        senders.forEach((s: any) => pc.removeTrack(s));
-        newStream.getTracks().forEach((track: any) => pc.addTrack(track, newStream));
+        senders.forEach((s: any) => {
+          try { pc.removeTrack(s); } catch { }
+        });
+        getOutgoingTrackEntries().forEach(({ track, stream }) => {
+          pc.addTrack(track, stream);
+        });
       } else {
-        pc.getSenders().forEach((s: any) => pc.removeTrack(s));
-        pc.addStream(newStream);
+        if (localStreamRef.current) pc.addStream(localStreamRef.current);
       }
 
       try {
@@ -551,6 +613,20 @@ export default function MeetScreen() {
           else next.delete(data.socketId);
           return next;
         });
+        if (!data.isSharing) {
+          setParticipants(prev => {
+            const next = new Map(prev);
+            const participant = next.get(data.socketId);
+            if (participant) {
+              next.set(data.socketId, {
+                ...participant,
+                screenStream: undefined,
+                stream: participant.cameraStream || participant.stream
+              });
+            }
+            return next;
+          });
+        }
       };
 
       const handleOffer = async (data: any) => {
@@ -742,7 +818,7 @@ export default function MeetScreen() {
       setLocalStream(localStreamRef.current);
       setHasVideo(true);
       setIsVideoOff(false);
-      await renegotiateWithAllPeers(localStreamRef.current);
+      await renegotiateWithAllPeers();
       return true;
     } catch (e: any) {
       console.error('❌ No se pudo activar la cámara:', e);
@@ -780,18 +856,18 @@ export default function MeetScreen() {
       socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
       if (localStreamRef.current) {
         setLocalStream(localStreamRef.current);
-        await renegotiateWithAllPeers(localStreamRef.current);
+        await renegotiateWithAllPeers();
       }
     } else {
       try {
         const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({
-          video: { cursor: 'always' }, audio: false
+          video: { cursor: 'always' }, audio: true
         });
         screenStreamRef.current = screenStream;
         setLocalStream(screenStream);
         setIsScreenSharing(true);
         socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: true });
-        await renegotiateWithAllPeers(screenStream);
+        await renegotiateWithAllPeers();
 
         screenStream.getVideoTracks()[0].onended = async () => {
           setIsScreenSharing(false);
@@ -799,7 +875,7 @@ export default function MeetScreen() {
           socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
           if (localStreamRef.current) {
             setLocalStream(localStreamRef.current);
-            await renegotiateWithAllPeers(localStreamRef.current);
+            await renegotiateWithAllPeers();
           }
         };
       } catch (e) {
@@ -841,7 +917,9 @@ export default function MeetScreen() {
         : null);
 
   const hasRemoteVideo = remoteParticipants.some(p =>
-    p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0
+    (p.screenStream && p.screenStream.getVideoTracks && p.screenStream.getVideoTracks().length > 0) ||
+    (p.cameraStream && p.cameraStream.getVideoTracks && p.cameraStream.getVideoTracks().length > 0) ||
+    (p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0)
   );
 
   const showAvatarGrid = !hasLocalVideo && !hasRemoteVideo;
@@ -849,11 +927,12 @@ export default function MeetScreen() {
   const screenSharePresenters = Array.from(screenSharers.entries())
     .map(([socketId, sharerUserId]) => {
       const participant = participants.get(socketId);
-      return participant?.stream ? {
+      const screenStream = participant?.screenStream || participant?.stream;
+      return screenStream ? {
         key: `remote:${socketId}`,
         socketId,
         userId: sharerUserId,
-        stream: participant.stream,
+        stream: screenStream,
         isLocal: false
       } : null;
     })
@@ -872,9 +951,13 @@ export default function MeetScreen() {
   const mainPresenter = screenSharePresenters.find(p => p.key === selectedMainStream) || screenSharePresenters[0] || null;
 
   const remoteVideoThumbnails = remoteParticipants
-    .filter(p => p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0 && `remote:${p.socketId}` !== mainPresenter?.key);
+    .filter(p => {
+      const videoStream = p.cameraStream || p.stream || p.screenStream;
+      return videoStream && videoStream.getVideoTracks && videoStream.getVideoTracks().length > 0 && `remote:${p.socketId}` !== mainPresenter?.key;
+    });
   const selectablePresenters = screenSharePresenters.filter(p => p.key !== mainPresenter?.key);
   const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
+  const mainPresenterVolumeKey = mainPresenter ? `volume:${mainPresenter.key}` : null;
 
   useEffect(() => {
     if (!screenSharePresenters.length) {
@@ -928,7 +1011,12 @@ export default function MeetScreen() {
                     key={`main-audio-${mainPresenter.key}-${renegotiationCount}`}
                     autoPlay
                     playsInline
-                    ref={el => { if (el) el.srcObject = mainPresenter.stream; }}
+                    ref={el => {
+                      if (!el) return;
+                      const participant = participants.get(mainPresenter.socketId);
+                      el.srcObject = getParticipantPlaybackStream(participant) || mainPresenter.stream;
+                      setMediaElementRef(`volume:${mainPresenter.key}`, el, getParticipantVolume(`volume:${mainPresenter.key}`));
+                    }}
                     style={{ display: 'none' } as any}
                   />
                 )}
@@ -943,6 +1031,20 @@ export default function MeetScreen() {
             <View style={st.nameTag}>
               <Text style={st.nameText}>{getDisplayName(mainPresenter.userId, mainPresenter.isLocal)}</Text>
             </View>
+            {!mainPresenter.isLocal && mainPresenterVolumeKey && (
+              <View style={st.volumeDock}>
+                <Text style={st.volumeLabel}>Volumen</Text>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={getParticipantVolume(mainPresenterVolumeKey)}
+                  onChange={(e: any) => updateParticipantVolume(mainPresenterVolumeKey, Number(e.target.value))}
+                  style={st.webSlider as any}
+                />
+              </View>
+            )}
           </View>
 
           {selectablePresenters.length > 0 && (
@@ -960,6 +1062,10 @@ export default function MeetScreen() {
           {remoteVideoThumbnails.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.thumbnailStrip} contentContainerStyle={st.thumbnailStripContent}>
               {remoteVideoThumbnails.map((p) => (
+                (() => {
+                  const thumbStream = p.cameraStream || p.stream || p.screenStream;
+                  if (!thumbStream) return null;
+                  return (
                 <TouchableOpacity
                   key={p.socketId}
                   activeOpacity={0.92}
@@ -978,19 +1084,12 @@ export default function MeetScreen() {
                         key={`thumb-${p.socketId}-${renegotiationCount}`}
                         autoPlay
                         playsInline
-                        ref={el => { if (el) el.srcObject = p.stream; }}
+                        ref={el => { if (el) el.srcObject = thumbStream; }}
                         style={st.thumbnailVideo}
-                      />
-                      <audio
-                        key={`thumb-audio-${p.socketId}-${renegotiationCount}`}
-                        autoPlay
-                        playsInline
-                        ref={el => { if (el) el.srcObject = p.stream; }}
-                        style={{ display: 'none' } as any}
                       />
                     </>
                   ) : (
-                    <WebRTC.RTCView streamURL={p.stream.toURL()} style={st.thumbnailVideo} objectFit="cover" />
+                    <WebRTC.RTCView streamURL={thumbStream.toURL()} style={st.thumbnailVideo} objectFit="cover" />
                   )}
                   {screenSharers.has(p.socketId) && (
                     <View style={st.shareBadgeSmall}>
@@ -1001,6 +1100,8 @@ export default function MeetScreen() {
                     <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
                   </View>
                 </TouchableOpacity>
+                  );
+                })()
               ))}
             </ScrollView>
           )}
@@ -1027,7 +1128,10 @@ export default function MeetScreen() {
         </View>
       ) : (
         <View style={st.videoGrid}>
-          {remoteParticipants.map((p, idx) => p.stream && (
+          {remoteParticipants.map((p, idx) => {
+            const videoStream = p.cameraStream || p.stream || p.screenStream;
+            if (!videoStream) return null;
+            return (
             <View key={idx} style={[st.videoBox, speakingStates[`remote:${p.socketId}`] && st.speakingBox]}>
               {Platform.OS === 'web' ? (
                 <>
@@ -1036,10 +1140,10 @@ export default function MeetScreen() {
                     el emisor cambia a pantalla compartida. Sin esto el móvil se queda en negro.
                   */}
                   <video
-                    key={`remote-${p.stream.id}-${renegotiationCount}`}
+                    key={`remote-${videoStream.id}-${renegotiationCount}`}
                     autoPlay
                     playsInline
-                    ref={el => { if (el) el.srcObject = p.stream; }}
+                    ref={el => { if (el) el.srcObject = videoStream; }}
                     style={st.video}
                   />
                   {/*
@@ -1047,21 +1151,39 @@ export default function MeetScreen() {
                     se escuche aunque el <video> no tenga contenido visual.
                   */}
                   <audio
-                    key={`audio-${p.stream.id}-${renegotiationCount}`}
+                    key={`audio-${videoStream.id}-${renegotiationCount}`}
                     autoPlay
                     playsInline
-                    ref={el => { if (el) el.srcObject = p.stream; }}
+                    ref={el => {
+                      if (!el) return;
+                      el.srcObject = getParticipantPlaybackStream(p) || videoStream;
+                      setMediaElementRef(`volume:remote:${p.socketId}`, el, getParticipantVolume(`volume:remote:${p.socketId}`));
+                    }}
                     style={{ display: 'none' } as any}
                   />
                 </>
               ) : (
-                <WebRTC.RTCView streamURL={p.stream.toURL()} style={st.video} objectFit="cover" />
+                <WebRTC.RTCView streamURL={videoStream.toURL()} style={st.video} objectFit="cover" />
               )}
               <View style={st.nameTag}>
                 <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
               </View>
+              {Platform.OS === 'web' && (
+                <View style={st.tileVolumeDock}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={getParticipantVolume(`volume:remote:${p.socketId}`)}
+                    onChange={(e: any) => updateParticipantVolume(`volume:remote:${p.socketId}`, Number(e.target.value))}
+                    style={st.webSliderSmall as any}
+                  />
+                </View>
+              )}
             </View>
-          ))}
+            );
+          })}
 
           {hasLocalVideo && (
             <View style={[st.localVideoBox, speakingStates.local && st.speakingBox]}>
@@ -1247,6 +1369,31 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
+  volumeDock: {
+    position: 'absolute',
+    right: 18,
+    bottom: 18,
+    minWidth: 160,
+    backgroundColor: 'rgba(2,6,23,0.76)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  tileVolumeDock: {
+    position: 'absolute',
+    right: 10,
+    top: 10,
+    width: 92,
+    backgroundColor: 'rgba(2,6,23,0.68)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  volumeLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginBottom: 6 },
+  webSlider: { width: '100%', accentColor: '#60a5fa' as any },
+  webSliderSmall: { width: '100%', accentColor: '#60a5fa' as any },
 
   nameTag: {
     position: 'absolute', bottom: 10, left: 10,
