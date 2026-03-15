@@ -139,6 +139,24 @@ const describeStream = (stream: any) => ({
 
 const clampVolume = (value: number) => Math.max(0, Math.min(100, value));
 
+const drawVideoCover = (
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  dx: number,
+  dy: number,
+  dWidth: number,
+  dHeight: number
+) => {
+  const vWidth = video.videoWidth || dWidth;
+  const vHeight = video.videoHeight || dHeight;
+  const scale = Math.max(dWidth / vWidth, dHeight / vHeight);
+  const sWidth = dWidth / scale;
+  const sHeight = dHeight / scale;
+  const sx = Math.max(0, (vWidth - sWidth) / 2);
+  const sy = Math.max(0, (vHeight - sHeight) / 2);
+  ctx.drawImage(video, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+};
+
 // ─── Componente principal ─────────────────────────────────
 export default function MeetScreen() {
   const params = useLocalSearchParams();
@@ -414,8 +432,8 @@ export default function MeetScreen() {
     const render = () => {
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(screenVideo, 0, 0, width, height);
-      const camWidth = Math.round(width * 0.22);
-      const camHeight = Math.round((camWidth * 16) / 9);
+      const camWidth = Math.round(width * 0.18);
+      const camHeight = Math.round(height * 0.26);
       const margin = Math.round(width * 0.02);
       const camX = width - camWidth - margin;
       const camY = height - camHeight - margin;
@@ -428,7 +446,7 @@ export default function MeetScreen() {
       } else {
         ctx.fillRect(camX - 6, camY - 6, camWidth + 12, camHeight + 12);
       }
-      ctx.drawImage(cameraVideo, camX, camY, camWidth, camHeight);
+      drawVideoCover(ctx, cameraVideo, camX, camY, camWidth, camHeight);
 
       if (typeof requestAnimationFrame !== 'undefined') {
         composeAnimationRef.current = requestAnimationFrame(render);
@@ -1227,22 +1245,6 @@ export default function MeetScreen() {
             <View style={st.nameTag}>
               <Text style={st.nameText}>{getDisplayName(mainPresenter.userId, mainPresenter.isLocal)}</Text>
             </View>
-            {!mainPresenter.isLocal && mainPresenterVolumeKey && (
-              <View style={st.volumeDock}>
-                <Text style={st.volumeLabel}>Volumen {getParticipantVolume(mainPresenterVolumeKey)}%</Text>
-                <View style={st.volumeControlsRow}>
-                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) - 10))}>
-                    <Minus color="#fff" size={14} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, getParticipantVolume(mainPresenterVolumeKey) > 0 ? 0 : 100)}>
-                    {getParticipantVolume(mainPresenterVolumeKey) > 0 ? <Volume2 color="#fff" size={14} /> : <VolumeX color="#fff" size={14} />}
-                  </TouchableOpacity>
-                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) + 10))}>
-                    <Plus color="#fff" size={14} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
           </View>
 
           {selectablePresenters.length > 0 && (
@@ -1368,17 +1370,6 @@ export default function MeetScreen() {
               <View style={st.nameTag}>
                 <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
               </View>
-              {Platform.OS === 'web' && (
-                <View style={st.tileVolumeDock}>
-                  <TouchableOpacity style={st.volumeBtnSmall} onPress={() => updateParticipantVolume(`volume:remote:${p.socketId}`, clampVolume(getParticipantVolume(`volume:remote:${p.socketId}`) - 10))}>
-                    <Minus color="#fff" size={12} />
-                  </TouchableOpacity>
-                  <Text style={st.volumeMiniText}>{getParticipantVolume(`volume:remote:${p.socketId}`)}%</Text>
-                  <TouchableOpacity style={st.volumeBtnSmall} onPress={() => updateParticipantVolume(`volume:remote:${p.socketId}`, clampVolume(getParticipantVolume(`volume:remote:${p.socketId}`) + 10))}>
-                    <Plus color="#fff" size={12} />
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
             );
           })}
@@ -1421,6 +1412,23 @@ export default function MeetScreen() {
         <Users color="#a78bfa" size={14} strokeWidth={2.3} />
         <Text style={st.participantCount}>{totalParticipants}</Text>
       </View>
+
+      {Platform.OS === 'web' && mainPresenter && !mainPresenter.isLocal && mainPresenterVolumeKey && (
+        <View style={st.globalVolumeDock}>
+          <Text style={st.volumeLabel}>Volumen {getParticipantVolume(mainPresenterVolumeKey)}%</Text>
+          <View style={st.volumeControlsRow}>
+            <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) - 10))}>
+              <Minus color="#fff" size={14} />
+            </TouchableOpacity>
+            <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, getParticipantVolume(mainPresenterVolumeKey) > 0 ? 0 : 100)}>
+              {getParticipantVolume(mainPresenterVolumeKey) > 0 ? <Volume2 color="#fff" size={14} /> : <VolumeX color="#fff" size={14} />}
+            </TouchableOpacity>
+            <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) + 10))}>
+              <Plus color="#fff" size={14} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <View style={st.controls}>
         <View style={st.controlsRow}>
@@ -1567,32 +1575,18 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  volumeDock: {
+  globalVolumeDock: {
     position: 'absolute',
-    right: 18,
-    bottom: 18,
-    minWidth: 160,
-    backgroundColor: 'rgba(2,6,23,0.76)',
+    right: 20,
+    bottom: 116,
+    minWidth: 170,
+    backgroundColor: 'rgba(2,6,23,0.88)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 14,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    zIndex: 30
-  },
-  tileVolumeDock: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    bottom: 48,
-    backgroundColor: 'rgba(2,6,23,0.68)',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    zIndex: 25,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    zIndex: 40
   },
   volumeLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginBottom: 6 },
   volumeControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1604,15 +1598,6 @@ const st = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  volumeBtnSmall: {
-    width: 24,
-    height: 24,
-    borderRadius: 999,
-    backgroundColor: 'rgba(96,165,250,0.22)',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  volumeMiniText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   nameTag: {
     position: 'absolute', bottom: 10, left: 10,
