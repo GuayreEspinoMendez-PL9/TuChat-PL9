@@ -15,6 +15,8 @@ export const getChatsDisponibles = async (req, res) => {
             const result = await appDb.query(
                 `SELECT DISTINCT ON (sc.id_sala)
                     sc.id_sala as id_chat,
+                    sc.id_oferta,
+                    m.id_clase,
                     a.nombre as nombre,
                     cl.nombre as subtitulo,
                     false as "esProfesor"
@@ -31,12 +33,15 @@ export const getChatsDisponibles = async (req, res) => {
                 [id_usuario_app]
             );
             rows = result.rows;
+            console.log("[ChatsDisponibles][Alumno]", { id_usuario_app, rows });
         } else {
             // Profesores: query via vista (no tienen matriculas en cache)
             const vista = 'cache_academico.v_asignaturas_visibles_chat_profesor';
             const result = await appDb.query(
                 `SELECT DISTINCT ON (sc.id_sala)
                     sc.id_sala as id_chat,
+                    sc.id_oferta,
+                    cl.id_clase,
                     v.nombre_asignatura as nombre,
                     v.nombre_clase as subtitulo,
                     true as "esProfesor"
@@ -51,6 +56,7 @@ export const getChatsDisponibles = async (req, res) => {
                 [id_usuario_app]
             );
             rows = result.rows;
+            console.log("[ChatsDisponibles][Profesor]", { id_usuario_app, rows });
         }
 
         return res.json({ ok: true, chats: rows });
@@ -127,6 +133,8 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
                 WHERE m.id_usuario_app = $1
             `, [id_usuario_app]);
 
+            console.log("[ChatsPrivadosAuto][Alumno]", { id_usuario_app, profesores });
+
             for (const prof of profesores) {
                 await appDb.query(`
                     INSERT INTO comunicacion.chats_privados (id_profesor_usuario_app, id_alumno_usuario_app)
@@ -146,6 +154,8 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
                    AND ma.id_oferta = ap.id_oferta
                 WHERE ap.id_usuario_app = $1
             `, [id_usuario_app]);
+
+            console.log("[ChatsPrivadosAuto][Profesor]", { id_usuario_app, alumnos });
 
             for (const alu of alumnos) {
                 await appDb.query(`

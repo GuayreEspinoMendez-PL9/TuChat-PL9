@@ -44,6 +44,12 @@ router.get("/chats-privados", async (req, res) => {
     }
     
     const { rows } = await appDb.query(query, [id_usuario_app]);
+
+    console.log("[ChatsPrivados][Listado]", {
+      id_usuario_app,
+      tipo_externo,
+      rows,
+    });
     
     res.json({ ok: true, chats: rows });
   } catch (e) {
