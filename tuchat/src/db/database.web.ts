@@ -9,9 +9,26 @@ export const initDB = () => {
   console.log("DB: Usando LocalStorage (Web Mode)");
 };
 
+const getCurrentUserScope = (): string => {
+  try {
+    const raw = localStorage.getItem('usuario');
+    if (!raw) return 'anon';
+    const user = JSON.parse(raw);
+    return String(user?.id_usuario_app || user?.id || user?.userId || 'anon');
+  } catch {
+    return 'anon';
+  }
+};
+
+const scopedKey = (base: string) => `${base}__${getCurrentUserScope()}`;
+const chatKey = (roomId: string) => scopedKey(`chat_${roomId}`);
+const draftKey = (roomId: string) => scopedKey(`draft_${roomId}`);
+const scopedPrefix = (prefix: string) => `${prefix}__${getCurrentUserScope()}`;
+const getScopedLocalStorageKeys = (prefix: string) => Object.keys(localStorage).filter((key) => key.startsWith(scopedPrefix(prefix)));
+
 export const saveMessageLocal = (msg: any) => {
   try {
-    const key = `chat_${msg.roomId}`;
+    const key = chatKey(String(msg.roomId));
     const history = JSON.parse(localStorage.getItem(key) || '[]').map(normalizeMessage);
     const nextMessage = normalizeMessage({
       ...msg,
@@ -31,7 +48,7 @@ const DISMISSED_IMPORTANT_KEY = 'tuchat_dismissed_important';
 
 const getDismissedImportant = (): Record<string, string[]> => {
   try {
-    return JSON.parse(localStorage.getItem(DISMISSED_IMPORTANT_KEY) || '{}');
+    return JSON.parse(localStorage.getItem(scopedKey(DISMISSED_IMPORTANT_KEY)) || '{}');
   } catch {
     return {};
   }
@@ -45,14 +62,14 @@ const isImportantDismissed = (userId?: string, itemId?: string) => {
 
 export const getUnreadCountByRoom = (roomId: string): number => {
   try {
-    const history = JSON.parse(localStorage.getItem(`chat_${roomId}`) || '[]');
+    const history = JSON.parse(localStorage.getItem(chatKey(roomId)) || '[]');
     return history.filter((m: any) => m.read === false).length;
   } catch (e) { return 0; }
 };
 
 export const markMessagesAsRead = (roomId: string) => {
   try {
-    const key = `chat_${roomId}`;
+    const key = chatKey(roomId);
     const history = JSON.parse(localStorage.getItem(key) || '[]');
     const updated = history.map((m: any) => ({ ...m, read: true }));
     localStorage.setItem(key, JSON.stringify(updated));
@@ -62,15 +79,14 @@ export const markMessagesAsRead = (roomId: string) => {
 
 export const getMessagesByRoom = (roomId: string): any[] => {
   try {
-    return JSON.parse(localStorage.getItem(`chat_${roomId}`) || '[]').map(normalizeMessage);
+    return JSON.parse(localStorage.getItem(chatKey(roomId)) || '[]').map(normalizeMessage);
   } catch (e) { return []; }
 };
 
 export const updateMessageAckReaders = (msgId: string, ackReaders: any[]) => {
   try {
-    const keys = Object.keys(localStorage);
+    const keys = getScopedLocalStorageKeys('chat_');
     for (const key of keys) {
-      if (!key.startsWith('chat_')) continue;
       const history = JSON.parse(localStorage.getItem(key) || '[]');
       const next = history.map((message: any) =>
         message.msg_id === msgId ? { ...message, ackReaders: ackReaders || [] } : message
@@ -81,23 +97,21 @@ export const updateMessageAckReaders = (msgId: string, ackReaders: any[]) => {
 };
 
 export const saveDraftLocal = (roomId: string, content: string) => {
-  try { localStorage.setItem(`draft_${roomId}`, content); } catch (e) { }
+  try { localStorage.setItem(draftKey(roomId), content); } catch (e) { }
 };
 
 export const getDraftLocal = (roomId: string): string => {
-  try { return localStorage.getItem(`draft_${roomId}`) || ""; } catch (e) { return ""; }
+  try { return localStorage.getItem(draftKey(roomId)) || ""; } catch (e) { return ""; }
 };
 
 export const getAllUnreadCounts = (): Record<string, number> => {
   try {
     const counts: Record<string, number> = {};
-    const keys = Object.keys(localStorage);
+    const keys = getScopedLocalStorageKeys('chat_');
 
     keys.forEach(key => {
-      if (key.startsWith('chat_')) {
-        const roomId = key.replace('chat_', '');
-        counts[roomId] = getUnreadCountByRoom(roomId);
-      }
+      const roomId = key.replace(scopedPrefix('chat_'), '');
+      counts[roomId] = getUnreadCountByRoom(roomId);
     });
 
     return counts;
@@ -110,13 +124,11 @@ export const getAllUnreadCounts = (): Record<string, number> => {
 export const getTotalUnreadCount = (): number => {
   try {
     let total = 0;
-    const keys = Object.keys(localStorage);
+    const keys = getScopedLocalStorageKeys('chat_');
 
     keys.forEach(key => {
-      if (key.startsWith('chat_')) {
-        const roomId = key.replace('chat_', '');
-        total += getUnreadCountByRoom(roomId);
-      }
+      const roomId = key.replace(scopedPrefix('chat_'), '');
+      total += getUnreadCountByRoom(roomId);
     });
 
     return total;
@@ -132,16 +144,15 @@ export const toggleReactionFn = (msgId: string, reaction: { emoji: string, userI
     // Find the chat room containing the message
     // Since we don't have roomId passed here, we have to search all chats in localStorage
     // This is inefficient but necessary given the current structure of localStorage keys
-    const keys = Object.keys(localStorage);
+    const keys = getScopedLocalStorageKeys('chat_');
 
     for (const key of keys) {
-      if (key.startsWith('chat_')) {
-        const history = JSON.parse(localStorage.getItem(key) || '[]');
-        const msgIndex = history.findIndex((m: any) => m.msg_id === msgId);
+      const history = JSON.parse(localStorage.getItem(key) || '[]');
+      const msgIndex = history.findIndex((m: any) => m.msg_id === msgId);
 
-        if (msgIndex >= 0) {
-          const msg = history[msgIndex];
-          let reactions = msg.reactions || [];
+      if (msgIndex >= 0) {
+        const msg = history[msgIndex];
+        let reactions = msg.reactions || [];
 
           // Check if user already reacted
           const existingIndex = reactions.findIndex((r: any) => r.userId === reaction.userId);
@@ -158,10 +169,9 @@ export const toggleReactionFn = (msgId: string, reaction: { emoji: string, userI
           }
 
           // Update message in history
-          history[msgIndex] = { ...msg, reactions };
-          localStorage.setItem(key, JSON.stringify(history));
-          return reactions;
-        }
+        history[msgIndex] = { ...msg, reactions };
+        localStorage.setItem(key, JSON.stringify(history));
+        return reactions;
       }
     }
     return [];
@@ -185,13 +195,13 @@ const POLLS_KEY = 'tuchat_polls';
 
 const getAllPins = (): any[] => {
   try {
-    return JSON.parse(localStorage.getItem(PINS_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(scopedKey(PINS_KEY)) || '[]');
   } catch (e) { return []; }
 };
 
 const saveAllPins = (pins: any[]) => {
   try {
-    localStorage.setItem(PINS_KEY, JSON.stringify(pins));
+    localStorage.setItem(scopedKey(PINS_KEY), JSON.stringify(pins));
   } catch (e) { console.error("Error guardando pins:", e); }
 };
 
@@ -253,20 +263,18 @@ export const clearOldMessages = (days: number = 20): number => {
   try {
     const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
     let totalDeleted = 0;
-    const keys = Object.keys(localStorage);
+    const keys = getScopedLocalStorageKeys('chat_');
 
     for (const key of keys) {
-      if (key.startsWith('chat_')) {
-        const history = JSON.parse(localStorage.getItem(key) || '[]');
-        const filtered = history.filter((m: any) => (m.timestamp || 0) >= cutoff);
-        const deleted = history.length - filtered.length;
-        if (deleted > 0) {
-          totalDeleted += deleted;
-          if (filtered.length > 0) {
-            localStorage.setItem(key, JSON.stringify(filtered));
-          } else {
-            localStorage.removeItem(key);
-          }
+      const history = JSON.parse(localStorage.getItem(key) || '[]');
+      const filtered = history.filter((m: any) => (m.timestamp || 0) >= cutoff);
+      const deleted = history.length - filtered.length;
+      if (deleted > 0) {
+        totalDeleted += deleted;
+        if (filtered.length > 0) {
+          localStorage.setItem(key, JSON.stringify(filtered));
+        } else {
+          localStorage.removeItem(key);
         }
       }
     }
@@ -281,7 +289,7 @@ export const clearOldMessages = (days: number = 20): number => {
 // ─── QR SYNC: Importar mensajes recibidos desde móvil ───
 export const importSyncedMessages = (roomId: string, messages: any[]): number => {
   try {
-    const key = `chat_${roomId}`;
+    const key = chatKey(roomId);
     const existing = JSON.parse(localStorage.getItem(key) || '[]');
     const existingIds = new Set(existing.map((m: any) => m.msg_id));
     
@@ -310,8 +318,8 @@ export const getMessagesForSync = (days: number = 30): { roomId: string; message
     const results: { roomId: string; messages: any[] }[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith('chat_')) {
-        const roomId = key.replace('chat_', '');
+      if (key && key.startsWith(scopedPrefix('chat_'))) {
+        const roomId = key.replace(scopedPrefix('chat_'), '');
         const all = JSON.parse(localStorage.getItem(key) || '[]');
         const recent = all.filter((m: any) => m.timestamp >= cutoff);
         if (recent.length > 0) results.push({ roomId, messages: recent });
@@ -326,7 +334,7 @@ export const getMessagesForSync = (days: number = 30): { roomId: string; message
 
 const getAllMessages = (): any[] => {
   try {
-    const keys = Object.keys(localStorage).filter((key) => key.startsWith('chat_'));
+    const keys = getScopedLocalStorageKeys('chat_');
     return keys.flatMap((key) => JSON.parse(localStorage.getItem(key) || '[]').map(normalizeMessage));
   } catch (e) {
     console.error("Error getAllMessages Web:", e);
@@ -336,7 +344,7 @@ const getAllMessages = (): any[] => {
 
 const getStoredEvents = (roomId?: string): any[] => {
   try {
-    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    const items = JSON.parse(localStorage.getItem(scopedKey(EVENTS_KEY)) || '[]');
     return items
       .filter((item: any) => !roomId || String(item.roomId) === String(roomId))
       .map((item: any) => ({
@@ -355,7 +363,7 @@ const getStoredEvents = (roomId?: string): any[] => {
 
 const getStoredPolls = (roomId?: string): any[] => {
   try {
-    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
+    const items = JSON.parse(localStorage.getItem(scopedKey(POLLS_KEY)) || '[]');
     return items
       .filter((item: any) => !roomId || String(item.roomId) === String(roomId))
       .map((item: any) => ({
@@ -424,7 +432,7 @@ export const searchMessagesAdvanced = (queryOrOptions: string | any): any[] => {
 
 export const saveRoomEventLocal = (event: any) => {
   try {
-    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
+    const items = JSON.parse(localStorage.getItem(scopedKey(EVENTS_KEY)) || '[]');
     const next = {
       ...event,
       startsAt: event.startsAt ? new Date(event.startsAt).getTime() : Date.now(),
@@ -440,7 +448,7 @@ export const saveRoomEventLocal = (event: any) => {
     const index = items.findIndex((item: any) => item.id === event.id);
     if (index >= 0) items[index] = next;
     else items.push(next);
-    localStorage.setItem(EVENTS_KEY, JSON.stringify(items));
+    localStorage.setItem(scopedKey(EVENTS_KEY), JSON.stringify(items));
   } catch (e) {
     console.error("Error saveRoomEventLocal Web:", e);
   }
@@ -448,8 +456,8 @@ export const saveRoomEventLocal = (event: any) => {
 
 export const removeRoomEventLocal = (eventId: string) => {
   try {
-    const items = JSON.parse(localStorage.getItem(EVENTS_KEY) || '[]');
-    localStorage.setItem(EVENTS_KEY, JSON.stringify(items.filter((item: any) => item.id !== eventId)));
+    const items = JSON.parse(localStorage.getItem(scopedKey(EVENTS_KEY)) || '[]');
+    localStorage.setItem(scopedKey(EVENTS_KEY), JSON.stringify(items.filter((item: any) => item.id !== eventId)));
   } catch (e) {
     console.error("Error removeRoomEventLocal Web:", e);
   }
@@ -457,7 +465,7 @@ export const removeRoomEventLocal = (eventId: string) => {
 
 export const saveRoomPollLocal = (poll: any) => {
   try {
-    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
+    const items = JSON.parse(localStorage.getItem(scopedKey(POLLS_KEY)) || '[]');
     const next = {
       ...poll,
       expiresAt: poll.expiresAt ? new Date(poll.expiresAt).getTime() : null,
@@ -474,7 +482,7 @@ export const saveRoomPollLocal = (poll: any) => {
     const index = items.findIndex((item: any) => item.id === poll.id);
     if (index >= 0) items[index] = next;
     else items.push(next);
-    localStorage.setItem(POLLS_KEY, JSON.stringify(items));
+    localStorage.setItem(scopedKey(POLLS_KEY), JSON.stringify(items));
   } catch (e) {
     console.error("Error saveRoomPollLocal Web:", e);
   }
@@ -485,7 +493,7 @@ export const dismissImportantItem = (itemId: string, userId?: string) => {
   try {
     const all = getDismissedImportant();
     const next = Array.from(new Set([...(all[userId] || []), itemId]));
-    localStorage.setItem(DISMISSED_IMPORTANT_KEY, JSON.stringify({ ...all, [userId]: next }));
+    localStorage.setItem(scopedKey(DISMISSED_IMPORTANT_KEY), JSON.stringify({ ...all, [userId]: next }));
   } catch (e) {
     console.error("Error dismissImportantItem Web:", e);
   }
@@ -493,8 +501,8 @@ export const dismissImportantItem = (itemId: string, userId?: string) => {
 
 export const removeRoomPollLocal = (pollId: string) => {
   try {
-    const items = JSON.parse(localStorage.getItem(POLLS_KEY) || '[]');
-    localStorage.setItem(POLLS_KEY, JSON.stringify(items.filter((item: any) => item.id !== pollId)));
+    const items = JSON.parse(localStorage.getItem(scopedKey(POLLS_KEY)) || '[]');
+    localStorage.setItem(scopedKey(POLLS_KEY), JSON.stringify(items.filter((item: any) => item.id !== pollId)));
   } catch (e) {
     console.error("Error removeRoomPollLocal Web:", e);
   }

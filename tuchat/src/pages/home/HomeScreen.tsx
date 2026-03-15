@@ -139,6 +139,17 @@ export const HomeScreen = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [importantItems, setImportantItems] = useState<any[]>([]);
 
+  const resetSessionViewState = useCallback(() => {
+    setChats([]);
+    setPrivateChats([]);
+    setLastMessages({});
+    setSearchResults([]);
+    setImportantItems([]);
+    setSelectedChat(null);
+    setSearchQuery('');
+    setPanelMode('chats');
+  }, []);
+
   const fetchUserData = async () => {
     try {
       const userDataStr = Platform.OS === 'web'
@@ -151,6 +162,12 @@ export const HomeScreen = () => {
         setUserName(userData.nombre || '');
         setUserRol(userData.id_rol || null);
         setUserId(String(userData.id || userData.id_usuario_app || userData.sub || ''));
+      } else {
+        setUserType('ALUMNO');
+        setUserName('');
+        setUserRol(null);
+        setUserId('');
+        resetSessionViewState();
       }
     } catch (e) {
       console.error("Error obteniendo datos de usuario:", e);
@@ -226,7 +243,7 @@ export const HomeScreen = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [resetSessionViewState]);
 
   const refreshImportantItems = useCallback(() => {
     setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId) : []);
@@ -319,6 +336,7 @@ export const HomeScreen = () => {
   const handleLogout = async () => {
     setMenuVisible(false);
     try {
+      resetSessionViewState();
       if (Platform.OS === 'web') {
         localStorage.removeItem('token');
         localStorage.removeItem('usuario');
@@ -331,6 +349,12 @@ export const HomeScreen = () => {
       console.error("Error al cerrar sesión:", e);
     }
   };
+
+  useEffect(() => {
+    setSearchResults([]);
+    setImportantItems([]);
+    setSelectedChat(null);
+  }, [userId]);
 
   const hideImportantItem = (item: any) => {
     if (typeof dismissImportantItem === 'function') dismissImportantItem(item.msg_id, userId);
