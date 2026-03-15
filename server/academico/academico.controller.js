@@ -123,6 +123,21 @@ async function sincronizarSalasChat(id_usuario_app, tipo_externo, dni) {
 async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
     try {
         if (tipo_externo === 'ALUMNO') {
+            await appDb.query(`
+                DELETE FROM comunicacion.chats_privados cp
+                WHERE cp.id_alumno_usuario_app = $1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM cache_academico.matriculas m
+                    JOIN cache_academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+                    JOIN cache_academico.asignaciones_profesor ap
+                        ON ap.id_clase = m.id_clase
+                       AND ap.id_oferta = ma.id_oferta
+                    WHERE m.id_usuario_app = $1
+                      AND ap.id_usuario_app = cp.id_profesor_usuario_app
+                  )
+            `, [id_usuario_app]);
+
             const { rows: profesores } = await appDb.query(`
                 SELECT DISTINCT ap.id_usuario_app as id_profesor
                 FROM cache_academico.matriculas m
@@ -145,6 +160,21 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
             console.log(`[Sync] ${profesores.length} chats privados sincronizados (alumno→profesores).`);
 
         } else if (tipo_externo === 'PROFESOR') {
+            await appDb.query(`
+                DELETE FROM comunicacion.chats_privados cp
+                WHERE cp.id_profesor_usuario_app = $1
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM cache_academico.asignaciones_profesor ap
+                    JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+                    JOIN cache_academico.matriculas_asignaturas ma
+                        ON ma.id_matricula = m.id_matricula
+                       AND ma.id_oferta = ap.id_oferta
+                    WHERE ap.id_usuario_app = $1
+                      AND m.id_usuario_app = cp.id_alumno_usuario_app
+                  )
+            `, [id_usuario_app]);
+
             const { rows: alumnos } = await appDb.query(`
                 SELECT DISTINCT m.id_usuario_app as id_alumno
                 FROM cache_academico.asignaciones_profesor ap
