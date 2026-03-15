@@ -119,6 +119,24 @@ const looksLikeScreenTrack = (track: any) => {
   return !!displaySurface || /screen|window|display|monitor|tab/.test(label);
 };
 
+const describeStream = (stream: any) => ({
+  id: stream?.id || null,
+  audioTracks: stream?.getAudioTracks?.().map((t: any) => ({
+    id: t.id,
+    label: t.label,
+    enabled: t.enabled,
+    readyState: t.readyState,
+    settings: t.getSettings?.() || null
+  })) || [],
+  videoTracks: stream?.getVideoTracks?.().map((t: any) => ({
+    id: t.id,
+    label: t.label,
+    enabled: t.enabled,
+    readyState: t.readyState,
+    settings: t.getSettings?.() || null
+  })) || []
+});
+
 // ─── Componente principal ─────────────────────────────────
 export default function MeetScreen() {
   const params = useLocalSearchParams();
@@ -335,6 +353,16 @@ export default function MeetScreen() {
       });
     }
 
+    console.log('[Meet][OutgoingTracks]', entries.map(({ track, stream, kind, source }) => ({
+      source,
+      kind,
+      trackId: track?.id,
+      label: track?.label,
+      enabled: track?.enabled,
+      streamId: stream?.id,
+      settings: track?.getSettings?.() || null
+    })));
+
     return entries;
   };
 
@@ -366,6 +394,7 @@ export default function MeetScreen() {
   };
 
   const updateParticipantVolume = (participantKey: string, volume: number) => {
+    console.log('[Meet][VolumeChange]', { participantKey, volume });
     setParticipantVolumes(prev => ({ ...prev, [participantKey]: volume }));
     const element = mediaElementRefs.current.get(participantKey);
     if (element) element.volume = Math.max(0, Math.min(1, volume / 100));
@@ -428,6 +457,24 @@ export default function MeetScreen() {
             const MediaStreamCtor = typeof MediaStream !== 'undefined' ? MediaStream : null;
             const trackStream = MediaStreamCtor ? new MediaStreamCtor([e.track]) : incomingStream;
             const isScreen = e.track.kind === 'video' && looksLikeScreenTrack(e.track);
+            console.log('[Meet][RemoteTrackReceived]', {
+              socketId,
+              participantUserId,
+              kind: e.track.kind,
+              trackId: e.track.id,
+              label: e.track.label,
+              readyState: e.track.readyState,
+              enabled: e.track.enabled,
+              settings: e.track.getSettings?.() || null,
+              looksLikeScreen: isScreen,
+              incomingStream: describeStream(incomingStream),
+              previousParticipant: previous ? {
+                hasCamera: !!previous.cameraStream,
+                hasScreen: !!previous.screenStream,
+                hasAudio: !!previous.audioStream,
+                baseStream: previous.stream?.id || null
+              } : null
+            });
             const nextParticipant: ParticipantInfo = {
               ...previous,
               userId: previous.userId || participantUserId,
@@ -440,6 +487,15 @@ export default function MeetScreen() {
             if (e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = trackStream;
             if (!nextParticipant.cameraStream && e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = trackStream;
             if (!nextParticipant.stream) nextParticipant.stream = trackStream;
+
+            console.log('[Meet][RemoteParticipantState]', {
+              socketId,
+              participantUserId: nextParticipant.userId,
+              stream: describeStream(nextParticipant.stream),
+              cameraStream: describeStream(nextParticipant.cameraStream),
+              screenStream: describeStream(nextParticipant.screenStream),
+              audioStream: describeStream(nextParticipant.audioStream)
+            });
 
             newMap.set(socketId, nextParticipant);
             return newMap;
@@ -817,6 +873,7 @@ export default function MeetScreen() {
         localStreamRef.current = new MediaStreamCtor([videoTrack]);
       }
 
+      console.log('[Meet][LocalCameraEnabled]', describeStream(localStreamRef.current));
       setLocalStream(localStreamRef.current);
       setHasVideo(true);
       setIsVideoOff(false);
@@ -865,6 +922,8 @@ export default function MeetScreen() {
         const screenStream = await (navigator.mediaDevices as any).getDisplayMedia({
           video: { cursor: 'always' }, audio: true
         });
+        console.log('[Meet][ScreenShareStart] stream', describeStream(screenStream));
+        console.log('[Meet][ScreenShareStart] localBeforeShare', describeStream(localStreamRef.current));
         screenStreamRef.current = screenStream;
         setLocalStream(screenStream);
         setIsScreenSharing(true);
@@ -872,6 +931,7 @@ export default function MeetScreen() {
         await renegotiateWithAllPeers();
 
         screenStream.getVideoTracks()[0].onended = async () => {
+          console.log('[Meet][ScreenShareEnded]', { userId, roomId });
           setIsScreenSharing(false);
           screenStreamRef.current = null;
           socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
@@ -966,6 +1026,45 @@ export default function MeetScreen() {
   const selectablePresenters = screenSharePresenters.filter(p => p.key !== mainPresenter?.key);
   const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
   const mainPresenterVolumeKey = mainPresenter ? `volume:${mainPresenter.key}` : null;
+
+  useEffect(() => {
+    console.log('[Meet][RenderDecision]', {
+      isScreenSharingLocal: isScreenSharing,
+      hasLocalVideo,
+      hasRemoteVideo,
+      showAvatarGrid,
+      localStream: describeStream(localStream),
+      localCameraPreview: describeStream(localCameraPreviewStream),
+      mainPresenter: mainPresenter ? {
+        key: mainPresenter.key,
+        socketId: mainPresenter.socketId,
+        userId: mainPresenter.userId,
+        isLocal: mainPresenter.isLocal,
+        stream: describeStream(mainPresenter.stream)
+      } : null,
+      remoteParticipants: remoteParticipants.map(p => ({
+        socketId: p.socketId,
+        userId: p.userId,
+        stream: describeStream(p.stream),
+        cameraStream: describeStream(p.cameraStream),
+        screenStream: describeStream(p.screenStream),
+        audioStream: describeStream(p.audioStream)
+      })),
+      screenSharers: Array.from(screenSharers.entries()),
+      thumbnailSockets: remoteVideoThumbnails.map(p => p.socketId)
+    });
+  }, [
+    isScreenSharing,
+    hasLocalVideo,
+    hasRemoteVideo,
+    showAvatarGrid,
+    selectedMainStream,
+    screenSharePresenterKeys,
+    remoteParticipants.length,
+    remoteVideoThumbnails.length,
+    localStream?.id,
+    localCameraPreviewStream?.id
+  ]);
 
   useEffect(() => {
     if (!screenSharePresenters.length) {
