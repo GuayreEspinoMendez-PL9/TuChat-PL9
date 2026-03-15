@@ -47,6 +47,11 @@ const syncClaseCache = async (idClase) => {
         WHERE m.id_clase = $1
     `, [idClase]);
 
+    console.log("[Wizard SyncClaseCache][AcademicoMatriculasRaw]", {
+        idClase,
+        matriculasClase,
+    });
+
     const userIdsExternos = Array.from(new Set([
         ...asignacionesProfesor.map((row) => row.id_profesor_externo),
         ...matriculasClase.map((row) => row.id_alumno_externo),
@@ -156,12 +161,28 @@ const syncClaseCache = async (idClase) => {
         }
     }
 
+    const { rows: cacheMatriculasClase } = await appDb.query(`
+        SELECT m.id_matricula, m.id_usuario_app, m.id_alumno_externo, ma.id_oferta, ma.estado
+        FROM cache_academico.matriculas m
+        LEFT JOIN cache_academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+        WHERE m.id_clase = $1
+        ORDER BY m.id_alumno_externo, ma.id_oferta
+    `, [idClase]);
+
+    console.log("[Wizard SyncClaseCache][CacheMatriculasRaw]", {
+        idClase,
+        cacheMatriculasClase,
+    });
+
     await appDb.query(`
         DELETE FROM comunicacion.chats_privados cp
         WHERE NOT EXISTS (
             SELECT 1
             FROM cache_academico.asignaciones_profesor ap
             JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+            JOIN cache_academico.matriculas_asignaturas ma
+                ON ma.id_matricula = m.id_matricula
+               AND ma.id_oferta = ap.id_oferta
             WHERE ap.id_usuario_app = cp.id_profesor_usuario_app
               AND m.id_usuario_app = cp.id_alumno_usuario_app
         )
@@ -172,6 +193,9 @@ const syncClaseCache = async (idClase) => {
         SELECT DISTINCT ap.id_usuario_app, m.id_usuario_app
         FROM cache_academico.asignaciones_profesor ap
         JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+        JOIN cache_academico.matriculas_asignaturas ma
+            ON ma.id_matricula = m.id_matricula
+           AND ma.id_oferta = ap.id_oferta
         WHERE ap.id_clase = $1
         ON CONFLICT DO NOTHING
     `, [idClase]);
@@ -989,6 +1013,12 @@ export const crearClaseCompleta = async (req, res) => {
 
         const ofertasSeleccionadas = Array.isArray(ofertas_seleccionadas) ? ofertas_seleccionadas : [];
 
+        console.log("[Wizard CrearClase][Payload]", {
+            clase,
+            ofertasSeleccionadas,
+            matriculas,
+        });
+
         // 1. Crear la clase
         const { rows: [nuevaClase] } = await client.query(
             `INSERT INTO academico.clases (nombre, id_plan, id_centro, id_curso_escolar, curso, grupo)
@@ -1028,6 +1058,11 @@ export const crearClaseCompleta = async (req, res) => {
                     const ofertasAlumno = Array.isArray(mat.ofertas_alumno)
                         ? mat.ofertas_alumno.filter(id_oferta => ofertasSeleccionadas.includes(id_oferta))
                         : ofertasSeleccionadas;
+                    console.log("[Wizard CrearClase][MatriculaProcesada]", {
+                        alumno: mat.id_alumno_externo,
+                        ofertasAlumnoOriginales: mat.ofertas_alumno,
+                        ofertasAlumnoFiltradas: ofertasAlumno,
+                    });
                     for (const id_oferta of ofertasAlumno) {
                         await client.query(
                             `INSERT INTO academico.matriculas_asignaturas (id_matricula, id_oferta) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -1159,6 +1194,13 @@ export const actualizarClaseCompleta = async (req, res) => {
             : [];
         const matriculasRecibidas = Array.isArray(matriculas) ? matriculas.filter(m => m?.id_alumno_externo) : [];
 
+        console.log("[Wizard ActualizarClase][Payload]", {
+            idClase: id,
+            clase,
+            ofertasSeleccionadas,
+            matriculasRecibidas,
+        });
+
         const { rows: [claseActualizada] } = await client.query(
             `UPDATE academico.clases
              SET nombre = $1, id_plan = $2, id_centro = $3, id_curso_escolar = $4, curso = $5, grupo = $6, updated_at = NOW()
@@ -1212,6 +1254,14 @@ export const actualizarClaseCompleta = async (req, res) => {
                 ? mat.ofertas_alumno.filter(idOferta => ofertasSeleccionadas.includes(idOferta))
                 : ofertasSeleccionadas;
 
+            console.log("[Wizard ActualizarClase][MatriculaProcesada]", {
+                idClase: id,
+                alumno: mat.id_alumno_externo,
+                idMatricula,
+                ofertasAlumnoOriginales: mat.ofertas_alumno,
+                ofertasAlumnoFiltradas: ofertasAlumno,
+            });
+
             await client.query(`DELETE FROM academico.matriculas_asignaturas WHERE id_matricula = $1`, [idMatricula]);
             for (const id_oferta of ofertasAlumno) {
                 await client.query(
@@ -1223,6 +1273,19 @@ export const actualizarClaseCompleta = async (req, res) => {
         }
 
         await client.query('COMMIT');
+
+        const { rows: academicoMatriculasClase } = await gobDb.query(`
+            SELECT m.id_matricula, m.id_alumno_externo, ma.id_oferta, ma.estado
+            FROM academico.matriculas m
+            LEFT JOIN academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+            WHERE m.id_clase = $1
+            ORDER BY m.id_alumno_externo, ma.id_oferta
+        `, [id]);
+
+        console.log("[Wizard ActualizarClase][AcademicoMatriculasPostCommit]", {
+            idClase: id,
+            academicoMatriculasClase,
+        });
 
         await syncClaseCache(id);
 

@@ -297,8 +297,32 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
   const loadAllAsignaturas = async () => { try { const d = await api('/admin/asignaturas'); if (d.ok) setAllAsignaturas(d.asignaturas); } catch (e) { } };
   const reloadOfertas = async () => { if (clase.id_plan) await loadOfertas(clase.id_plan); };
 
+  const syncMatriculasWithOfertas = (nextOfertas: string[]) => {
+    const permitidas = new Set(nextOfertas);
+    setMatriculas(prev => prev.map(m => ({
+      ...m,
+      ofertas_alumno: m.ofertas_alumno.filter(id => permitidas.has(id)),
+    })));
+  };
+
+  const updateOfertasSel = (updater: (prev: string[]) => string[]) => {
+    setOfertasSel(prev => {
+      const next = updater(prev);
+      syncMatriculasWithOfertas(next);
+      return next;
+    });
+  };
+
   const toggleOferta = (id: string) => {
-    setOfertasSel(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    updateOfertasSel(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const normalizeMatriculasPayload = () => {
+    const permitidas = new Set(ofertasSel);
+    return matriculas.map(m => ({
+      id_alumno_externo: m.id_alumno_externo,
+      ofertas_alumno: m.ofertas_alumno.filter(id => permitidas.has(id)),
+    }));
   };
 
   const setProfesor = (id_oferta: string, id_profesor_externo: string) => {
@@ -338,7 +362,7 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
     try {
       const data = {
         clase, ofertas_seleccionadas: ofertasSel, asignaciones: asignaciones.filter(a => ofertasSel.includes(a.id_oferta)),
-        matriculas: matriculas.map(m => ({ id_alumno_externo: m.id_alumno_externo, ofertas_alumno: m.ofertas_alumno }))
+        matriculas: normalizeMatriculasPayload()
       };
       const d = await api('/admin/wizard/crear-clase-completa', { method: 'POST', data });
       if (d.ok) {
@@ -359,7 +383,7 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
         clase,
         ofertas_seleccionadas: ofertasSel,
         asignaciones: asignaciones.filter(a => ofertasSel.includes(a.id_oferta)),
-        matriculas: matriculas.map(m => ({ id_alumno_externo: m.id_alumno_externo, ofertas_alumno: m.ofertas_alumno }))
+        matriculas: normalizeMatriculasPayload()
       };
       const d = await api(`/admin/wizard/clase/${editClaseId}`, { method: 'PUT', data });
       if (d.ok) {
@@ -471,7 +495,7 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
         )}
 
         {filtered.length > 0 && (
-          <TouchableOpacity onPress={() => { if (allSelected) setOfertasSel(prev => prev.filter(id => !allIds.includes(id))); else setOfertasSel(prev => [...new Set([...prev, ...allIds])]); }}
+          <TouchableOpacity onPress={() => { if (allSelected) updateOfertasSel(prev => prev.filter(id => !allIds.includes(id))); else updateOfertasSel(prev => [...new Set([...prev, ...allIds])]); }}
             style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: '#F1F5F9', borderRadius: 10 }}>
             <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: allSelected ? '#2563EB' : '#CBD5E1', backgroundColor: allSelected ? '#2563EB' : '#FFF', justifyContent: 'center', alignItems: 'center' }}>
               {allSelected && <I d="M5 13l4 4L19 7" color="#FFF" size={12} />}

@@ -120,7 +120,10 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
             const { rows: profesores } = await appDb.query(`
                 SELECT DISTINCT ap.id_usuario_app as id_profesor
                 FROM cache_academico.matriculas m
-                JOIN cache_academico.asignaciones_profesor ap ON ap.id_clase = m.id_clase
+                JOIN cache_academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+                JOIN cache_academico.asignaciones_profesor ap
+                    ON ap.id_clase = m.id_clase
+                   AND ap.id_oferta = ma.id_oferta
                 WHERE m.id_usuario_app = $1
             `, [id_usuario_app]);
 
@@ -138,6 +141,9 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
                 SELECT DISTINCT m.id_usuario_app as id_alumno
                 FROM cache_academico.asignaciones_profesor ap
                 JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+                JOIN cache_academico.matriculas_asignaturas ma
+                    ON ma.id_matricula = m.id_matricula
+                   AND ma.id_oferta = ap.id_oferta
                 WHERE ap.id_usuario_app = $1
             `, [id_usuario_app]);
 
