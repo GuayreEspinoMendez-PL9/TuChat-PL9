@@ -191,7 +191,7 @@ export default function MeetScreen() {
   const screenStreamRef = useRef<any>(null);
   const composedScreenStreamRef = useRef<any>(null);
   const composeCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const composeAnimationRef = useRef<number | null>(null);
+  const composeLoopRef = useRef<number | null>(null);
   const composeScreenVideoRef = useRef<HTMLVideoElement | null>(null);
   const composeCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
@@ -393,9 +393,9 @@ export default function MeetScreen() {
   };
 
   const stopComposedScreenShare = () => {
-    if (composeAnimationRef.current != null && typeof cancelAnimationFrame !== 'undefined') {
-      cancelAnimationFrame(composeAnimationRef.current);
-      composeAnimationRef.current = null;
+    if (composeLoopRef.current != null && typeof window !== 'undefined') {
+      window.clearInterval(composeLoopRef.current);
+      composeLoopRef.current = null;
     }
     composedScreenStreamRef.current?.getTracks?.().forEach((t: any) => t.stop?.());
     composedScreenStreamRef.current = null;
@@ -429,7 +429,7 @@ export default function MeetScreen() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return screenStream;
 
-    const render = () => {
+    const renderFrame = () => {
       ctx.clearRect(0, 0, width, height);
       ctx.drawImage(screenVideo, 0, 0, width, height);
       const camWidth = Math.round(width * 0.18);
@@ -447,13 +447,14 @@ export default function MeetScreen() {
         ctx.fillRect(camX - 6, camY - 6, camWidth + 12, camHeight + 12);
       }
       drawVideoCover(ctx, cameraVideo, camX, camY, camWidth, camHeight);
-
-      if (typeof requestAnimationFrame !== 'undefined') {
-        composeAnimationRef.current = requestAnimationFrame(render);
-      }
     };
-
-    render();
+    renderFrame();
+    if (typeof window !== 'undefined') {
+      composeLoopRef.current = window.setInterval(() => {
+        if (screenVideo.readyState < 2) return;
+        renderFrame();
+      }, 1000 / 15);
+    }
 
     const composedStream = canvas.captureStream(24);
     screenStream.getAudioTracks?.().forEach((track: any) => composedStream.addTrack(track));
@@ -948,6 +949,20 @@ export default function MeetScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const onVisibilityChange = () => {
+      console.log('[Meet][Visibility]', {
+        hidden: document.hidden,
+        visibilityState: document.visibilityState,
+        isScreenSharing,
+        hasComposedStream: !!composedScreenStreamRef.current
+      });
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [isScreenSharing]);
 
   // ─── Controles ────────────────────────────────────────
   const toggleMute = () => {
