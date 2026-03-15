@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ActivityIndicator, Platform, StyleSheet, 
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
 import * as SecureStore from 'expo-secure-store';
-import { MonitorUp, Users } from 'lucide-react-native';
+import { MonitorUp, Users, Volume2, VolumeX, Minus, Plus } from 'lucide-react-native';
 import { useSocket } from '../src/context/SocketContext';
 
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
@@ -137,6 +137,8 @@ const describeStream = (stream: any) => ({
   })) || []
 });
 
+const clampVolume = (value: number) => Math.max(0, Math.min(100, value));
+
 // ─── Componente principal ─────────────────────────────────
 export default function MeetScreen() {
   const params = useLocalSearchParams();
@@ -169,6 +171,11 @@ export default function MeetScreen() {
 
   const localStreamRef = useRef<any>(null);
   const screenStreamRef = useRef<any>(null);
+  const composedScreenStreamRef = useRef<any>(null);
+  const composeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const composeAnimationRef = useRef<number | null>(null);
+  const composeScreenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const composeCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
   const audioAnalyzersRef = useRef<Map<string, { intervalId: number; cleanup: () => void }>>(new Map());
   const mediaElementRefs = useRef<Map<string, HTMLMediaElement>>(new Map());
@@ -344,12 +351,13 @@ export default function MeetScreen() {
       });
     }
 
-    if (screenStreamRef.current) {
-      screenStreamRef.current.getAudioTracks?.().forEach((track: any) => {
-        entries.push({ track, stream: screenStreamRef.current, kind: 'audio', source: 'screen' });
+    const activeScreenStream = composedScreenStreamRef.current || screenStreamRef.current;
+    if (activeScreenStream) {
+      activeScreenStream.getAudioTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: activeScreenStream, kind: 'audio', source: 'screen' });
       });
-      screenStreamRef.current.getVideoTracks?.().forEach((track: any) => {
-        entries.push({ track, stream: screenStreamRef.current, kind: 'video', source: 'screen' });
+      activeScreenStream.getVideoTracks?.().forEach((track: any) => {
+        entries.push({ track, stream: activeScreenStream, kind: 'video', source: 'screen' });
       });
     }
 
@@ -364,6 +372,83 @@ export default function MeetScreen() {
     })));
 
     return entries;
+  };
+
+  const stopComposedScreenShare = () => {
+    if (composeAnimationRef.current != null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(composeAnimationRef.current);
+      composeAnimationRef.current = null;
+    }
+    composedScreenStreamRef.current?.getTracks?.().forEach((t: any) => t.stop?.());
+    composedScreenStreamRef.current = null;
+    composeCanvasRef.current = null;
+    composeScreenVideoRef.current = null;
+    composeCameraVideoRef.current = null;
+  };
+
+  const buildComposedScreenStream = async (screenStream: any) => {
+    if (Platform.OS !== 'web') return screenStream;
+    const cameraStream = localStreamRef.current;
+    const cameraTrack = cameraStream?.getVideoTracks?.()?.find((t: any) => t.enabled !== false);
+    const screenTrack = screenStream?.getVideoTracks?.()?.[0];
+    if (!screenTrack || !cameraTrack || typeof document === 'undefined') return screenStream;
+
+    const canvas = document.createElement('canvas');
+    const screenVideo = document.createElement('video');
+    const cameraVideo = document.createElement('video');
+    screenVideo.srcObject = screenStream;
+    cameraVideo.srcObject = cameraStream;
+    screenVideo.muted = true;
+    cameraVideo.muted = true;
+    screenVideo.playsInline = true;
+    cameraVideo.playsInline = true;
+    await Promise.all([screenVideo.play().catch(() => {}), cameraVideo.play().catch(() => {})]);
+
+    const width = screenTrack.getSettings?.()?.width || 1280;
+    const height = screenTrack.getSettings?.()?.height || 720;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return screenStream;
+
+    const render = () => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(screenVideo, 0, 0, width, height);
+      const camWidth = Math.round(width * 0.22);
+      const camHeight = Math.round((camWidth * 16) / 9);
+      const margin = Math.round(width * 0.02);
+      const camX = width - camWidth - margin;
+      const camY = height - camHeight - margin;
+
+      ctx.fillStyle = 'rgba(15,23,42,0.9)';
+      if ((ctx as any).roundRect) {
+        ctx.beginPath();
+        (ctx as any).roundRect(camX - 6, camY - 6, camWidth + 12, camHeight + 12, 18);
+        ctx.fill();
+      } else {
+        ctx.fillRect(camX - 6, camY - 6, camWidth + 12, camHeight + 12);
+      }
+      ctx.drawImage(cameraVideo, camX, camY, camWidth, camHeight);
+
+      if (typeof requestAnimationFrame !== 'undefined') {
+        composeAnimationRef.current = requestAnimationFrame(render);
+      }
+    };
+
+    render();
+
+    const composedStream = canvas.captureStream(24);
+    screenStream.getAudioTracks?.().forEach((track: any) => composedStream.addTrack(track));
+    composeCanvasRef.current = canvas;
+    composeScreenVideoRef.current = screenVideo;
+    composeCameraVideoRef.current = cameraVideo;
+    composedScreenStreamRef.current = composedStream;
+    console.log('[Meet][ComposedScreenShare]', {
+      screen: describeStream(screenStream),
+      camera: describeStream(cameraStream),
+      composed: describeStream(composedStream)
+    });
+    return composedStream;
   };
 
   const getParticipantPlaybackStream = (participant: any) => {
@@ -911,6 +996,7 @@ export default function MeetScreen() {
     if (isScreenSharing) {
       screenStreamRef.current?.getTracks().forEach((t: any) => t.stop());
       screenStreamRef.current = null;
+      stopComposedScreenShare();
       setIsScreenSharing(false);
       socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
       if (localStreamRef.current) {
@@ -925,6 +1011,7 @@ export default function MeetScreen() {
         console.log('[Meet][ScreenShareStart] stream', describeStream(screenStream));
         console.log('[Meet][ScreenShareStart] localBeforeShare', describeStream(localStreamRef.current));
         screenStreamRef.current = screenStream;
+        await buildComposedScreenStream(screenStream);
         setLocalStream(screenStream);
         setIsScreenSharing(true);
         socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: true });
@@ -934,6 +1021,7 @@ export default function MeetScreen() {
           console.log('[Meet][ScreenShareEnded]', { userId, roomId });
           setIsScreenSharing(false);
           screenStreamRef.current = null;
+          stopComposedScreenShare();
           socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
           if (localStreamRef.current) {
             setLocalStream(localStreamRef.current);
@@ -951,6 +1039,7 @@ export default function MeetScreen() {
     peersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((t: any) => t.stop());
     screenStreamRef.current?.getTracks().forEach((t: any) => t.stop());
+    stopComposedScreenShare();
     socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
     socket?.emit('meet:leave', { roomId, userId });
     if (router.canGoBack()) router.back();
@@ -1140,17 +1229,18 @@ export default function MeetScreen() {
             </View>
             {!mainPresenter.isLocal && mainPresenterVolumeKey && (
               <View style={st.volumeDock}>
-                <Text style={st.volumeLabel}>Volumen</Text>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={getParticipantVolume(mainPresenterVolumeKey)}
-                  onInput={(e: any) => updateParticipantVolume(mainPresenterVolumeKey, Number(e.target.value))}
-                  onChange={(e: any) => updateParticipantVolume(mainPresenterVolumeKey, Number(e.target.value))}
-                  style={st.webSlider as any}
-                />
+                <Text style={st.volumeLabel}>Volumen {getParticipantVolume(mainPresenterVolumeKey)}%</Text>
+                <View style={st.volumeControlsRow}>
+                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) - 10))}>
+                    <Minus color="#fff" size={14} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, getParticipantVolume(mainPresenterVolumeKey) > 0 ? 0 : 100)}>
+                    {getParticipantVolume(mainPresenterVolumeKey) > 0 ? <Volume2 color="#fff" size={14} /> : <VolumeX color="#fff" size={14} />}
+                  </TouchableOpacity>
+                  <TouchableOpacity style={st.volumeBtn} onPress={() => updateParticipantVolume(mainPresenterVolumeKey, clampVolume(getParticipantVolume(mainPresenterVolumeKey) + 10))}>
+                    <Plus color="#fff" size={14} />
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </View>
@@ -1280,16 +1370,13 @@ export default function MeetScreen() {
               </View>
               {Platform.OS === 'web' && (
                 <View style={st.tileVolumeDock}>
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={getParticipantVolume(`volume:remote:${p.socketId}`)}
-                    onInput={(e: any) => updateParticipantVolume(`volume:remote:${p.socketId}`, Number(e.target.value))}
-                    onChange={(e: any) => updateParticipantVolume(`volume:remote:${p.socketId}`, Number(e.target.value))}
-                    style={st.webSliderSmall as any}
-                  />
+                  <TouchableOpacity style={st.volumeBtnSmall} onPress={() => updateParticipantVolume(`volume:remote:${p.socketId}`, clampVolume(getParticipantVolume(`volume:remote:${p.socketId}`) - 10))}>
+                    <Minus color="#fff" size={12} />
+                  </TouchableOpacity>
+                  <Text style={st.volumeMiniText}>{getParticipantVolume(`volume:remote:${p.socketId}`)}%</Text>
+                  <TouchableOpacity style={st.volumeBtnSmall} onPress={() => updateParticipantVolume(`volume:remote:${p.socketId}`, clampVolume(getParticipantVolume(`volume:remote:${p.socketId}`) + 10))}>
+                    <Plus color="#fff" size={12} />
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -1502,11 +1589,30 @@ const st = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    zIndex: 25
+    zIndex: 25,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
   },
   volumeLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginBottom: 6 },
-  webSlider: { width: '100%', accentColor: '#60a5fa' as any, cursor: 'pointer' as any },
-  webSliderSmall: { width: '100%', accentColor: '#60a5fa' as any, cursor: 'pointer' as any },
+  volumeControlsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  volumeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    backgroundColor: 'rgba(96,165,250,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  volumeBtnSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: 'rgba(96,165,250,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  volumeMiniText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   nameTag: {
     position: 'absolute', bottom: 10, left: 10,
