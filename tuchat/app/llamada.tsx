@@ -425,19 +425,21 @@ export default function MeetScreen() {
             const newMap = new Map(prev);
             const previous = newMap.get(socketId) || { userId: participantUserId, connected: true };
             const incomingStream = e.streams[0];
+            const MediaStreamCtor = typeof MediaStream !== 'undefined' ? MediaStream : null;
+            const trackStream = MediaStreamCtor ? new MediaStreamCtor([e.track]) : incomingStream;
             const isScreen = e.track.kind === 'video' && looksLikeScreenTrack(e.track);
             const nextParticipant: ParticipantInfo = {
               ...previous,
               userId: previous.userId || participantUserId,
               connected: true,
-              stream: isScreen ? (previous.stream || incomingStream) : incomingStream
+              stream: isScreen ? (previous.stream || trackStream) : trackStream
             };
 
-            if (e.track.kind === 'audio') nextParticipant.audioStream = incomingStream;
-            if (e.track.kind === 'video' && isScreen) nextParticipant.screenStream = incomingStream;
-            if (e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = incomingStream;
-            if (!nextParticipant.cameraStream && e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = incomingStream;
-            if (!nextParticipant.stream) nextParticipant.stream = incomingStream;
+            if (e.track.kind === 'audio') nextParticipant.audioStream = trackStream;
+            if (e.track.kind === 'video' && isScreen) nextParticipant.screenStream = trackStream;
+            if (e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = trackStream;
+            if (!nextParticipant.cameraStream && e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = trackStream;
+            if (!nextParticipant.stream) nextParticipant.stream = trackStream;
 
             newMap.set(socketId, nextParticipant);
             return newMap;
@@ -1040,6 +1042,7 @@ export default function MeetScreen() {
                   max={100}
                   step={1}
                   value={getParticipantVolume(mainPresenterVolumeKey)}
+                  onInput={(e: any) => updateParticipantVolume(mainPresenterVolumeKey, Number(e.target.value))}
                   onChange={(e: any) => updateParticipantVolume(mainPresenterVolumeKey, Number(e.target.value))}
                   style={st.webSlider as any}
                 />
@@ -1176,6 +1179,7 @@ export default function MeetScreen() {
                     max={100}
                     step={1}
                     value={getParticipantVolume(`volume:remote:${p.socketId}`)}
+                    onInput={(e: any) => updateParticipantVolume(`volume:remote:${p.socketId}`, Number(e.target.value))}
                     onChange={(e: any) => updateParticipantVolume(`volume:remote:${p.socketId}`, Number(e.target.value))}
                     style={st.webSliderSmall as any}
                   />
@@ -1379,7 +1383,8 @@ const st = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 10
+    paddingVertical: 10,
+    zIndex: 30
   },
   tileVolumeDock: {
     position: 'absolute',
@@ -1389,11 +1394,12 @@ const st = StyleSheet.create({
     backgroundColor: 'rgba(2,6,23,0.68)',
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 6
+    paddingVertical: 6,
+    zIndex: 25
   },
   volumeLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginBottom: 6 },
-  webSlider: { width: '100%', accentColor: '#60a5fa' as any },
-  webSliderSmall: { width: '100%', accentColor: '#60a5fa' as any },
+  webSlider: { width: '100%', accentColor: '#60a5fa' as any, cursor: 'pointer' as any },
+  webSliderSmall: { width: '100%', accentColor: '#60a5fa' as any, cursor: 'pointer' as any },
 
   nameTag: {
     position: 'absolute', bottom: 10, left: 10,
