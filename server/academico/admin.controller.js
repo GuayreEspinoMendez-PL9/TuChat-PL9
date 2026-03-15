@@ -4,6 +4,179 @@ import crypto from "crypto";
 
 const sha256 = (input) => crypto.createHash("sha256").update(input).digest("hex");
 
+const syncClaseCache = async (idClase) => {
+    const { rows: [clase] } = await gobDb.query(`
+        SELECT c.id_clase, c.id_plan, c.curso, c.grupo, c.nombre, p.nombre as nombre_plan
+        FROM academico.clases c
+        JOIN academico.planes_estudio p ON p.id_plan = c.id_plan
+        WHERE c.id_clase = $1
+    `, [idClase]);
+
+    if (!clase) return;
+
+    const { rows: ofertasClase } = await gobDb.query(`
+        SELECT DISTINCT oa.id_oferta, oa.id_plan, oa.id_asignatura, oa.curso, a.codigo, a.nombre
+        FROM academico.oferta_asignaturas oa
+        JOIN academico.asignaturas a ON a.id_asignatura = oa.id_asignatura
+        WHERE oa.id_plan = $1
+          AND (
+            EXISTS (
+                SELECT 1
+                FROM academico.asignaciones_profesor ap
+                WHERE ap.id_clase = $2 AND ap.id_oferta = oa.id_oferta
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM academico.matriculas m
+                JOIN academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+                WHERE m.id_clase = $2 AND ma.id_oferta = oa.id_oferta
+            )
+          )
+    `, [clase.id_plan, idClase]);
+
+    const { rows: asignacionesProfesor } = await gobDb.query(`
+        SELECT ap.id_profesor_externo, ap.id_oferta
+        FROM academico.asignaciones_profesor ap
+        WHERE ap.id_clase = $1
+    `, [idClase]);
+
+    const { rows: matriculasClase } = await gobDb.query(`
+        SELECT m.id_matricula, m.id_alumno_externo, ma.id_oferta, COALESCE(ma.estado, 'CURSANDO') as estado
+        FROM academico.matriculas m
+        LEFT JOIN academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
+        WHERE m.id_clase = $1
+    `, [idClase]);
+
+    const userIdsExternos = Array.from(new Set([
+        ...asignacionesProfesor.map((row) => row.id_profesor_externo),
+        ...matriculasClase.map((row) => row.id_alumno_externo),
+    ].filter(Boolean)));
+
+    const { rows: usuariosApp } = userIdsExternos.length > 0
+        ? await appDb.query(`
+            SELECT id_usuario_app, id_usuario_externo, tipo_externo
+            FROM seguridad.usuarios_app
+            WHERE id_usuario_externo = ANY($1::uuid[])
+        `, [userIdsExternos])
+        : { rows: [] };
+
+    const usuariosPorExterno = new Map(usuariosApp.map((row) => [row.id_usuario_externo, row]));
+
+    await appDb.query(`DELETE FROM cache_academico.matriculas_asignaturas WHERE id_matricula IN (SELECT id_matricula FROM cache_academico.matriculas WHERE id_clase = $1)`, [idClase]);
+    await appDb.query(`DELETE FROM cache_academico.matriculas WHERE id_clase = $1`, [idClase]);
+    await appDb.query(`DELETE FROM cache_academico.asignaciones_profesor WHERE id_clase = $1`, [idClase]);
+    await appDb.query(`DELETE FROM comunicacion.salas_chat WHERE id_clase = $1`, [idClase]);
+
+    await appDb.query(`
+        INSERT INTO cache_academico.planes_estudio (id_plan, nombre, version)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (id_plan) DO UPDATE SET nombre = EXCLUDED.nombre
+    `, [clase.id_plan, clase.nombre_plan || 'Plan', '1.0']);
+
+    await appDb.query(`
+        INSERT INTO cache_academico.clases (id_clase, id_plan, curso, grupo, nombre)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (id_clase) DO UPDATE SET
+            id_plan = EXCLUDED.id_plan,
+            curso = EXCLUDED.curso,
+            grupo = EXCLUDED.grupo,
+            nombre = EXCLUDED.nombre
+    `, [clase.id_clase, clase.id_plan, clase.curso, clase.grupo, clase.nombre]);
+
+    for (const oferta of ofertasClase) {
+        await appDb.query(`
+            INSERT INTO cache_academico.asignaturas (id_asignatura, codigo, nombre)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (id_asignatura) DO UPDATE SET
+                codigo = EXCLUDED.codigo,
+                nombre = EXCLUDED.nombre
+        `, [oferta.id_asignatura, oferta.codigo, oferta.nombre]);
+
+        await appDb.query(`
+            INSERT INTO cache_academico.oferta_asignaturas (id_oferta, id_plan, id_asignatura, curso)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (id_oferta) DO UPDATE SET
+                id_plan = EXCLUDED.id_plan,
+                id_asignatura = EXCLUDED.id_asignatura,
+                curso = EXCLUDED.curso
+        `, [oferta.id_oferta, oferta.id_plan, oferta.id_asignatura, oferta.curso]);
+
+        await appDb.query(`
+            INSERT INTO comunicacion.salas_chat (id_clase, id_oferta)
+            VALUES ($1, $2)
+            ON CONFLICT (id_clase, id_oferta) DO NOTHING
+        `, [idClase, oferta.id_oferta]);
+    }
+
+    for (const asignacion of asignacionesProfesor) {
+        const usuario = usuariosPorExterno.get(asignacion.id_profesor_externo);
+        if (!usuario?.id_usuario_app) continue;
+
+        await appDb.query(`
+            INSERT INTO cache_academico.asignaciones_profesor (id_usuario_app, id_clase, id_oferta)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+        `, [usuario.id_usuario_app, idClase, asignacion.id_oferta]);
+    }
+
+    const matriculasAgrupadas = new Map();
+    for (const row of matriculasClase) {
+        if (!row.id_alumno_externo) continue;
+        if (!matriculasAgrupadas.has(row.id_matricula)) {
+            matriculasAgrupadas.set(row.id_matricula, {
+                id_matricula: row.id_matricula,
+                id_alumno_externo: row.id_alumno_externo,
+                ofertas: [],
+            });
+        }
+        if (row.id_oferta) {
+            matriculasAgrupadas.get(row.id_matricula).ofertas.push({ id_oferta: row.id_oferta, estado: row.estado || 'CURSANDO' });
+        }
+    }
+
+    for (const matricula of matriculasAgrupadas.values()) {
+        const usuario = usuariosPorExterno.get(matricula.id_alumno_externo);
+        if (!usuario?.id_usuario_app) continue;
+
+        await appDb.query(`
+            INSERT INTO cache_academico.matriculas (id_matricula, id_usuario_app, id_clase, id_alumno_externo)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (id_matricula) DO UPDATE SET
+                id_usuario_app = EXCLUDED.id_usuario_app,
+                id_clase = EXCLUDED.id_clase,
+                id_alumno_externo = EXCLUDED.id_alumno_externo
+        `, [matricula.id_matricula, usuario.id_usuario_app, idClase, matricula.id_alumno_externo]);
+
+        for (const oferta of matricula.ofertas) {
+            await appDb.query(`
+                INSERT INTO cache_academico.matriculas_asignaturas (id_matricula, id_oferta, estado)
+                VALUES ($1, $2, $3)
+                ON CONFLICT DO NOTHING
+            `, [matricula.id_matricula, oferta.id_oferta, oferta.estado]);
+        }
+    }
+
+    await appDb.query(`
+        DELETE FROM comunicacion.chats_privados cp
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM cache_academico.asignaciones_profesor ap
+            JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+            WHERE ap.id_usuario_app = cp.id_profesor_usuario_app
+              AND m.id_usuario_app = cp.id_alumno_usuario_app
+        )
+    `);
+
+    await appDb.query(`
+        INSERT INTO comunicacion.chats_privados (id_profesor_usuario_app, id_alumno_usuario_app)
+        SELECT DISTINCT ap.id_usuario_app, m.id_usuario_app
+        FROM cache_academico.asignaciones_profesor ap
+        JOIN cache_academico.matriculas m ON m.id_clase = ap.id_clase
+        WHERE ap.id_clase = $1
+        ON CONFLICT DO NOTHING
+    `, [idClase]);
+};
+
 // ============================================================
 // DASHBOARD
 // ============================================================
@@ -814,6 +987,8 @@ export const crearClaseCompleta = async (req, res) => {
 
         await client.query('BEGIN');
 
+        const ofertasSeleccionadas = Array.isArray(ofertas_seleccionadas) ? ofertas_seleccionadas : [];
+
         // 1. Crear la clase
         const { rows: [nuevaClase] } = await client.query(
             `INSERT INTO academico.clases (nombre, id_plan, id_centro, id_curso_escolar, curso, grupo)
@@ -850,7 +1025,9 @@ export const crearClaseCompleta = async (req, res) => {
                     totalMatriculas++;
 
                     // Inscribir en asignaturas seleccionadas para este alumno
-                    const ofertasAlumno = mat.ofertas_alumno || ofertas_seleccionadas || [];
+                    const ofertasAlumno = Array.isArray(mat.ofertas_alumno)
+                        ? mat.ofertas_alumno.filter(id_oferta => ofertasSeleccionadas.includes(id_oferta))
+                        : ofertasSeleccionadas;
                     for (const id_oferta of ofertasAlumno) {
                         await client.query(
                             `INSERT INTO academico.matriculas_asignaturas (id_matricula, id_oferta) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
@@ -863,6 +1040,8 @@ export const crearClaseCompleta = async (req, res) => {
         }
 
         await client.query('COMMIT');
+
+        await syncClaseCache(id_clase);
 
         await logAdminAction(adminId, 'WIZARD_CREAR_CLASE', 'clase', id_clase, {
             nombre: clase.nombre, asignaciones: totalAsignaciones, matriculas: totalMatriculas, asignaturas_alumno: totalMatriculasAsig
@@ -1044,6 +1223,8 @@ export const actualizarClaseCompleta = async (req, res) => {
         }
 
         await client.query('COMMIT');
+
+        await syncClaseCache(id);
 
         await logAdminAction(adminId, 'WIZARD_ACTUALIZAR_CLASE', 'clase', id, {
             nombre: claseActualizada.nombre,
