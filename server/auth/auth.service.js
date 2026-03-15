@@ -111,18 +111,19 @@ export const loginConCredenciales = async ({ identificador, password }) => {
 
             const { rows: extData } = await gobDb.query(`
                 SELECT 
-                    m.id_usuario_externo, m.id_clase, m.id_oferta, m.estado,
+                    m.id_alumno_externo as id_usuario_externo, m.id_clase, ma.id_oferta, COALESCE(ma.estado, 'CURSANDO') as estado,
                     c.id_plan, c.curso, c.grupo, c.nombre as nombre_clase,
                     p.nombre as nombre_plan,
                     oa.id_asignatura,
                     a.codigo as codigo_asig, a.nombre as nombre_asig
-                FROM externo.v_matriculas_actuales m
+                FROM academico.matriculas m
+                JOIN academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
                 JOIN academico.clases c ON m.id_clase = c.id_clase
                 JOIN academico.planes_estudio p ON c.id_plan = p.id_plan
-                JOIN academico.oferta_asignaturas oa ON m.id_oferta = oa.id_oferta
+                JOIN academico.oferta_asignaturas oa ON ma.id_oferta = oa.id_oferta
                 JOIN academico.asignaturas a ON oa.id_asignatura = a.id_asignatura
-                WHERE m.dni = $1`, 
-                [localUser.dni]
+                WHERE m.id_alumno_externo = $1`, 
+                [localUser.id_usuario_externo]
             );
 
             // Limpieza atómica de la caché del alumno antes de repoblar

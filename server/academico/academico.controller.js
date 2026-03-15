@@ -175,22 +175,23 @@ async function crearChatsPrivadosAuto(id_usuario_app, tipo_externo) {
  * Sincronización completa con la DB del Gobierno
  */
 export const forzarSync = async (req, res) => {
-    const { id_usuario_app, dni, tipo_externo } = req.currentUser;
+    const { id_usuario_app, dni, tipo_externo, id_usuario_externo } = req.currentUser;
 
     try {
         if (tipo_externo === 'ALUMNO') {
             const { rows: extData } = await gobDb.query(`
                 SELECT 
-                    m.id_usuario_externo, m.id_clase, m.id_oferta, m.estado,
+                    m.id_alumno_externo as id_usuario_externo, m.id_clase, ma.id_oferta, COALESCE(ma.estado, 'CURSANDO') as estado,
                     c.id_plan, c.curso, c.grupo, c.nombre as nombre_clase,
                     oa.id_asignatura,
                     a.codigo as codigo_asig, a.nombre as nombre_asig
-                FROM externo.v_matriculas_actuales m
+                FROM academico.matriculas m
+                JOIN academico.matriculas_asignaturas ma ON ma.id_matricula = m.id_matricula
                 JOIN academico.clases c ON m.id_clase = c.id_clase
-                JOIN academico.oferta_asignaturas oa ON m.id_oferta = oa.id_oferta
+                JOIN academico.oferta_asignaturas oa ON ma.id_oferta = oa.id_oferta
                 JOIN academico.asignaturas a ON oa.id_asignatura = a.id_asignatura
-                WHERE m.dni = $1`, 
-                [dni]
+                WHERE m.id_alumno_externo = $1`, 
+                [id_usuario_externo]
             );
 
             if (extData.length === 0) return res.json({ ok: true, msg: "Sin datos" });
