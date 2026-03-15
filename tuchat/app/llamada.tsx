@@ -954,8 +954,14 @@ export default function MeetScreen() {
 
   const remoteVideoThumbnails = remoteParticipants
     .filter(p => {
-      const videoStream = p.cameraStream || p.stream || p.screenStream;
-      return videoStream && videoStream.getVideoTracks && videoStream.getVideoTracks().length > 0 && `remote:${p.socketId}` !== mainPresenter?.key;
+      const participantKey = `remote:${p.socketId}`;
+      const hasScreen = !!(p.screenStream && p.screenStream.getVideoTracks && p.screenStream.getVideoTracks().length > 0);
+      const hasCamera = !!(p.cameraStream && p.cameraStream.getVideoTracks && p.cameraStream.getVideoTracks().length > 0);
+      const fallbackVideo = p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0;
+
+      if (participantKey !== mainPresenter?.key) return hasCamera || hasScreen || fallbackVideo;
+      if (mainPresenter && hasScreen && hasCamera) return true;
+      return false;
     });
   const selectablePresenters = screenSharePresenters.filter(p => p.key !== mainPresenter?.key);
   const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
@@ -1066,7 +1072,9 @@ export default function MeetScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.thumbnailStrip} contentContainerStyle={st.thumbnailStripContent}>
               {remoteVideoThumbnails.map((p) => (
                 (() => {
-                  const thumbStream = p.cameraStream || p.stream || p.screenStream;
+                  const thumbStream = mainPresenter?.key === `remote:${p.socketId}` && p.cameraStream
+                    ? p.cameraStream
+                    : (p.cameraStream || p.stream || p.screenStream);
                   if (!thumbStream) return null;
                   return (
                 <TouchableOpacity
@@ -1332,10 +1340,10 @@ const st = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)'
   },
   thumbnailCardSelectable: { borderColor: 'rgba(96,165,250,0.78)' },
-  thumbnailVideo: { width: '100%', height: '100%', objectFit: 'cover' as any },
+  thumbnailVideo: { width: '100%', height: '100%', objectFit: 'cover' as any, pointerEvents: 'none' as any },
   videoGrid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#000' },
   videoBox: { width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', borderWidth: 2, borderColor: 'rgba(255,255,255,0.04)' },
-  video: { width: '100%', height: '100%', objectFit: 'contain' as any },
+  video: { width: '100%', height: '100%', objectFit: 'contain' as any, pointerEvents: 'none' as any },
 
   localVideoBox: {
     position: 'absolute', bottom: 118, right: 20,
@@ -1347,7 +1355,7 @@ const st = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8
   },
-  localVideo: { width: '100%', height: '100%', objectFit: 'cover' as any },
+  localVideo: { width: '100%', height: '100%', objectFit: 'cover' as any, pointerEvents: 'none' as any },
   speakingBox: { borderColor: '#22c55e', shadowColor: '#22c55e', shadowOpacity: 0.55, shadowRadius: 16, elevation: 8 },
   shareBadge: {
     position: 'absolute',
@@ -1388,11 +1396,11 @@ const st = StyleSheet.create({
   },
   tileVolumeDock: {
     position: 'absolute',
+    left: 10,
     right: 10,
-    top: 10,
-    width: 92,
+    bottom: 48,
     backgroundColor: 'rgba(2,6,23,0.68)',
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 10,
     paddingVertical: 6,
     zIndex: 25
