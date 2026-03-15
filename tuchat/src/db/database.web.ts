@@ -23,8 +23,11 @@ const getCurrentUserScope = (): string => {
 const scopedKey = (base: string) => `${base}__${getCurrentUserScope()}`;
 const chatKey = (roomId: string) => scopedKey(`chat_${roomId}`);
 const draftKey = (roomId: string) => scopedKey(`draft_${roomId}`);
-const scopedPrefix = (prefix: string) => `${prefix}__${getCurrentUserScope()}`;
-const getScopedLocalStorageKeys = (prefix: string) => Object.keys(localStorage).filter((key) => key.startsWith(scopedPrefix(prefix)));
+const scopedSuffix = () => `__${getCurrentUserScope()}`;
+const getScopedLocalStorageKeys = (prefix: string) =>
+  Object.keys(localStorage).filter((key) => key.startsWith(prefix) && key.endsWith(scopedSuffix()));
+const extractRoomIdFromScopedChatKey = (key: string) =>
+  key.replace(/^chat_/, '').replace(scopedSuffix(), '');
 
 export const saveMessageLocal = (msg: any) => {
   try {
@@ -110,7 +113,7 @@ export const getAllUnreadCounts = (): Record<string, number> => {
     const keys = getScopedLocalStorageKeys('chat_');
 
     keys.forEach(key => {
-      const roomId = key.replace(scopedPrefix('chat_'), '');
+      const roomId = extractRoomIdFromScopedChatKey(key);
       counts[roomId] = getUnreadCountByRoom(roomId);
     });
 
@@ -127,7 +130,7 @@ export const getTotalUnreadCount = (): number => {
     const keys = getScopedLocalStorageKeys('chat_');
 
     keys.forEach(key => {
-      const roomId = key.replace(scopedPrefix('chat_'), '');
+      const roomId = extractRoomIdFromScopedChatKey(key);
       total += getUnreadCountByRoom(roomId);
     });
 
@@ -318,8 +321,8 @@ export const getMessagesForSync = (days: number = 30): { roomId: string; message
     const results: { roomId: string; messages: any[] }[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && key.startsWith(scopedPrefix('chat_'))) {
-        const roomId = key.replace(scopedPrefix('chat_'), '');
+      if (key && key.startsWith('chat_') && key.endsWith(scopedSuffix())) {
+        const roomId = extractRoomIdFromScopedChatKey(key);
         const all = JSON.parse(localStorage.getItem(key) || '[]');
         const recent = all.filter((m: any) => m.timestamp >= cutoff);
         if (recent.length > 0) results.push({ roomId, messages: recent });
