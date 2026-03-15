@@ -29,7 +29,7 @@ import {
     getRoles, getAuditLog,
     // Wizard
     getOfertasPorPlan, getProfesoresDisponibles, getAlumnosDisponibles,
-    crearClaseCompleta, getClaseDetalladoWizard, updateMatriculaAsignaturas,
+    crearClaseCompleta, actualizarClaseCompleta, getClaseDetalladoWizard, updateMatriculaAsignaturas,
     eliminarCursoEscolar,
     actualizarOferta
 } from "../academico/admin.controller.js";
@@ -115,6 +115,7 @@ router.get("/wizard/ofertas-plan/:id_plan", getOfertasPorPlan);
 router.get("/wizard/profesores", getProfesoresDisponibles);
 router.get("/wizard/alumnos", getAlumnosDisponibles);
 router.post("/wizard/crear-clase-completa", crearClaseCompleta);
+router.put("/wizard/clase/:id", actualizarClaseCompleta);
 router.get("/wizard/clase/:id", getClaseDetalladoWizard);
 router.put("/wizard/matricula/:id/asignaturas", updateMatriculaAsignaturas);
 

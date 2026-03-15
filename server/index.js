@@ -540,11 +540,12 @@ io.on("connection", async (socket) => {
     }
 
     if (!meetRooms.has(roomId)) {
-      meetRooms.set(roomId, { participants: new Map(), callId: crypto.randomUUID(), type });
+      meetRooms.set(roomId, { participants: new Map(), screenSharers: new Map(), callId: crypto.randomUUID(), type });
       console.log(`✨ Creada sala de Meet en memoria: ${roomId}`);
     }
 
     const room = meetRooms.get(roomId);
+    if (!room.screenSharers) room.screenSharers = new Map();
 
     // Evitar duplicados
     if (room.participants.has(userId)) {
@@ -563,10 +564,29 @@ io.on("connection", async (socket) => {
       .map(([uid, sid]) => ({ userId: uid, socketId: sid }));
 
     console.log(`👥 Enviando lista de ${others.length} participantes existentes a ${userId}`);
-    socket.emit("meet:participants", { participants: others, callId: room.callId });
+    socket.emit("meet:participants", {
+      participants: others,
+      callId: room.callId,
+      screenSharers: Array.from(room.screenSharers.entries()).map(([socketId, sharerUserId]) => ({ socketId, userId: sharerUserId }))
+    });
 
     console.log(`📢 Notificando a ${others.length} usuarios sobre nuevo participante ${userId}`);
     socket.to(`meet:${roomId}`).emit("meet:user-joined", { userId, socketId: socket.id });
+  });
+
+  socket.on("meet:screen-share-state", ({ roomId, userId, isSharing }) => {
+    const room = meetRooms.get(roomId);
+    if (!room) return;
+    if (!room.screenSharers) room.screenSharers = new Map();
+
+    if (isSharing) room.screenSharers.set(socket.id, userId);
+    else room.screenSharers.delete(socket.id);
+
+    socket.to(`meet:${roomId}`).emit("meet:screen-share-state", {
+      socketId: socket.id,
+      userId,
+      isSharing: !!isSharing
+    });
   });
 
   socket.on("meet:offer", (data) => {
@@ -689,10 +709,12 @@ io.on("connection", async (socket) => {
     }
 
     room.participants.delete(userId);
+    if (room.screenSharers) room.screenSharers.delete(socketId);
     socket.leave(`meet:${roomId}`);
 
     // Notificar a los demás
     socket.to(`meet:${roomId}`).emit("meet:user-left", { userId, socketId });
+    socket.to(`meet:${roomId}`).emit("meet:screen-share-state", { userId, socketId, isSharing: false });
 
     console.log(`👋 ${userId} salió de meet ${roomId}. Quedan: ${room.participants.size}`);
 

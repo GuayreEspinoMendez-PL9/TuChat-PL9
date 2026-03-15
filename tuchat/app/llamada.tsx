@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Platform, StyleSheet, Alert, Dimensions, ScrollView } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import Svg, { Path } from 'react-native-svg';
+import * as SecureStore from 'expo-secure-store';
+import { MonitorUp, Users } from 'lucide-react-native';
 import { useSocket } from '../src/context/SocketContext';
 
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
@@ -87,6 +89,27 @@ interface ParticipantInfo {
   connected: boolean;
 }
 
+const getToken = async () => Platform.OS === 'web'
+  ? localStorage.getItem('token')
+  : await SecureStore.getItemAsync('token');
+
+const getStoredUserData = async () => {
+  try {
+    const raw = Platform.OS === 'web'
+      ? localStorage.getItem('userData')
+      : await SecureStore.getItemAsync('userData');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const getFallbackName = (id: string) => {
+  const normalized = String(id || '').trim();
+  if (!normalized) return 'Participante';
+  return `Usuario ${normalized.slice(0, 6)}`;
+};
+
 // ─── Componente principal ─────────────────────────────────
 export default function MeetScreen() {
   const params = useLocalSearchParams();
@@ -103,6 +126,10 @@ export default function MeetScreen() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
   const [hasVideo, setHasVideo] = useState(false);
+  const [participantNames, setParticipantNames] = useState<Record<string, string>>({});
+  const [screenSharers, setScreenSharers] = useState<Map<string, string>>(new Map());
+  const [selectedMainStream, setSelectedMainStream] = useState<string | null>(null);
+  const [speakingStates, setSpeakingStates] = useState<Record<string, boolean>>({});
 
   // Contador para forzar re-mount de <video> tras renegociación (pantalla compartida)
   const [renegotiationCount, setRenegotiationCount] = useState(0);
@@ -115,6 +142,7 @@ export default function MeetScreen() {
   const localStreamRef = useRef<any>(null);
   const screenStreamRef = useRef<any>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
+  const audioAnalyzersRef = useRef<Map<string, { intervalId: number; cleanup: () => void }>>(new Map());
   const [, forceUpdate] = useState(0);
 
   // ─── Validación ───────────────────────────────────────
@@ -129,6 +157,39 @@ export default function MeetScreen() {
     }
     console.log(`🎬 Iniciando llamada:`, { roomId, userId, type: callType });
   }, []);
+
+  useEffect(() => {
+    const loadParticipantNames = async () => {
+      try {
+        const [token, userData] = await Promise.all([getToken(), getStoredUserData()]);
+        const currentUserName = userData?.nombre || userData?.name || '';
+
+        setParticipantNames(prev => ({
+          ...prev,
+          ...(currentUserName ? { [userId]: currentUserName } : {})
+        }));
+
+        if (!token || !roomId) return;
+
+        const res = await fetch(`${API_URL}/academico/miembros-detalle/${roomId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!data?.ok || !Array.isArray(data.usuarios)) return;
+
+        const nextNames: Record<string, string> = {};
+        data.usuarios.forEach((u: any) => {
+          nextNames[String(u.id)] = u.nombre || getFallbackName(String(u.id));
+        });
+        if (currentUserName) nextNames[userId] = currentUserName;
+        setParticipantNames(prev => ({ ...prev, ...nextNames }));
+      } catch (e) {
+        console.log('⚠️ No se pudieron cargar nombres de participantes:', e);
+      }
+    };
+
+    loadParticipantNames();
+  }, [roomId, userId]);
 
   // ─── Permisos adaptados a web móvil ───────────────────
   const requestPermissions = async () => {
@@ -185,6 +246,61 @@ export default function MeetScreen() {
     setHasAudio(false);
     setHasVideo(false);
     return null;
+  };
+
+  const getDisplayName = (participantUserId: string, isLocal = false) => {
+    if (isLocal) return 'Tú';
+    return participantNames[String(participantUserId)] || getFallbackName(String(participantUserId));
+  };
+
+  const monitorSpeaking = (key: string, stream: any) => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined' || !stream?.getAudioTracks?.().length) return;
+    if (audioAnalyzersRef.current.has(key)) return;
+
+    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    try {
+      const context = new AudioContextCtor();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.7;
+      const source = context.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const intervalId = window.setInterval(() => {
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((sum, value) => sum + value, 0) / Math.max(1, dataArray.length);
+        const speaking = avg > 14;
+        setSpeakingStates(prev => prev[key] === speaking ? prev : { ...prev, [key]: speaking });
+      }, 180);
+
+      audioAnalyzersRef.current.set(key, {
+        intervalId,
+        cleanup: () => {
+          window.clearInterval(intervalId);
+          source.disconnect();
+          analyser.disconnect();
+          context.close?.();
+        }
+      });
+    } catch (e) {
+      console.log('⚠️ No se pudo iniciar detección de voz:', e);
+    }
+  };
+
+  const stopMonitoringSpeaking = (key: string) => {
+    const current = audioAnalyzersRef.current.get(key);
+    if (!current) return;
+    current.cleanup();
+    audioAnalyzersRef.current.delete(key);
+    setSpeakingStates(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   // ─── PeerConnection ───────────────────────────────────
@@ -392,6 +508,9 @@ export default function MeetScreen() {
         console.log(`👥 Participantes existentes: ${data.participants.length}`);
         // Registrar contador inmediatamente, sin esperar stream
         setRemoteCount(data.participants.length);
+        if (Array.isArray(data.screenSharers)) {
+          setScreenSharers(new Map(data.screenSharers.map((item: any) => [item.socketId, item.userId])));
+        }
 
         for (const p of data.participants) {
           // Registrar en mapa aunque no haya stream aún
@@ -423,6 +542,15 @@ export default function MeetScreen() {
 
         const pc = createPeerConnection(data.socketId, data.userId);
         peersRef.current.set(data.socketId, { peerConnection: pc, userId: data.userId });
+      };
+
+      const handleScreenShareState = (data: any) => {
+        setScreenSharers(prev => {
+          const next = new Map(prev);
+          if (data.isSharing) next.set(data.socketId, data.userId);
+          else next.delete(data.socketId);
+          return next;
+        });
       };
 
       const handleOffer = async (data: any) => {
@@ -510,6 +638,11 @@ export default function MeetScreen() {
           });
           setRemoteCount(prev => Math.max(0, prev - 1));
         }
+        setScreenSharers(prev => {
+          const next = new Map(prev);
+          next.delete(data.socketId);
+          return next;
+        });
       };
 
       const handleError = (data: any) => {
@@ -523,6 +656,7 @@ export default function MeetScreen() {
       socket.on('meet:answer', handleAnswer);
       socket.on('meet:ice-candidate', handleIceCandidate);
       socket.on('meet:user-left', handleUserLeft);
+      socket.on('meet:screen-share-state', handleScreenShareState);
       socket.on('meet:error', handleError);
 
       return () => {
@@ -532,6 +666,7 @@ export default function MeetScreen() {
         socket.off('meet:answer', handleAnswer);
         socket.off('meet:ice-candidate', handleIceCandidate);
         socket.off('meet:user-left', handleUserLeft);
+        socket.off('meet:screen-share-state', handleScreenShareState);
         socket.off('meet:error', handleError);
       };
     };
@@ -543,6 +678,40 @@ export default function MeetScreen() {
     };
   }, [socket, roomId, userId, callType]);
 
+  useEffect(() => {
+    const remoteKeys = new Set<string>();
+    participants.forEach((participant, socketId) => {
+      if (participant.stream?.getAudioTracks?.().length) {
+        const key = `remote:${socketId}`;
+        remoteKeys.add(key);
+        monitorSpeaking(key, participant.stream);
+      }
+    });
+
+    if (localStream?.getAudioTracks?.().length) {
+      monitorSpeaking('local', localStream);
+    } else {
+      stopMonitoringSpeaking('local');
+    }
+
+    for (const existingKey of Array.from(audioAnalyzersRef.current.keys())) {
+      if (existingKey === 'local') continue;
+      if (!remoteKeys.has(existingKey)) stopMonitoringSpeaking(existingKey);
+    }
+
+    return () => {
+      if (!localStream?.getAudioTracks?.().length) stopMonitoringSpeaking('local');
+    };
+  }, [participants, localStream]);
+
+  useEffect(() => {
+    return () => {
+      for (const key of Array.from(audioAnalyzersRef.current.keys())) {
+        stopMonitoringSpeaking(key);
+      }
+    };
+  }, []);
+
   // ─── Controles ────────────────────────────────────────
   const toggleMute = () => {
     if (!localStreamRef.current || !hasAudio) return;
@@ -550,9 +719,52 @@ export default function MeetScreen() {
     setIsMuted(v => !v);
   };
 
-  const toggleVideo = () => {
-    if (!localStreamRef.current || !hasVideo) return;
-    localStreamRef.current.getVideoTracks().forEach((t: any) => { t.enabled = !t.enabled; });
+  const enableCamera = async () => {
+    try {
+      const videoConstraints = Platform.OS === 'web'
+        ? (isMobileWeb ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } : true)
+        : true;
+
+      const cameraStream = Platform.OS === 'web'
+        ? await navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints })
+        : await WebRTC.mediaDevices.getUserMedia({ audio: false, video: true });
+
+      const videoTrack = cameraStream.getVideoTracks?.()[0];
+      if (!videoTrack) throw new Error('No se obtuvo track de vídeo');
+
+      if (localStreamRef.current) {
+        localStreamRef.current.addTrack(videoTrack);
+      } else {
+        const MediaStreamCtor = Platform.OS === 'web' ? MediaStream : WebRTC.MediaStream;
+        localStreamRef.current = new MediaStreamCtor([videoTrack]);
+      }
+
+      setLocalStream(localStreamRef.current);
+      setHasVideo(true);
+      setIsVideoOff(false);
+      await renegotiateWithAllPeers(localStreamRef.current);
+      return true;
+    } catch (e: any) {
+      console.error('❌ No se pudo activar la cámara:', e);
+      Alert.alert('Cámara', 'No se pudo activar la cámara. Revisa los permisos del navegador o del dispositivo.');
+      return false;
+    }
+  };
+
+  const toggleVideo = async () => {
+    if (!localStreamRef.current && !hasVideo) {
+      await enableCamera();
+      return;
+    }
+
+    const videoTracks = localStreamRef.current?.getVideoTracks?.() || [];
+    if (!videoTracks.length) {
+      await enableCamera();
+      return;
+    }
+
+    videoTracks.forEach((t: any) => { t.enabled = !t.enabled; });
+    setHasVideo(true);
     setIsVideoOff(v => !v);
   };
 
@@ -565,6 +777,7 @@ export default function MeetScreen() {
       screenStreamRef.current?.getTracks().forEach((t: any) => t.stop());
       screenStreamRef.current = null;
       setIsScreenSharing(false);
+      socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
       if (localStreamRef.current) {
         setLocalStream(localStreamRef.current);
         await renegotiateWithAllPeers(localStreamRef.current);
@@ -577,11 +790,13 @@ export default function MeetScreen() {
         screenStreamRef.current = screenStream;
         setLocalStream(screenStream);
         setIsScreenSharing(true);
+        socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: true });
         await renegotiateWithAllPeers(screenStream);
 
         screenStream.getVideoTracks()[0].onended = async () => {
           setIsScreenSharing(false);
           screenStreamRef.current = null;
+          socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
           if (localStreamRef.current) {
             setLocalStream(localStreamRef.current);
             await renegotiateWithAllPeers(localStreamRef.current);
@@ -598,13 +813,15 @@ export default function MeetScreen() {
     peersRef.current.clear();
     localStreamRef.current?.getTracks().forEach((t: any) => t.stop());
     screenStreamRef.current?.getTracks().forEach((t: any) => t.stop());
+    socket?.emit('meet:screen-share-state', { roomId, userId, isSharing: false });
     socket?.emit('meet:leave', { roomId, userId });
     if (router.canGoBack()) router.back();
     else router.replace('/');
   };
 
   // ─── Render ───────────────────────────────────────────
-  const remoteParticipants = Array.from(participants.values());
+  const remoteParticipantEntries = Array.from(participants.entries()).map(([socketId, info]) => ({ socketId, ...info }));
+  const remoteParticipants = remoteParticipantEntries;
 
   // Usar remoteCount: sube al unirse, no depende de si hay stream
   const totalParticipants = remoteCount + 1;
@@ -620,26 +837,157 @@ export default function MeetScreen() {
 
   const showAvatarGrid = !hasLocalVideo && !hasRemoteVideo;
 
+  const screenSharePresenters = Array.from(screenSharers.entries())
+    .map(([socketId, sharerUserId]) => {
+      const participant = participants.get(socketId);
+      return participant?.stream ? {
+        key: `remote:${socketId}`,
+        socketId,
+        userId: sharerUserId,
+        stream: participant.stream,
+        isLocal: false
+      } : null;
+    })
+    .filter(Boolean) as Array<{ key: string; socketId: string; userId: string; stream: any; isLocal: boolean }>;
+
+  if (isScreenSharing && localStream?.getVideoTracks?.().length) {
+    screenSharePresenters.unshift({
+      key: 'local',
+      socketId: 'local',
+      userId,
+      stream: localStream,
+      isLocal: true
+    });
+  }
+
+  const mainPresenter = screenSharePresenters.find(p => p.key === selectedMainStream) || screenSharePresenters[0] || null;
+
+  const remoteVideoThumbnails = remoteParticipants
+    .filter(p => p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0 && `remote:${p.socketId}` !== mainPresenter?.key);
+  const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
+
+  useEffect(() => {
+    if (!screenSharePresenters.length) {
+      if (selectedMainStream !== null) setSelectedMainStream(null);
+      return;
+    }
+    if (!selectedMainStream || !screenSharePresenters.some(p => p.key === selectedMainStream)) {
+      setSelectedMainStream(screenSharePresenters[0].key);
+    }
+  }, [selectedMainStream, screenSharePresenterKeys]);
+
   const allParticipants = [
     { userId, isLocal: true },
     ...remoteParticipants.map(p => ({ userId: p.userId, isLocal: false }))
   ];
 
+  const getSpeakingForParticipant = (participantUserId: string, isLocal: boolean) => {
+    if (isLocal) return !!speakingStates.local;
+    const entry = remoteParticipants.find(p => p.userId === participantUserId);
+    return entry ? !!speakingStates[`remote:${entry.socketId}`] : false;
+  };
+
   return (
     <View style={st.container}>
+      <View pointerEvents="none" style={st.bgOrbTop} />
+      <View pointerEvents="none" style={st.bgOrbBottom} />
       {showAvatarGrid ? (
         <View style={st.gridContainer}>
           {allParticipants.map((p, idx) => (
-            <View key={idx} style={[st.avatarBox, { backgroundColor: AVATAR_COLORS[idx % AVATAR_COLORS.length] }]}>
-              <Text style={st.avatarText}>{p.userId.charAt(0).toUpperCase()}</Text>
-              <Text style={st.avatarName}>{p.isLocal ? 'Tú' : p.userId.slice(0, 10)}</Text>
+            <View key={idx} style={[st.avatarBox, { backgroundColor: AVATAR_COLORS[idx % AVATAR_COLORS.length] }, getSpeakingForParticipant(p.userId, p.isLocal) && st.speakingBox]}>
+              <Text style={st.avatarText}>{getDisplayName(p.userId, p.isLocal).charAt(0).toUpperCase()}</Text>
+              <Text style={st.avatarName}>{getDisplayName(p.userId, p.isLocal)}</Text>
             </View>
           ))}
+        </View>
+      ) : mainPresenter ? (
+        <View style={st.presenterLayout}>
+          <View style={[st.presenterStage, speakingStates[mainPresenter.key] && st.speakingBox]}>
+            {Platform.OS === 'web' ? (
+              <>
+                <video
+                  key={`main-${mainPresenter.key}-${renegotiationCount}`}
+                  autoPlay
+                  playsInline
+                  muted={mainPresenter.isLocal}
+                  ref={el => { if (el) el.srcObject = mainPresenter.stream; }}
+                  style={st.video}
+                />
+                {!mainPresenter.isLocal && (
+                  <audio
+                    key={`main-audio-${mainPresenter.key}-${renegotiationCount}`}
+                    autoPlay
+                    playsInline
+                    ref={el => { if (el) el.srcObject = mainPresenter.stream; }}
+                    style={{ display: 'none' } as any}
+                  />
+                )}
+              </>
+            ) : (
+              <WebRTC.RTCView streamURL={mainPresenter.stream.toURL()} style={st.video} objectFit="contain" />
+            )}
+            <View style={st.shareBadge}>
+              <MonitorUp color="#fff" size={14} strokeWidth={2.2} />
+              <Text style={st.shareBadgeText}>Compartiendo pantalla</Text>
+            </View>
+            <View style={st.nameTag}>
+              <Text style={st.nameText}>{getDisplayName(mainPresenter.userId, mainPresenter.isLocal)}</Text>
+            </View>
+          </View>
+
+          {screenSharePresenters.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.presenterPicker} contentContainerStyle={st.presenterPickerContent}>
+              {screenSharePresenters.map(p => (
+                <TouchableOpacity key={p.key} onPress={() => setSelectedMainStream(p.key)} style={[st.presenterChip, selectedMainStream === p.key && st.presenterChipActive]}>
+                  <Text style={[st.presenterChipText, selectedMainStream === p.key && st.presenterChipTextActive]}>
+                    {getDisplayName(p.userId, p.isLocal)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          {remoteVideoThumbnails.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.thumbnailStrip} contentContainerStyle={st.thumbnailStripContent}>
+              {remoteVideoThumbnails.map((p) => (
+                <View key={p.socketId} style={[st.thumbnailCard, speakingStates[`remote:${p.socketId}`] && st.speakingBox]}>
+                  {Platform.OS === 'web' ? (
+                    <>
+                      <video
+                        key={`thumb-${p.socketId}-${renegotiationCount}`}
+                        autoPlay
+                        playsInline
+                        ref={el => { if (el) el.srcObject = p.stream; }}
+                        style={st.thumbnailVideo}
+                      />
+                      <audio
+                        key={`thumb-audio-${p.socketId}-${renegotiationCount}`}
+                        autoPlay
+                        playsInline
+                        ref={el => { if (el) el.srcObject = p.stream; }}
+                        style={{ display: 'none' } as any}
+                      />
+                    </>
+                  ) : (
+                    <WebRTC.RTCView streamURL={p.stream.toURL()} style={st.thumbnailVideo} objectFit="cover" />
+                  )}
+                  {screenSharers.has(p.socketId) && (
+                    <View style={st.shareBadgeSmall}>
+                      <MonitorUp color="#fff" size={12} strokeWidth={2.2} />
+                    </View>
+                  )}
+                  <View style={st.nameTag}>
+                    <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          )}
         </View>
       ) : (
         <View style={st.videoGrid}>
           {remoteParticipants.map((p, idx) => p.stream && (
-            <View key={idx} style={st.videoBox}>
+            <View key={idx} style={[st.videoBox, speakingStates[`remote:${p.socketId}`] && st.speakingBox]}>
               {Platform.OS === 'web' ? (
                 <>
                   {/*
@@ -669,13 +1017,13 @@ export default function MeetScreen() {
                 <WebRTC.RTCView streamURL={p.stream.toURL()} style={st.video} objectFit="cover" />
               )}
               <View style={st.nameTag}>
-                <Text style={st.nameText}>{p.userId.slice(0, 8)}</Text>
+                <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
               </View>
             </View>
           ))}
 
           {hasLocalVideo && (
-            <View style={st.localVideoBox}>
+            <View style={[st.localVideoBox, speakingStates.local && st.speakingBox]}>
               {Platform.OS === 'web' ? (
                 <video
                   key={`local-${localStream.id}`}
@@ -701,8 +1049,16 @@ export default function MeetScreen() {
         </View>
       )}
 
+      <View style={st.topBar}>
+        <View style={st.callStatusPill}>
+          <View style={st.callStatusDot} />
+          <Text style={st.callStatusText}>{callType === 'video' ? 'Videollamada' : 'Llamada de audio'}</Text>
+        </View>
+      </View>
+
       <View style={st.infoBar}>
-        <Text style={st.participantCount}>👥 {totalParticipants}</Text>
+        <Users color="#a78bfa" size={14} strokeWidth={2.3} />
+        <Text style={st.participantCount}>{totalParticipants}</Text>
       </View>
 
       <View style={st.controls}>
@@ -711,8 +1067,8 @@ export default function MeetScreen() {
             <MicIcon muted={isMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[st.controlBtn, isVideoOff && st.controlBtnDanger]} onPress={toggleVideo} disabled={!hasVideo}>
-            <VideoIcon disabled={isVideoOff} />
+          <TouchableOpacity style={[st.controlBtn, (isVideoOff || !hasVideo) && st.controlBtnDanger]} onPress={toggleVideo}>
+            <VideoIcon disabled={isVideoOff || !hasVideo} />
           </TouchableOpacity>
 
           {Platform.OS === 'web' && !isMobileWeb && (
@@ -733,36 +1089,129 @@ export default function MeetScreen() {
 // ─── Estilos ──────────────────────────────────────────────
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f172a' },
+  bgOrbTop: {
+    position: 'absolute',
+    top: -120,
+    right: -80,
+    width: 260,
+    height: 260,
+    borderRadius: 999,
+    backgroundColor: 'rgba(37,99,235,0.18)'
+  },
+  bgOrbBottom: {
+    position: 'absolute',
+    bottom: 120,
+    left: -120,
+    width: 280,
+    height: 280,
+    borderRadius: 999,
+    backgroundColor: 'rgba(168,85,247,0.10)'
+  },
 
   gridContainer: {
     flex: 1, flexDirection: 'row', flexWrap: 'wrap',
-    padding: 20, justifyContent: 'center', alignContent: 'center', gap: 20
+    padding: 24, justifyContent: 'center', alignContent: 'center', gap: 20
   },
   avatarBox: {
     width: SCREEN_WIDTH > 768 ? 200 : (SCREEN_WIDTH - 60) / 2,
     height: SCREEN_WIDTH > 768 ? 200 : (SCREEN_WIDTH - 60) / 2,
     borderRadius: 16, justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 5
   },
   avatarText: { fontSize: SCREEN_WIDTH > 768 ? 72 : 48, fontWeight: 'bold', color: '#fff' },
-  avatarName: { marginTop: 8, fontSize: 14, color: '#fff', fontWeight: '600' },
+  avatarName: { marginTop: 10, fontSize: 14, color: '#fff', fontWeight: '700' },
 
+  presenterLayout: { flex: 1, backgroundColor: '#000' },
+  presenterStage: {
+    flex: 1,
+    marginHorizontal: 14,
+    marginTop: 16,
+    marginBottom: 10,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#020617',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.05)',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 22,
+    elevation: 10
+  },
+  presenterPicker: { position: 'absolute', top: 16, left: 14, right: 14, zIndex: 15, maxHeight: 44 },
+  presenterPickerContent: { gap: 8, paddingRight: 12 },
+  presenterChip: {
+    backgroundColor: 'rgba(15,23,42,0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999
+  },
+  presenterChipActive: { backgroundColor: '#2563eb', borderColor: '#60a5fa' },
+  presenterChipText: { color: '#e2e8f0', fontSize: 12, fontWeight: '700' },
+  presenterChipTextActive: { color: '#fff' },
+  thumbnailStrip: { position: 'absolute', left: 0, right: 0, bottom: 118, maxHeight: 118 },
+  thumbnailStripContent: { paddingHorizontal: 14, gap: 10 },
+  thumbnailCard: {
+    width: 144,
+    height: 96,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#111827',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.08)'
+  },
+  thumbnailVideo: { width: '100%', height: '100%', objectFit: 'cover' as any },
   videoGrid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#000' },
-  videoBox: { width: '100%', height: '100%', position: 'relative', backgroundColor: '#000' },
+  videoBox: { width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', borderWidth: 2, borderColor: 'rgba(255,255,255,0.04)' },
   video: { width: '100%', height: '100%', objectFit: 'contain' as any },
 
   localVideoBox: {
-    position: 'absolute', bottom: 110, right: 20,
+    position: 'absolute', bottom: 118, right: 20,
     width: 100, height: 150, borderRadius: 12,
-    overflow: 'hidden', borderWidth: 2, borderColor: 'white', zIndex: 20
+    overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.9)', zIndex: 20,
+    backgroundColor: '#0f172a',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8
   },
   localVideo: { width: '100%', height: '100%', objectFit: 'cover' as any },
+  speakingBox: { borderColor: '#22c55e', shadowColor: '#22c55e', shadowOpacity: 0.55, shadowRadius: 16, elevation: 8 },
+  shareBadge: {
+    position: 'absolute',
+    top: 18,
+    left: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(37,99,235,0.92)',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  shareBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  shareBadgeSmall: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: 'rgba(37,99,235,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
 
   nameTag: {
     position: 'absolute', bottom: 10, left: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 12,
-    paddingVertical: 6, borderRadius: 8
+    backgroundColor: 'rgba(2,6,23,0.72)', paddingHorizontal: 12,
+    paddingVertical: 6, borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)'
   },
   nameText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
@@ -772,18 +1221,57 @@ const st = StyleSheet.create({
   },
   statusText: { color: '#fff', marginTop: 10, fontSize: 16 },
 
+  topBar: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    zIndex: 10
+  },
+  callStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(15,23,42,0.78)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)'
+  },
+  callStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#22c55e'
+  },
+  callStatusText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   infoBar: {
     position: 'absolute', top: 20, right: 20,
-    backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 12,
-    paddingVertical: 8, borderRadius: 20, zIndex: 10
+    backgroundColor: 'rgba(15,23,42,0.78)', paddingHorizontal: 12,
+    paddingVertical: 8, borderRadius: 20, zIndex: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)'
   },
   participantCount: { color: '#fff', fontSize: 14, fontWeight: '600' },
 
-  controls: { position: 'absolute', bottom: 40, width: '100%', paddingHorizontal: 20, zIndex: 10 },
-  controlsRow: { flexDirection: 'row', justifyContent: 'center', gap: 15, alignItems: 'center' },
+  controls: { position: 'absolute', bottom: 32, width: '100%', paddingHorizontal: 20, zIndex: 10 },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 15,
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(15,23,42,0.72)',
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)'
+  },
   controlBtn: {
     width: 56, height: 56, borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center'
+    backgroundColor: 'rgba(255,255,255,0.14)', justifyContent: 'center', alignItems: 'center'
   },
   controlBtnDanger: { backgroundColor: '#ef4444' },
   controlBtnActive: { backgroundColor: '#10b981' },

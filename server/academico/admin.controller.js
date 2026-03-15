@@ -961,6 +961,112 @@ export const updateMatriculaAsignaturas = async (req, res) => {
     }
 };
 
+export const actualizarClaseCompleta = async (req, res) => {
+    const client = await gobDb.connect();
+    try {
+        const { id } = req.params;
+        const { clase, ofertas_seleccionadas, asignaciones, matriculas } = req.body;
+        const adminId = req.currentUser.id_usuario_app;
+
+        if (!clase || !clase.nombre || !clase.id_plan || !clase.id_centro || !clase.id_curso_escolar || !clase.curso || !clase.grupo) {
+            return res.status(400).json({ ok: false, msg: "Datos de la clase incompletos" });
+        }
+
+        await client.query('BEGIN');
+
+        const ofertasSeleccionadas = Array.isArray(ofertas_seleccionadas) ? ofertas_seleccionadas : [];
+        const asignacionesValidas = Array.isArray(asignaciones)
+            ? asignaciones.filter(a => a?.id_oferta && ofertasSeleccionadas.includes(a.id_oferta) && a.id_profesor_externo)
+            : [];
+        const matriculasRecibidas = Array.isArray(matriculas) ? matriculas.filter(m => m?.id_alumno_externo) : [];
+
+        const { rows: [claseActualizada] } = await client.query(
+            `UPDATE academico.clases
+             SET nombre = $1, id_plan = $2, id_centro = $3, id_curso_escolar = $4, curso = $5, grupo = $6, updated_at = NOW()
+             WHERE id_clase = $7
+             RETURNING *`,
+            [clase.nombre.trim(), clase.id_plan, clase.id_centro, clase.id_curso_escolar, parseInt(clase.curso), clase.grupo.trim().toUpperCase(), id]
+        );
+        if (!claseActualizada) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ ok: false, msg: "Clase no encontrada" });
+        }
+
+        await client.query(`DELETE FROM academico.asignaciones_profesor WHERE id_clase = $1`, [id]);
+        let totalAsignaciones = 0;
+        for (const asig of asignacionesValidas) {
+            await client.query(
+                `INSERT INTO academico.asignaciones_profesor (id_profesor_externo, id_clase, id_oferta) VALUES ($1, $2, $3)`,
+                [asig.id_profesor_externo, id, asig.id_oferta]
+            );
+            totalAsignaciones++;
+        }
+
+        const { rows: matriculasExistentes } = await client.query(
+            `SELECT id_matricula, id_alumno_externo FROM academico.matriculas WHERE id_clase = $1`,
+            [id]
+        );
+        const existentesPorAlumno = new Map(matriculasExistentes.map(m => [m.id_alumno_externo, m.id_matricula]));
+        const alumnosRecibidos = new Set(matriculasRecibidas.map(m => m.id_alumno_externo));
+
+        for (const matExistente of matriculasExistentes) {
+            if (!alumnosRecibidos.has(matExistente.id_alumno_externo)) {
+                await client.query(`DELETE FROM academico.matriculas_asignaturas WHERE id_matricula = $1`, [matExistente.id_matricula]);
+                await client.query(`DELETE FROM academico.matriculas WHERE id_matricula = $1`, [matExistente.id_matricula]);
+            }
+        }
+
+        let totalMatriculas = 0;
+        let totalMatriculasAsig = 0;
+        for (const mat of matriculasRecibidas) {
+            let idMatricula = existentesPorAlumno.get(mat.id_alumno_externo);
+            if (!idMatricula) {
+                const { rows: [nuevaMat] } = await client.query(
+                    `INSERT INTO academico.matriculas (id_alumno_externo, id_clase) VALUES ($1, $2) RETURNING id_matricula`,
+                    [mat.id_alumno_externo, id]
+                );
+                idMatricula = nuevaMat.id_matricula;
+                totalMatriculas++;
+            }
+
+            const ofertasAlumno = Array.isArray(mat.ofertas_alumno)
+                ? mat.ofertas_alumno.filter(idOferta => ofertasSeleccionadas.includes(idOferta))
+                : ofertasSeleccionadas;
+
+            await client.query(`DELETE FROM academico.matriculas_asignaturas WHERE id_matricula = $1`, [idMatricula]);
+            for (const id_oferta of ofertasAlumno) {
+                await client.query(
+                    `INSERT INTO academico.matriculas_asignaturas (id_matricula, id_oferta) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+                    [idMatricula, id_oferta]
+                );
+                totalMatriculasAsig++;
+            }
+        }
+
+        await client.query('COMMIT');
+
+        await logAdminAction(adminId, 'WIZARD_ACTUALIZAR_CLASE', 'clase', id, {
+            nombre: claseActualizada.nombre,
+            totalAsignaciones,
+            nuevasMatriculas: totalMatriculas,
+            asignaturas_alumno: totalMatriculasAsig
+        }, req.ip);
+
+        return res.json({
+            ok: true,
+            msg: `Clase actualizada: ${totalAsignaciones} asignaciones y ${totalMatriculasAsig} inscripciones revisadas`,
+            clase: claseActualizada,
+            resumen: { totalAsignaciones, totalMatriculas, totalMatriculasAsig }
+        });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("[Wizard Actualizar Clase Error]:", error);
+        return res.status(500).json({ ok: false, msg: error.message || "Error al actualizar clase completa" });
+    } finally {
+        client.release();
+    }
+};
+
 export const getAuditLog = async (req, res) => {
     try {
         const { page = 1, limit = 50 } = req.query;

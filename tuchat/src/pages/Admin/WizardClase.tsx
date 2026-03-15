@@ -205,7 +205,7 @@ interface Oferta { id_oferta: string; curso: number; obligatoria: boolean; id_as
 interface Profesor { id_usuario_externo: string; nombre: string; apellidos: string; dni: string; nombre_centro?: string; }
 interface Alumno { id_usuario_externo: string; nombre: string; apellidos: string; dni: string; nombre_centro?: string; }
 interface Asignacion { id_oferta: string; id_profesor_externo: string; }
-interface MatriculaWiz { id_alumno_externo: string; nombre: string; apellidos: string; dni: string; ofertas_alumno: string[]; }
+interface MatriculaWiz { id_alumno_externo: string; nombre: string; apellidos: string; dni: string; ofertas_alumno: string[]; id_matricula?: string; }
 
 // ─── MAIN WIZARD ─────────────────────────────────────────────
 export default function WizardClase({ onClose, editClaseId }: { onClose: () => void; editClaseId?: string }) {
@@ -267,7 +267,7 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
             if (profs.ok) setProfesores(profs.profesores);
             const alums = await api(`/admin/wizard/alumnos?id_centro=${d.clase.id_centro}`);
             if (alums.ok) setAlumnosDisp(alums.alumnos);
-            setStep(4); // Go to edit/review step
+            setStep(0);
           }
         } catch (e) { }
       }
@@ -351,6 +351,27 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
     } finally { setSaving(false); }
   };
 
+  const guardarCambios = async () => {
+    if (!editClaseId) return;
+    setSaving(true);
+    try {
+      const data = {
+        clase,
+        ofertas_seleccionadas: ofertasSel,
+        asignaciones: asignaciones.filter(a => ofertasSel.includes(a.id_oferta)),
+        matriculas: matriculas.map(m => ({ id_alumno_externo: m.id_alumno_externo, ofertas_alumno: m.ofertas_alumno }))
+      };
+      const d = await api(`/admin/wizard/clase/${editClaseId}`, { method: 'PUT', data });
+      if (d.ok) {
+        Alert.alert('Clase actualizada', d.msg, [{ text: 'OK', onPress: onClose }]);
+      } else {
+        Alert.alert('Error', d.msg);
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.msg || 'Error al guardar cambios');
+    } finally { setSaving(false); }
+  };
+
   // ─── SAVE INDIVIDUAL ALUMNO (edit mode) ────────────────────
   const guardarAlumno = async (mat: any) => {
     if (!mat.id_matricula) return Alert.alert('Info', 'Solo disponible para matrículas ya creadas');
@@ -398,11 +419,11 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
         <TouchableOpacity onPress={nextStep} disabled={!canNext()} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: canNext() ? '#2563EB' : '#CBD5E1', gap: 6 }}>
           <Text style={{ fontWeight: '600', color: '#FFF' }}>Siguiente</Text>{IC.arrow_r()}
         </TouchableOpacity>
-      ) : !editClaseId ? (
-        <TouchableOpacity onPress={guardar} disabled={saving} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: '#16A34A', gap: 6 }}>
-          {saving ? <ActivityIndicator color="#FFF" /> : <>{IC.save()}<Text style={{ fontWeight: '600', color: '#FFF' }}>Crear Clase Completa</Text></>}
+      ) : (
+        <TouchableOpacity onPress={editClaseId ? guardarCambios : guardar} disabled={saving} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: '#16A34A', gap: 6 }}>
+          {saving ? <ActivityIndicator color="#FFF" /> : <>{IC.save()}<Text style={{ fontWeight: '600', color: '#FFF' }}>{editClaseId ? 'Guardar cambios' : 'Crear Clase Completa'}</Text></>}
         </TouchableOpacity>
-      ) : null}
+      )}
     </View>
   );
 
