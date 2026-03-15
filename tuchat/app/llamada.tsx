@@ -831,6 +831,15 @@ export default function MeetScreen() {
     localStream.getVideoTracks().length > 0 &&
     !isVideoOff;
 
+  const localCameraPreviewStream = !isScreenSharing
+    ? localStream
+    : (localStreamRef.current &&
+      localStreamRef.current.getVideoTracks &&
+      localStreamRef.current.getVideoTracks().length > 0 &&
+      !isVideoOff
+        ? localStreamRef.current
+        : null);
+
   const hasRemoteVideo = remoteParticipants.some(p =>
     p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0
   );
@@ -864,6 +873,7 @@ export default function MeetScreen() {
 
   const remoteVideoThumbnails = remoteParticipants
     .filter(p => p.stream && p.stream.getVideoTracks && p.stream.getVideoTracks().length > 0 && `remote:${p.socketId}` !== mainPresenter?.key);
+  const selectablePresenters = screenSharePresenters.filter(p => p.key !== mainPresenter?.key);
   const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
 
   useEffect(() => {
@@ -935,9 +945,9 @@ export default function MeetScreen() {
             </View>
           </View>
 
-          {screenSharePresenters.length > 1 && (
+          {selectablePresenters.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.presenterPicker} contentContainerStyle={st.presenterPickerContent}>
-              {screenSharePresenters.map(p => (
+              {selectablePresenters.map(p => (
                 <TouchableOpacity key={p.key} onPress={() => setSelectedMainStream(p.key)} style={[st.presenterChip, selectedMainStream === p.key && st.presenterChipActive]}>
                   <Text style={[st.presenterChipText, selectedMainStream === p.key && st.presenterChipTextActive]}>
                     {getDisplayName(p.userId, p.isLocal)}
@@ -950,7 +960,18 @@ export default function MeetScreen() {
           {remoteVideoThumbnails.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={st.thumbnailStrip} contentContainerStyle={st.thumbnailStripContent}>
               {remoteVideoThumbnails.map((p) => (
-                <View key={p.socketId} style={[st.thumbnailCard, speakingStates[`remote:${p.socketId}`] && st.speakingBox]}>
+                <TouchableOpacity
+                  key={p.socketId}
+                  activeOpacity={0.92}
+                  onPress={() => {
+                    if (screenSharers.has(p.socketId)) setSelectedMainStream(`remote:${p.socketId}`);
+                  }}
+                  style={[
+                    st.thumbnailCard,
+                    screenSharers.has(p.socketId) && st.thumbnailCardSelectable,
+                    speakingStates[`remote:${p.socketId}`] && st.speakingBox
+                  ]}
+                >
                   {Platform.OS === 'web' ? (
                     <>
                       <video
@@ -979,9 +1000,29 @@ export default function MeetScreen() {
                   <View style={st.nameTag}>
                     <Text style={st.nameText}>{getDisplayName(p.userId)}</Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </ScrollView>
+          )}
+
+          {isScreenSharing && localCameraPreviewStream && (
+            <View style={[st.localVideoBox, speakingStates.local && st.speakingBox]}>
+              {Platform.OS === 'web' ? (
+                <video
+                  key={`local-camera-preview-${localCameraPreviewStream.id}`}
+                  autoPlay
+                  playsInline
+                  muted
+                  ref={el => { if (el) el.srcObject = localCameraPreviewStream; }}
+                  style={st.localVideo}
+                />
+              ) : (
+                <WebRTC.RTCView streamURL={localCameraPreviewStream.toURL()} style={st.localVideo} objectFit="cover" />
+              )}
+              <View style={st.nameTag}>
+                <Text style={st.nameText}>Tú</Text>
+              </View>
+            </View>
           )}
         </View>
       ) : (
@@ -1063,11 +1104,11 @@ export default function MeetScreen() {
 
       <View style={st.controls}>
         <View style={st.controlsRow}>
-          <TouchableOpacity style={[st.controlBtn, isMuted && st.controlBtnDanger]} onPress={toggleMute} disabled={!hasAudio}>
+          <TouchableOpacity style={[st.controlBtn, hasAudio && !isMuted && st.controlBtnEnabled, isMuted && st.controlBtnDanger]} onPress={toggleMute} disabled={!hasAudio}>
             <MicIcon muted={isMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[st.controlBtn, (isVideoOff || !hasVideo) && st.controlBtnDanger]} onPress={toggleVideo}>
+          <TouchableOpacity style={[st.controlBtn, hasVideo && !isVideoOff && st.controlBtnEnabled, (isVideoOff || !hasVideo) && st.controlBtnDanger]} onPress={toggleVideo}>
             <VideoIcon disabled={isVideoOff || !hasVideo} />
           </TouchableOpacity>
 
@@ -1140,7 +1181,7 @@ const st = StyleSheet.create({
     shadowRadius: 22,
     elevation: 10
   },
-  presenterPicker: { position: 'absolute', top: 16, left: 14, right: 14, zIndex: 15, maxHeight: 44 },
+  presenterPicker: { position: 'absolute', top: 18, left: 14, right: 150, zIndex: 15, maxHeight: 44 },
   presenterPickerContent: { gap: 8, paddingRight: 12 },
   presenterChip: {
     backgroundColor: 'rgba(15,23,42,0.88)',
@@ -1164,6 +1205,7 @@ const st = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.08)'
   },
+  thumbnailCardSelectable: { borderColor: 'rgba(96,165,250,0.78)' },
   thumbnailVideo: { width: '100%', height: '100%', objectFit: 'cover' as any },
   videoGrid: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', backgroundColor: '#000' },
   videoBox: { width: '100%', height: '100%', position: 'relative', backgroundColor: '#000', borderWidth: 2, borderColor: 'rgba(255,255,255,0.04)' },
@@ -1183,7 +1225,7 @@ const st = StyleSheet.create({
   speakingBox: { borderColor: '#22c55e', shadowColor: '#22c55e', shadowOpacity: 0.55, shadowRadius: 16, elevation: 8 },
   shareBadge: {
     position: 'absolute',
-    top: 18,
+    top: 72,
     left: 18,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1272,6 +1314,11 @@ const st = StyleSheet.create({
   controlBtn: {
     width: 56, height: 56, borderRadius: 28,
     backgroundColor: 'rgba(255,255,255,0.14)', justifyContent: 'center', alignItems: 'center'
+  },
+  controlBtnEnabled: {
+    backgroundColor: '#2563eb',
+    borderWidth: 1,
+    borderColor: '#60a5fa'
   },
   controlBtnDanger: { backgroundColor: '#ef4444' },
   controlBtnActive: { backgroundColor: '#10b981' },
