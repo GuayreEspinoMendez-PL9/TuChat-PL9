@@ -33,6 +33,7 @@ import {
 import { useSocket } from '../../context/SocketContext';
 import { ChatInfoScreen } from './ChatInfoScreen';
 import { ReactionPicker } from './ReactionPicker';
+import { MentionDropdown, MentionCandidate } from './MentionDropdown';
 import axios from 'axios';
 import * as Clipboard from 'expo-clipboard';
 import { ChevronDown, Copy, Smile, CornerUpLeft, X, FileText, Pin, Download, CalendarDays, ListChecks, AtSign } from 'lucide-react-native';
@@ -353,6 +354,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [replyingTo, setReplyingTo] = useState<any>(null); // New state for reply
   const [inputEmojis, setInputEmojis] = useState<string[]>(DEFAULT_INPUT_EMOJIS);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
 
   const handleCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
@@ -561,13 +564,22 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     const handleNewMessage = (msg: any) => {
       if (msg.roomId === id) {
         setMessages(prev => {
-          if (prev.find(m => m.msg_id === msg.msg_id)) return prev;
+          const existing = prev.find(m => m.msg_id === msg.msg_id);
+          // Si el mensaje ya existe (enviado por nosotros optimisticamente), actualizar su estado a 'sent'
+          if (existing) {
+            if (existing.status === 'sending') {
+              return prev.map(m =>
+                m.msg_id === msg.msg_id ? { ...m, status: 'sent' } : m
+              );
+            }
+            return prev;
+          }
           const newMessages = [...prev, msg];
           setTimeout(() => {
             if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
             refreshUnreadCounts();
             if (msg.senderId !== myUserId) {
-              socket.emit("chat:read_receipt", { msg_id: msg.msg_id, roomId: id });
+              socket.emit("chat:read_receipt", { msg_id: msg.msg_id, roomId: id, userId: myUserId });
             }
           }, 100);
           return newMessages;
@@ -576,9 +588,23 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }
     };
 
+    // Evento explícito del servidor confirmando que recibió el mensaje
+    const handleMsgSent = ({ msg_id }: { msg_id: string }) => {
+      setMessages(prev => prev.map(m =>
+        m.msg_id === msg_id ? { ...m, status: 'sent' } : m
+      ));
+    };
+
+    // Evento del servidor confirmando que el mensaje fue entregado a todos (2 ticks grises)
+    const handleDelivered = ({ msg_id }: { msg_id: string }) => {
+      setMessages(prev => prev.map(m =>
+        m.msg_id === msg_id ? { ...m, status: 'delivered', delivered: true } : m
+      ));
+    };
+
     const handleReadReceipt = ({ msg_id }: { msg_id: string }) => {
       setMessages(prev => prev.map(m =>
-        m.msg_id === msg_id ? { ...m, read: true } : m
+        m.msg_id === msg_id ? { ...m, read: true, readByRecipient: true } : m
       ));
     };
 
@@ -694,6 +720,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
 
     socket.on("chat:receive", handleNewMessage);
+    socket.on("chat:msg_sent", handleMsgSent);
+    socket.on("chat:update_delivered_status", handleDelivered);
     socket.on("chat:update_read_status", handleReadReceipt);
     socket.on("chat:reaction", handleIncomingReaction);
     socket.on("chat:receive_pin", handleIncomingPin);
@@ -710,6 +738,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     return () => {
       socket.off("chat:receive", handleNewMessage);
+      socket.off("chat:msg_sent", handleMsgSent);
+      socket.off("chat:update_delivered_status", handleDelivered);
       socket.off("chat:update_read_status", handleReadReceipt);
       socket.off("chat:reaction", handleIncomingReaction);
       socket.off("chat:receive_pin", handleIncomingPin);
@@ -779,6 +809,66 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setInput(next);
     saveDraftLocal(id, next);
     setShowInputEmojiPicker(false);
+    inputRef.current?.focus();
+  };
+
+  // --- Mention autocomplete logic ---
+  const normalizeMention = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+  const detectMentionQuery = (text: string): string | null => {
+    // Find the last '@' that is either at position 0 or preceded by a space
+    const lastAt = text.lastIndexOf('@');
+    if (lastAt < 0) return null;
+    if (lastAt > 0 && text[lastAt - 1] !== ' ' && text[lastAt - 1] !== '\n') return null;
+    const afterAt = text.substring(lastAt + 1);
+    // If there's a space after the query started, the mention is "closed"
+    if (afterAt.includes(' ')) return null;
+    return afterAt;
+  };
+
+  const updateMentionCandidates = (text: string) => {
+    const query = detectMentionQuery(text);
+    setMentionQuery(query);
+    if (query === null) {
+      setMentionCandidates([]);
+      return;
+    }
+    const normalizedQuery = normalizeMention(query);
+    const specialOptions: MentionCandidate[] = [
+      { id: '__todos__', nombre: 'todos' },
+      { id: '__delegados__', nombre: 'delegados' },
+      { id: '__profesor__', nombre: 'profesor' },
+    ];
+    const allCandidates = [
+      ...specialOptions,
+      ...memberDetails
+        .filter((m: any) => m.id !== myUserId)
+        .map((m: any) => ({ id: String(m.id), nombre: m.nombre || 'Usuario', es_profesor: m.es_profesor })),
+    ];
+    if (normalizedQuery === '') {
+      setMentionCandidates(allCandidates.slice(0, 6));
+    } else {
+      const filtered = allCandidates.filter((c) =>
+        normalizeMention(c.nombre).includes(normalizedQuery)
+      );
+      setMentionCandidates(filtered.slice(0, 6));
+    }
+  };
+
+  const handleMentionSelect = (member: MentionCandidate) => {
+    const query = mentionQuery ?? '';
+    const lastAt = input.lastIndexOf('@');
+    if (lastAt < 0) return;
+    const before = input.substring(0, lastAt);
+    const mentionText = member.nombre.includes(' ')
+      ? member.nombre.split(' ')[0]
+      : member.nombre;
+    const next = `${before}@${mentionText} `;
+    setInput(next);
+    saveDraftLocal(id, next);
+    setMentionQuery(null);
+    setMentionCandidates([]);
     inputRef.current?.focus();
   };
 
@@ -960,6 +1050,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       esProfesor: esProfesor,
       status: 'sending',
       read: true,
+      readByRecipient: false,
       isMe: true,
       replyTo: replyingTo ? {
         id: replyingTo.msg_id,
@@ -972,6 +1063,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setMessages(prev => [...prev, msg]);
     setInput("");
     saveDraftLocal(id, "");
+    setMentionQuery(null);
+    setMentionCandidates([]);
     socket.emit("chat:stop_typing", { roomId: id });
     setReplyingTo(null); // Clear reply state
     setTeacherMessageType(null);
@@ -985,11 +1078,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     socket.emit(mediaUri ? "chat:send_media" : "chat:send", msg, (ack: any) => {
       // Actualizar estado cuando el servidor confirma
       setMessages(prev => prev.map(m =>
-        m.msg_id === msgId ? { ...m, status: 'sent', delivered: true } : m
+        m.msg_id === msgId ? { ...m, status: 'sent' } : m
       ));
     });
 
-    if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', delivered: true, isMe: true, read: true });
+    if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', isMe: true, read: true, readByRecipient: false });
     setSending(false);
     setTimeout(() => scrollToBottom(true), 100);
   };
@@ -1075,6 +1168,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const getMessageStatus = (msg: any): 'sending' | 'sent' | 'delivered' | 'read' => {
     if (msg.status === 'sending') return 'sending';
+    // Para mensajes propios, usar readByRecipient para el doble tick azul
+    if (msg.isMe) {
+      if (msg.readByRecipient) return 'read';
+      if (msg.delivered || msg.status === 'delivered') return 'delivered';
+      if (msg.status === 'sent') return 'sent';
+      return 'sent';
+    }
+    // Para mensajes de otros
     if (msg.read) return 'read';
     if (msg.delivered) return 'delivered';
     return 'sent';
@@ -2116,6 +2217,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           </View>
         )}
 
+        {mentionCandidates.length > 0 && (
+          <MentionDropdown
+            candidates={mentionCandidates}
+            onSelect={handleMentionSelect}
+            colors={colors}
+          />
+        )}
+
         <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
           <TouchableOpacity onPress={() => setShowComposerMeta(prev => !prev)} style={styles.attachButton}>
             <FileText size={18} color={colors.textSecondary} />
@@ -2137,6 +2246,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               setInput(text);
               saveDraftLocal(id, text);
               emitTyping(text);
+              updateMentionCandidates(text);
             }}
             onFocus={() => setShowInputEmojiPicker(false)}
             onBlur={() => socket?.emit("chat:stop_typing", { roomId: id })}
@@ -2144,9 +2254,15 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             placeholderTextColor={colors.placeholder}
             multiline
             onKeyPress={(e: any) => {
+              if (Platform.OS === 'web' && e.nativeEvent.key === 'Escape') {
+                setMentionCandidates([]);
+                setMentionQuery(null);
+              }
               if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 setShowInputEmojiPicker(false);
+                setMentionCandidates([]);
+                setMentionQuery(null);
                 sendMessage();
               }
             }}

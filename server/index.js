@@ -192,6 +192,10 @@ async function cargarAjustesSala(roomId) {
 // Valor: { participants: Map(userId -> socketId), callId: uuid, type: 'audio'|'video' }
 const meetRooms = new Map();
 
+// ─── Tracking de lectura por mensaje (para ticks de grupo) ───────────────────
+// Clave: msg_id → { senderId, roomId, recipients: number, readers: Set<userId> }
+const messageReadTracking = new Map();
+
 io.on("connection", async (socket) => {
   const userId = socket.handshake.query.userId;
   let connectedRooms = [];
@@ -313,7 +317,7 @@ io.on("connection", async (socket) => {
     io.to(`user:${userId}`).emit("presence:update", presence);
   });
 
-  socket.on("chat:send", async (payload) => {
+  socket.on("chat:send", async (payload, ackFn) => {
     const { roomId, senderId, recipients, esProfesor, contenido, nombreEmisor, imageUri } = payload;
 
     if (!ajustesSalas[roomId]) {
@@ -337,12 +341,41 @@ io.on("connection", async (socket) => {
     // A. Envío a la sala (Para los que están dentro del chat abierto)
     io.to(roomId).emit("chat:receive", message);
 
+    // Confirmar al emisor que el servidor recibió el mensaje (tick simple)
+    if (typeof ackFn === 'function') {
+      ackFn({ ok: true, msg_id: message.msg_id || payload.msg_id });
+    }
+    // También emitir evento explícito para que el emisor actualice el estado
+    socket.emit("chat:msg_sent", { msg_id: message.msg_id || payload.msg_id });
+
     // B. Envío Global y Redis (Para los que están fuera o offline)
     if (recipients && Array.isArray(recipients)) {
+      const otherRecipients = recipients.filter(uId => uId !== senderId);
+
+      // Inicializar tracking de lectura para este mensaje (solo si hay más de 1 destinatario = grupo)
+      const msgId = message.msg_id || payload.msg_id;
+      if (msgId && otherRecipients.length > 0) {
+        messageReadTracking.set(msgId, {
+          senderId,
+          roomId,
+          totalRecipients: otherRecipients.length,
+          readers: new Set(),
+        });
+        // Limpiar tracking antiguo (>24h) para evitar memory leak
+        const now = Date.now();
+        if (!messageReadTracking._lastCleanup || now - messageReadTracking._lastCleanup > 3600000) {
+          messageReadTracking._lastCleanup = now;
+          for (const [key, val] of messageReadTracking) {
+            if (key === '_lastCleanup') continue;
+            if (val.createdAt && now - val.createdAt > 86400000) messageReadTracking.delete(key);
+          }
+        }
+        messageReadTracking.get(msgId).createdAt = now;
+      }
+
       try {
         const redis = getRedis();
-        for (const uId of recipients) {
-          if (uId !== senderId) {
+        for (const uId of otherRecipients) {
             // 1. Entrega inmediata a su canal personal (Home)
             io.to(`user:${uId}`).emit("chat:receive", message);
 
@@ -362,7 +395,11 @@ io.on("connection", async (socket) => {
               ? `${nombreEmisor || 'Usuario'} te mencionó: ${contenido || 'Nuevo mensaje'}`
               : `${nombreEmisor || 'Usuario'}: ${contenido || 'Nuevo mensaje'}`;
             enviarNotificacionPush(uId, textoNotif, roomId);
-          }
+        }
+
+        // Después de distribuir a todos, notificar al emisor que el mensaje fue entregado (2 ticks grises)
+        if (otherRecipients.length > 0) {
+          socket.emit("chat:update_delivered_status", { msg_id: msgId });
         }
       } catch (e) {
         console.error("❌ Error en distribución:", e);
@@ -397,7 +434,7 @@ io.on("connection", async (socket) => {
     io.to(roomId).emit("chat:settings_changed", { soloProfesores, delegados });
   });
 
-  socket.on("chat:send_media", async (payload) => {
+  socket.on("chat:send_media", async (payload, ackFn) => {
     // 1. Extraemos los datos (payload trae el campo 'image' con el base64)
     const { roomId, senderId, recipients, image, nombreEmisor } = payload;
 
@@ -411,10 +448,30 @@ io.on("connection", async (socket) => {
     // Esto hace que el Usuario 2 reciba el objeto con el campo 'image'
     io.to(roomId).emit("chat:receive", message);
 
+    // Confirmar al emisor que el servidor recibió el mensaje (tick simple)
+    if (typeof ackFn === 'function') {
+      ackFn({ ok: true, msg_id: message.msg_id || payload.msg_id });
+    }
+    // También emitir evento explícito para que el emisor actualice el estado
+    socket.emit("chat:msg_sent", { msg_id: message.msg_id || payload.msg_id });
+
     // 3. Notificaciones (Para que no se bugee)
     if (recipients) {
-      recipients.forEach(uId => {
-        if (uId !== senderId) {
+      const otherRecipients = recipients.filter(uId => uId !== senderId);
+
+      // Inicializar tracking de lectura para media
+      const msgId = message.msg_id || payload.msg_id;
+      if (msgId && otherRecipients.length > 0) {
+        messageReadTracking.set(msgId, {
+          senderId,
+          roomId,
+          totalRecipients: otherRecipients.length,
+          readers: new Set(),
+          createdAt: Date.now(),
+        });
+      }
+
+      otherRecipients.forEach(uId => {
           io.to(`user:${uId}`).emit("chat:receive", message);
           const mentionTargets = payload.mentions?.targetUserIds || [];
           const mentionLabels = payload.mentions?.tokens || [];
@@ -423,8 +480,12 @@ io.on("connection", async (socket) => {
             ? `${nombreEmisor}: te mencionó en un adjunto`
             : `${nombreEmisor}: 📷 Envió un adjunto`;
           enviarNotificacionPush(uId, notifText, roomId);
-        }
       });
+
+      // Notificar al emisor que el mensaje fue entregado (2 ticks grises)
+      if (otherRecipients.length > 0) {
+        socket.emit("chat:update_delivered_status", { msg_id: msgId });
+      }
     }
   });
 
@@ -458,8 +519,27 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("chat:read_receipt", ({ msg_id, roomId }) => {
-    // Reenviar a la sala para que el emisor vea el doble tick azul
-    io.to(roomId).emit("chat:update_read_status", { msg_id });
+    const tracking = messageReadTracking.get(msg_id);
+
+    if (!tracking) {
+      // No hay tracking (chat privado 1-a-1, o mensaje antiguo sin tracking)
+      // Comportamiento original: marcar como leído directamente
+      io.to(roomId).emit("chat:update_read_status", { msg_id });
+      return;
+    }
+
+    // Añadir este usuario al Set de lectores
+    if (userId && userId !== tracking.senderId) {
+      tracking.readers.add(userId);
+    }
+
+    // Comprobar si TODOS los destinatarios han leído
+    if (tracking.readers.size >= tracking.totalRecipients) {
+      // Todos han leído → emitir tick azul al emisor
+      io.to(roomId).emit("chat:update_read_status", { msg_id });
+      // Limpiar tracking de este mensaje (ya no se necesita)
+      messageReadTracking.delete(msg_id);
+    }
   });
 
   socket.on("chat:strong_read", ({ msg_id, roomId, userId: readerId, userName }) => {
