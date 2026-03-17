@@ -20,6 +20,13 @@ import { getRedis } from "./redis.js";
 import { enviarNotificacionPush } from "./services/push.service.js";
 import { setUserPresence } from "./services/collab.store.js";
 import { createPinDb, initCollabTables, removePinDb } from "./services/collab.persistence.js";
+import {
+  createMessageStatusDb,
+  getMessageStatusDb,
+  initMessageStatusTable,
+  markMessageDeliveredDb,
+  markMessageReadDb,
+} from "./services/messageStatus.persistence.js";
 
 dotenv.config();
 const app = express();
@@ -196,6 +203,21 @@ const meetRooms = new Map();
 // Clave: msg_id → { senderId, roomId, recipients: number, readers: Set<userId> }
 const messageReadTracking = new Map();
 
+const syncTrackingFromStatus = async (msgId) => {
+  const persisted = await getMessageStatusDb(msgId);
+  if (!persisted) return null;
+  const tracking = {
+    senderId: persisted.senderId,
+    roomId: persisted.roomId,
+    totalRecipients: persisted.totalRecipients,
+    readers: new Set(persisted.readUsers || []),
+    deliveredUsers: new Set(persisted.deliveredUsers || []),
+    createdAt: persisted.createdAt || Date.now(),
+  };
+  messageReadTracking.set(msgId, tracking);
+  return tracking;
+};
+
 io.on("connection", async (socket) => {
   const userId = socket.handshake.query.userId;
   let connectedRooms = [];
@@ -360,6 +382,7 @@ io.on("connection", async (socket) => {
           roomId,
           totalRecipients: otherRecipients.length,
           readers: new Set(),
+          deliveredUsers: new Set(),
         });
         // Limpiar tracking antiguo (>24h) para evitar memory leak
         const now = Date.now();
@@ -371,6 +394,15 @@ io.on("connection", async (socket) => {
           }
         }
         messageReadTracking.get(msgId).createdAt = now;
+      }
+      if (msgId) {
+        await createMessageStatusDb({
+          msgId,
+          roomId,
+          senderId,
+          totalRecipients: otherRecipients.length,
+          createdAt: message.timestamp,
+        });
       }
 
       try {
@@ -467,7 +499,17 @@ io.on("connection", async (socket) => {
           roomId,
           totalRecipients: otherRecipients.length,
           readers: new Set(),
+          deliveredUsers: new Set(),
           createdAt: Date.now(),
+        });
+      }
+      if (msgId) {
+        await createMessageStatusDb({
+          msgId,
+          roomId,
+          senderId,
+          totalRecipients: otherRecipients.length,
+          createdAt: message.timestamp,
         });
       }
 
@@ -519,27 +561,58 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("chat:read_receipt", ({ msg_id, roomId }) => {
-    const tracking = messageReadTracking.get(msg_id);
+    if (!msg_id || !userId) return;
 
-    if (!tracking) {
-      // No hay tracking (chat privado 1-a-1, o mensaje antiguo sin tracking)
-      // Comportamiento original: marcar como leído directamente
-      io.to(roomId).emit("chat:update_read_status", { msg_id });
-      return;
-    }
+    Promise.resolve()
+      .then(async () => {
+        let tracking = messageReadTracking.get(msg_id);
+        if (!tracking) tracking = await syncTrackingFromStatus(msg_id);
 
-    // Añadir este usuario al Set de lectores
-    if (userId && userId !== tracking.senderId) {
-      tracking.readers.add(userId);
-    }
+        const persisted = await markMessageReadDb({ msgId: msg_id, userId });
+        if (!persisted) return;
 
-    // Comprobar si TODOS los destinatarios han leído
-    if (tracking.readers.size >= tracking.totalRecipients) {
-      // Todos han leído → emitir tick azul al emisor
-      io.to(roomId).emit("chat:update_read_status", { msg_id });
-      // Limpiar tracking de este mensaje (ya no se necesita)
-      messageReadTracking.delete(msg_id);
-    }
+        if (tracking) {
+          tracking.readers.add(String(userId));
+          tracking.deliveredUsers?.add(String(userId));
+        }
+
+        if (persisted.delivered) {
+          io.to(roomId).emit("chat:update_delivered_status", { msg_id });
+        }
+
+        if (persisted.read) {
+          io.to(roomId).emit("chat:update_read_status", { msg_id });
+          messageReadTracking.delete(msg_id);
+        }
+      })
+      .catch((error) => {
+        console.error("❌ Error en chat:read_receipt:", error.message);
+      });
+  });
+
+  socket.on("chat:delivered_receipt", ({ msg_id, roomId }) => {
+    if (!msg_id || !userId) return;
+
+    Promise.resolve()
+      .then(async () => {
+        let tracking = messageReadTracking.get(msg_id);
+        if (!tracking) tracking = await syncTrackingFromStatus(msg_id);
+
+        const persisted = await markMessageDeliveredDb({ msgId: msg_id, userId });
+        if (!persisted) return;
+
+        if (tracking) {
+          if (!tracking.deliveredUsers) tracking.deliveredUsers = new Set();
+          tracking.deliveredUsers.add(String(userId));
+        }
+
+        if (persisted.delivered) {
+          io.to(roomId).emit("chat:update_delivered_status", { msg_id });
+        }
+      })
+      .catch((error) => {
+        console.error("❌ Error en chat:delivered_receipt:", error.message);
+      });
   });
 
   socket.on("chat:strong_read", ({ msg_id, roomId, userId: readerId, userName }) => {
@@ -815,7 +888,7 @@ io.on("connection", async (socket) => {
 
 const PORT = process.env.PORT || 4000;
 
-initCollabTables()
+Promise.all([initCollabTables(), initMessageStatusTable()])
   .then(() => {
     server.listen(PORT, () => {
       console.log(`✅ Servidor corriendo en puerto ${PORT}`);

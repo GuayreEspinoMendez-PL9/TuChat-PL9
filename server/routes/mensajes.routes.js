@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getRedis } from "../redis.js";
+import { listMessageStatusesByIdsDb } from "../services/messageStatus.persistence.js";
 
 const router = Router();
 
@@ -26,6 +27,20 @@ router.post("/ack", async (req, res) => {
     const { userId } = req.body;
     await redis.del(`pendientes:usuario:${userId}`);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+router.post("/estados", async (req, res) => {
+  try {
+    const { roomId, msgIds } = req.body || {};
+    if (!roomId || !Array.isArray(msgIds)) {
+      return res.status(400).json({ ok: false, msg: "roomId y msgIds son obligatorios" });
+    }
+
+    const statuses = await listMessageStatusesByIdsDb({ roomId, msgIds });
+    res.json({ ok: true, statuses });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

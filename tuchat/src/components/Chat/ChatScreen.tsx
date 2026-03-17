@@ -386,6 +386,32 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     if (typeof updateMessageLocal === 'function') updateMessageLocal(msgId, patch);
   }, []);
 
+  const reconcilePersistedStatuses = useCallback((statuses: any[] = []) => {
+    if (!Array.isArray(statuses) || statuses.length === 0) return;
+    const statusMap = new Map(statuses.map((item) => [String(item.msg_id), item]));
+
+    setMessages((prev) => prev.map((message) => {
+      const persisted = statusMap.get(String(message.msg_id));
+      if (!persisted) return message;
+      return {
+        ...message,
+        status: persisted.status,
+        delivered: persisted.delivered,
+        readByRecipient: persisted.read,
+      };
+    }));
+
+    statuses.forEach((item) => {
+      if (typeof updateMessageLocal === 'function') {
+        updateMessageLocal(String(item.msg_id), {
+          status: item.status,
+          delivered: item.delivered,
+          readByRecipient: item.read,
+        });
+      }
+    });
+  }, []);
+
   // Calcular si el usuario puede fijar mensajes (profesor O delegado)
   const canPin = esProfesor || delegados.includes(myUserId);
   const canManageExtras = canPin;
@@ -435,6 +461,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   useEffect(() => {
     const setup = async () => {
       try {
+        let currentUserId = '';
         const token = Platform.OS === 'web'
           ? localStorage.getItem('token')
           : await SecureStore.getItemAsync('token');
@@ -442,6 +469,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         if (token) {
           const decoded = decodeJwt(token);
           const uid = decoded?.sub;
+          currentUserId = String(uid || '');
           setMyUserId(uid);
           myUserIdRef.current = uid; // Keep ref in sync
 
@@ -525,13 +553,36 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           }
         }
 
-        setMessages(typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : []);
+        const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
+        setMessages(localMessages);
         setInput(typeof getDraftLocal === 'function' ? getDraftLocal(id) : '');
         if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
         refreshUnreadCounts();
 
         if (socket) {
           socket.emit("join_room", id);
+          localMessages
+            .filter((message: any) => String(message.senderId || '') !== currentUserId && !message.read)
+            .forEach((message: any) => {
+              socket.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: currentUserId });
+            });
+        }
+
+        if (token && localMessages.length > 0) {
+          try {
+            const statusResponse = await axios.post(`${API_URL}/mensajes/estados`, {
+              roomId: id,
+              msgIds: localMessages.map((message: any) => String(message.msg_id)).filter(Boolean),
+            }, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (statusResponse.data?.ok) {
+              reconcilePersistedStatuses(statusResponse.data.statuses || []);
+            }
+          } catch (e) {
+            console.log("No se pudieron sincronizar estados persistidos:", e);
+          }
         }
 
         setLoading(false);
@@ -541,15 +592,20 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }
     };
     setup();
-  }, [id, socket]);
+  }, [id, socket, reconcilePersistedStatuses]);
 
   useFocusEffect(
     useCallback(() => {
       if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
       refreshUnreadCounts();
       setActiveRoom(id);
+      messages
+        .filter((message) => String(message.senderId || '') !== String(myUserIdRef.current || '') && !message.read)
+        .forEach((message) => {
+          socket?.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: myUserIdRef.current });
+        });
       return () => setActiveRoom(null);
-    }, [id])
+    }, [id, messages, socket])
   );
 
   useEffect(() => {

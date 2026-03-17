@@ -115,6 +115,10 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
           if (typeof saveMessageLocal === 'function') saveMessageLocal(messageToSave);
 
+          if (!isMe) {
+            newSocket?.emit('chat:delivered_receipt', { msg_id: msg.msg_id, roomId: msg.roomId });
+          }
+
           if (!isMe && msg.roomId !== activeRoomIdRef.current) {
             refreshUnreadCounts();
           }
