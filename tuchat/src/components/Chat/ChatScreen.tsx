@@ -380,6 +380,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [moderationSaving, setModerationSaving] = useState(false);
   const [roomAccessSettings, setRoomAccessSettings] = useState<{ soloProfesores: boolean }>({ soloProfesores: false });
   const [chatSetupReady, setChatSetupReady] = useState(false);
+  const [moderationNow, setModerationNow] = useState(() => Date.now());
+  const [timelineNow, setTimelineNow] = useState(() => Date.now());
   const roomCacheKey = `chat_room_cache_${id}`;
   const flatListRef = useRef<FlatList>(null);
   const messagesRef = useRef<any[]>([]);
@@ -1517,11 +1519,59 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const managedStudents = memberDetails.filter((member: any) => !member.es_profesor);
   const isDelegate = delegados.includes(String(myUserId || ''));
 
+  useEffect(() => {
+    const allEntries = [...(chatModeration.mutedMembers || []), ...(chatModeration.bannedMembers || [])];
+    const futureExpirations = allEntries
+      .map((entry: any) => Number(entry?.expiresAt))
+      .filter((expiresAt) => Number.isFinite(expiresAt) && expiresAt > moderationNow);
+
+    if (futureExpirations.length === 0) return;
+
+    const nextExpiration = Math.min(...futureExpirations);
+    const timeoutMs = Math.max(nextExpiration - moderationNow + 250, 250);
+
+    const timeoutId = setTimeout(() => {
+      const nextNow = Date.now();
+      setModerationNow(nextNow);
+      setChatModeration((current) => ({
+        mutedMembers: (current.mutedMembers || []).filter((entry: any) => !entry?.expiresAt || Number(entry.expiresAt) > nextNow),
+        bannedMembers: (current.bannedMembers || []).filter((entry: any) => !entry?.expiresAt || Number(entry.expiresAt) > nextNow),
+      }));
+    }, timeoutMs);
+
+    return () => clearTimeout(timeoutId);
+  }, [chatModeration, moderationNow]);
+
+  useEffect(() => {
+    const futureMoments = [
+      ...(events || []).map((event: any) => Number(new Date(event?.startsAt || 0).getTime())),
+      ...(polls || []).map((poll: any) => Number(new Date(poll?.expiresAt || 0).getTime())),
+    ].filter((timestamp) => Number.isFinite(timestamp) && timestamp > timelineNow);
+
+    if (futureMoments.length === 0) return;
+
+    const nextMoment = Math.min(...futureMoments);
+    const timeoutMs = Math.max(nextMoment - timelineNow + 250, 250);
+
+    const timeoutId = setTimeout(() => {
+      const nextNow = Date.now();
+      setTimelineNow(nextNow);
+      setPolls((current) => (current || []).map((poll: any) => {
+        const expiresAt = Number(new Date(poll?.expiresAt || 0).getTime());
+        if (!poll?.closedAt && Number.isFinite(expiresAt) && expiresAt <= nextNow) {
+          return { ...poll, closedAt: poll.closedAt || new Date(expiresAt).toISOString() };
+        }
+        return poll;
+      }));
+    }, timeoutMs);
+
+    return () => clearTimeout(timeoutId);
+  }, [events, polls, timelineNow]);
+
   const getModerationEntry = useCallback((userId: string, kind: 'mute' | 'ban') => {
     const source = kind === 'mute' ? chatModeration.mutedMembers : chatModeration.bannedMembers;
-    const now = Date.now();
-    return source.find((entry: any) => String(entry?.userId) === String(userId) && (!entry?.expiresAt || Number(entry.expiresAt) > now)) || null;
-  }, [chatModeration]);
+    return source.find((entry: any) => String(entry?.userId) === String(userId) && (!entry?.expiresAt || Number(entry.expiresAt) > moderationNow)) || null;
+  }, [chatModeration, moderationNow]);
 
   const getModerationSummary = useCallback((userId: string) => {
     const banEntry = getModerationEntry(userId, 'ban');
@@ -1779,8 +1829,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const presenceEntries = Object.values(presenceByUser);
   const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
-  const upcomingEvents = events.filter((event: any) => (event?.startsAt || 0) >= Date.now()).slice(0, 3);
-  const visiblePolls = polls.slice(0, 3);
+  const upcomingEvents = events
+    .filter((event: any) => Number(new Date(event?.startsAt || 0).getTime()) >= timelineNow)
+    .slice(0, 3);
+  const visiblePolls = polls.slice(0, 3).map((poll: any) => {
+    const expiresAt = Number(new Date(poll?.expiresAt || 0).getTime());
+    if (!poll?.closedAt && Number.isFinite(expiresAt) && expiresAt <= timelineNow) {
+      return { ...poll, closedAt: new Date(expiresAt).toISOString() };
+    }
+    return poll;
+  });
 
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
