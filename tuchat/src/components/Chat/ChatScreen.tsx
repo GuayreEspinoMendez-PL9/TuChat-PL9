@@ -685,13 +685,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         }
         if (socket) {
           socket.emit("join_room", id);
-          localMessages
-            .filter((message: any) => String(message.senderId || '') !== currentUserId && !message.read)
-            .forEach((message: any) => {
-              if (readReceiptsEnabled) {
-                socket.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: currentUserId });
-              }
-            });
+          emitReadReceiptsForMessages(localMessages, currentUserId);
         }
 
         if (token && localMessages.length > 0) {
@@ -733,13 +727,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
       refreshUnreadCounts();
       setActiveRoom(id);
-      if (readReceiptsEnabled) {
-        messages
-          .filter((message) => String(message.senderId || '') !== String(myUserIdRef.current || '') && !message.read)
-          .forEach((message) => {
-            socket?.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: myUserIdRef.current });
-          });
-      }
+      emitReadReceiptsForMessages(messages, String(myUserIdRef.current || ''));
       return () => setActiveRoom(null);
     }, [id, messages, socket, readReceiptsEnabled])
   );
@@ -795,9 +783,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           setTimeout(() => {
             if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
             refreshUnreadCounts();
-            if (msg.senderId !== myUserId && readReceiptsEnabled) {
-              socket.emit("chat:read_receipt", { msg_id: msg.msg_id, roomId: id, userId: myUserId });
-            }
+            emitReadReceiptsForMessages([msg], myUserId);
           }, 100);
           return newMessages;
         });
@@ -1480,6 +1466,23 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     if (msg.delivered) return 'delivered';
     return 'sent';
   };
+
+  function emitReadReceiptsForMessages(messagesToRead: any[], userIdOverride?: string | null) {
+    if (!readReceiptsEnabled || !socket) return;
+    const normalizedUserId = String(userIdOverride || myUserIdRef.current || '');
+    if (!normalizedUserId) return;
+
+    const uniqueMsgIds = Array.from(new Set(
+      (messagesToRead || [])
+        .filter((message) => String(message.senderId || '') !== normalizedUserId)
+        .map((message) => String(message.msg_id || ''))
+        .filter(Boolean)
+    ));
+
+    uniqueMsgIds.forEach((msgId) => {
+      socket.emit("chat:read_receipt", { msg_id: msgId, roomId: id, userId: normalizedUserId });
+    });
+  }
 
   const getMessageStatusLabel = (status: 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed') => {
     switch (status) {

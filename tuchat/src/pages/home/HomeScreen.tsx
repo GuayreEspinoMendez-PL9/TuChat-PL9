@@ -305,13 +305,12 @@ export const HomeScreen = () => {
   const refreshImportantItems = useCallback(() => {
     const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));
     setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId, roomIds) : []);
-  }, [userId, currentScopeChats]);
+  }, [userId, scopeRoomIdsKey, activeTab]);
 
   useEffect(() => {
     fetchUserData();
     fetchChats();
-    refreshImportantItems();
-  }, [fetchChats, refreshImportantItems]);
+  }, [fetchChats]);
 
   useEffect(() => {
     let mounted = true;
@@ -348,13 +347,12 @@ export const HomeScreen = () => {
     useCallback(() => {
       refreshUnreadCounts();
       fetchChats();
-      refreshImportantItems();
-    }, [refreshUnreadCounts, fetchChats, refreshImportantItems])
+    }, [refreshUnreadCounts, fetchChats])
   );
 
   useEffect(() => {
     refreshImportantItems();
-  }, [refreshImportantItems, unreadCounts, panelMode]);
+  }, [refreshImportantItems, unreadCounts]);
 
   useEffect(() => {
     const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));

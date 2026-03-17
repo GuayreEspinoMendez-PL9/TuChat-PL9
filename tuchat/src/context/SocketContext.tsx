@@ -106,20 +106,24 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
         newSocket.on('chat:receive', (msg) => {
           const isMe = msg.senderId === userId;
+          const isActiveRoom = msg.roomId === activeRoomIdRef.current;
 
           const messageToSave = {
             ...msg,
             isMe,
-            read: isMe || msg.roomId === activeRoomIdRef.current ? true : false
+            read: isMe || isActiveRoom ? true : false
           };
 
           if (typeof saveMessageLocal === 'function') saveMessageLocal(messageToSave);
 
           if (!isMe) {
             newSocket?.emit('chat:delivered_receipt', { msg_id: msg.msg_id, roomId: msg.roomId });
+            if (isActiveRoom) {
+              newSocket?.emit('chat:read_receipt', { msg_id: msg.msg_id, roomId: msg.roomId, userId });
+            }
           }
 
-          if (!isMe && msg.roomId !== activeRoomIdRef.current) {
+          if (!isMe && !isActiveRoom) {
             refreshUnreadCounts();
           }
         });
