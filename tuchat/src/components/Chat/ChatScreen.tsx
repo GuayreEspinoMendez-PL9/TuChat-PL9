@@ -257,11 +257,19 @@ const SmileyIcon = ({ color = '#64748b' }: { color?: string }) => (
 );
 
 // Componente de doble tick
-const MessageTick = ({ status }: { status: 'sending' | 'sent' | 'delivered' | 'read' }) => {
-  if (status === 'sending') {
+const MessageTick = ({ status }: { status: 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed' }) => {
+  if (status === 'sending' || status === 'retrying') {
     return (
       <Svg viewBox="0 0 12 12" width={12} height={12} fill="none">
         <Path d="M6 12A6 6 0 1 0 6 0a6 6 0 0 0 0 12Zm0-2a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z" fill="rgba(255,255,255,0.5)" />
+      </Svg>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <Svg viewBox="0 0 12 12" width={12} height={12} fill="none">
+        <Path d="M6 1a5 5 0 1 1 0 10A5 5 0 0 1 6 1Zm0 2.1a.8.8 0 0 0-.8.8v2.4a.8.8 0 1 0 1.6 0V3.9A.8.8 0 0 0 6 3.1Zm0 5.8a.95.95 0 1 0 0-1.9.95.95 0 0 0 0 1.9Z" fill="#F87171" />
       </Svg>
     );
   }
@@ -309,6 +317,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [myUserId, setMyUserId] = useState("");
   const myUserIdRef = useRef(""); // Ref to always have current value in socket closures
   const [myUserName, setMyUserName] = useState("Usuario");
+  const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
   const [esProfesor, setEsProfesor] = useState(esProfesorProp);
   const [loading, setLoading] = useState(true);
   const [pinModalVisible, setPinModalVisible] = useState(false);
@@ -346,6 +355,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const inputRef = useRef<TextInput>(null); // New ref for input
   const typingTimeoutRef = useRef<any>(null);
   const hasScrolledToTargetRef = useRef(false);
+  const messageAckTimeoutsRef = useRef<Record<string, any>>({});
+  const autoRetriedOnConnectRef = useRef(false);
 
   // States for Reactions
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
@@ -380,11 +391,42 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   };
 
   const applyMessagePatch = useCallback((msgId: string, patch: any) => {
+    if (['sent', 'delivered', 'read', 'failed'].includes(String(patch?.status || ''))) {
+      const timeout = messageAckTimeoutsRef.current[msgId];
+      if (timeout) {
+        clearTimeout(timeout);
+        delete messageAckTimeoutsRef.current[msgId];
+      }
+    }
     setMessages((prev) => prev.map((message) => (
       message.msg_id === msgId ? { ...message, ...patch } : message
     )));
     if (typeof updateMessageLocal === 'function') updateMessageLocal(msgId, patch);
   }, []);
+
+  const scheduleFailedMessage = useCallback((msgId: string) => {
+    const previous = messageAckTimeoutsRef.current[msgId];
+    if (previous) clearTimeout(previous);
+    messageAckTimeoutsRef.current[msgId] = setTimeout(() => {
+      applyMessagePatch(msgId, { status: 'failed' });
+    }, 8000);
+  }, [applyMessagePatch]);
+
+  const emitChatMessage = useCallback((message: any) => {
+    if (!socket) {
+      applyMessagePatch(message.msg_id, { status: 'failed' });
+      return;
+    }
+
+    scheduleFailedMessage(message.msg_id);
+    socket.emit(message.image ? "chat:send_media" : "chat:send", message, (ack: any) => {
+      if (ack?.ok) {
+        applyMessagePatch(message.msg_id, { status: 'sent' });
+        return;
+      }
+      applyMessagePatch(message.msg_id, { status: 'failed' });
+    });
+  }, [socket, applyMessagePatch, scheduleFailedMessage]);
 
   const reconcilePersistedStatuses = useCallback((statuses: any[] = []) => {
     if (!Array.isArray(statuses) || statuses.length === 0) return;
@@ -419,6 +461,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   useEffect(() => {
     hasAutoScrolledRef.current = false;
   }, [id]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(messageAckTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
+      messageAckTimeoutsRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     if (loading || messages.length === 0 || hasAutoScrolledRef.current) return;
@@ -551,6 +600,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               setPinnedMessages(loadedPins);
             }
           }
+
+          try {
+            const privacyResponse = await axios.get(`${API_URL}/auth/read-receipts-preference`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (privacyResponse.data?.ok) {
+              setReadReceiptsEnabled(Boolean(privacyResponse.data.confirmaciones_lectura_activas));
+            }
+          } catch (e) {
+            console.log("No se pudo cargar la preferencia de lectura:", e);
+          }
         }
 
         const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
@@ -564,7 +624,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           localMessages
             .filter((message: any) => String(message.senderId || '') !== currentUserId && !message.read)
             .forEach((message: any) => {
-              socket.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: currentUserId });
+              if (readReceiptsEnabled) {
+                socket.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: currentUserId });
+              }
             });
         }
 
@@ -592,20 +654,22 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }
     };
     setup();
-  }, [id, socket, reconcilePersistedStatuses]);
+  }, [id, socket, reconcilePersistedStatuses, readReceiptsEnabled]);
 
   useFocusEffect(
     useCallback(() => {
       if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
       refreshUnreadCounts();
       setActiveRoom(id);
-      messages
-        .filter((message) => String(message.senderId || '') !== String(myUserIdRef.current || '') && !message.read)
-        .forEach((message) => {
-          socket?.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: myUserIdRef.current });
-        });
+      if (readReceiptsEnabled) {
+        messages
+          .filter((message) => String(message.senderId || '') !== String(myUserIdRef.current || '') && !message.read)
+          .forEach((message) => {
+            socket?.emit("chat:read_receipt", { msg_id: message.msg_id, roomId: id, userId: myUserIdRef.current });
+          });
+      }
       return () => setActiveRoom(null);
-    }, [id, messages, socket])
+    }, [id, messages, socket, readReceiptsEnabled])
   );
 
   useEffect(() => {
@@ -643,7 +707,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           setTimeout(() => {
             if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
             refreshUnreadCounts();
-            if (msg.senderId !== myUserId) {
+            if (msg.senderId !== myUserId && readReceiptsEnabled) {
               socket.emit("chat:read_receipt", { msg_id: msg.msg_id, roomId: id, userId: myUserId });
             }
           }, 100);
@@ -813,7 +877,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       socket.off("chat:user_stopped_typing", handleStopTyping);
       socket.off("chat:update_strong_read", handleStrongRead);
     };
-  }, [socket, id, refreshUnreadCounts, myUserId, applyMessagePatch]);
+  }, [socket, id, refreshUnreadCounts, myUserId, applyMessagePatch, readReceiptsEnabled]);
 
   const handleReaction = (msgId: string, emoji: string) => {
     const reaction = { emoji, userId: myUserId };
@@ -1070,11 +1134,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const sendMessage = async (mediaUri?: string, mediaType: 'text' | 'image' | 'video' | 'file' = 'text', fileName?: string, fileSize?: number, mimeType?: string) => {
     console.log("SENDING MESSAGE...", { input, mediaUri: mediaUri?.substring(0, 60), socket: !!socket, myUserId, mediaType, fileName });
     if (!input.trim() && !mediaUri) return;
-    if (!socket) {
-      console.error("NO SOCKET CONNECTION");
-      return;
-    }
-
     setSending(true);
     const textoLimpio = input.trim();
     const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1120,11 +1179,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     // Añadir mensaje localmente primero
     setMessages(prev => [...prev, msg]);
+    if (typeof saveMessageLocal === 'function') saveMessageLocal(msg);
     setInput("");
     saveDraftLocal(id, "");
     setMentionQuery(null);
     setMentionCandidates([]);
-    socket.emit("chat:stop_typing", { roomId: id });
+    socket?.emit("chat:stop_typing", { roomId: id });
     setReplyingTo(null); // Clear reply state
     setTeacherMessageType(null);
     setRequiresAck(false);
@@ -1134,15 +1194,30 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     // If it is a file, we might need a different event or same 'chat:send_media'
     // Assuming backend handles base64 string in 'image' field for now, or we need to upload.
     // For now, reuse send_media logic which likely handles base64 in 'image' field.
-    socket.emit(mediaUri ? "chat:send_media" : "chat:send", msg, (ack: any) => {
-      // Actualizar estado cuando el servidor confirma
-      applyMessagePatch(msgId, { status: 'sent' });
-    });
-
-    if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', isMe: true, read: true, readByRecipient: false });
+    emitChatMessage(msg);
     setSending(false);
     setTimeout(() => scrollToBottom(true), 100);
   };
+
+  const retryMessage = useCallback((message: any) => {
+    if (!message?.msg_id) return;
+    applyMessagePatch(message.msg_id, { status: 'retrying' });
+    emitChatMessage({
+      ...message,
+      status: 'retrying',
+    });
+  }, [applyMessagePatch, emitChatMessage]);
+
+  useEffect(() => {
+    if (!socket?.connected) {
+      autoRetriedOnConnectRef.current = false;
+      return;
+    }
+    if (autoRetriedOnConnectRef.current) return;
+    autoRetriedOnConnectRef.current = true;
+    const pending = messages.filter((message) => message.isMe && message.status === 'failed').slice(0, 5);
+    pending.forEach((message) => retryMessage(message));
+  }, [socket?.connected, messages, retryMessage]);
 
   const pickDocument = async () => {
     try {
@@ -1223,7 +1298,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-  const getMessageStatus = (msg: any): 'sending' | 'sent' | 'delivered' | 'read' => {
+  const getMessageStatus = (msg: any): 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed' => {
+    if (msg.status === 'failed') return 'failed';
+    if (msg.status === 'retrying') return 'retrying';
     if (msg.status === 'sending') return 'sending';
     // Para mensajes propios, usar readByRecipient para el doble tick azul
     if (msg.isMe) {
@@ -1953,6 +2030,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                       </View>
                     )}
                   </View>
+                  {isMe && item.status === 'failed' && (
+                    <TouchableOpacity
+                      onPress={() => retryMessage(item)}
+                      style={{ marginTop: 8, alignSelf: 'flex-end', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: 'rgba(248,113,113,0.18)' }}
+                    >
+                      <Text style={{ color: '#FCA5A5', fontWeight: '700', fontSize: 12 }}>Reintentar</Text>
+                    </TouchableOpacity>
+                  )}
 
                   {/* CHEVRON MENU BUTTON (Visible on Hover/Click or Menu Open) */}
                   {(isHovered || isSelected || openMenuId === item.msg_id) && (

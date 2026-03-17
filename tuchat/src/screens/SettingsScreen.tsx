@@ -90,11 +90,15 @@ export const SettingsScreen = () => {
     const { colors, mode } = useTheme();
     const [notifs, setNotifs] = useState(true);
     const [sound, setSound] = useState(true);
+    const [readReceipts, setReadReceipts] = useState(true);
     const [autoDownload, setAutoDownload] = useState(false);
     const [themeModalVisible, setThemeModalVisible] = useState(false);
     const [syncVisible, setSyncVisible] = useState(false);
 
-    useEffect(() => { loadNotifPref(); }, []);
+    useEffect(() => {
+        loadNotifPref();
+        loadReadReceiptsPref();
+    }, []);
 
     const loadNotifPref = async () => {
         try {
@@ -113,6 +117,26 @@ export const SettingsScreen = () => {
             await axios.put(`${API_URL}/auth/notif-preference`, { notificaciones_activas: value }, { headers: { Authorization: `Bearer ${token}` } });
         } catch (e) {
             setNotifs(!value); // revertir si falla
+        }
+    };
+
+    const loadReadReceiptsPref = async () => {
+        try {
+            const token = Platform.OS === 'web' ? localStorage.getItem('token') : await SecureStore.getItemAsync('token');
+            if (!token) return;
+            const res = await axios.get(`${API_URL}/auth/read-receipts-preference`, { headers: { Authorization: `Bearer ${token}` } });
+            if (res.data.ok) setReadReceipts(res.data.confirmaciones_lectura_activas);
+        } catch (e) { }
+    };
+
+    const toggleReadReceipts = async (value: boolean) => {
+        setReadReceipts(value);
+        try {
+            const token = Platform.OS === 'web' ? localStorage.getItem('token') : await SecureStore.getItemAsync('token');
+            if (!token) return;
+            await axios.put(`${API_URL}/auth/read-receipts-preference`, { confirmaciones_lectura_activas: value }, { headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) {
+            setReadReceipts(!value);
         }
     };
 
@@ -160,6 +184,8 @@ export const SettingsScreen = () => {
                     right={<Switch value={sound} onValueChange={setSound} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={sound ? colors.switchThumbOn : colors.switchThumbOff} />} />
 
                 <SectionTitle color={colors.textMuted}>Privacidad</SectionTitle>
+                <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Confirmaciones de lectura" subtitle="Permite mostrar cuando has abierto un mensaje."
+                    right={<Switch value={readReceipts} onValueChange={toggleReadReceipts} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={readReceipts ? colors.switchThumbOn : colors.switchThumbOff} />} />
                 <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Política de Privacidad" subtitle="Revisa cómo manejamos tus datos." onPress={() => { }} />
 
                 <SectionTitle color={colors.textMuted}>Apariencia</SectionTitle>
