@@ -204,7 +204,7 @@ export const SettingsScreen = () => {
                 <SectionHint color={colors.textMuted}>Estas opciones cambian lo que otros pueden saber sobre tu actividad dentro del chat.</SectionHint>
                 <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Confirmaciones de lectura" subtitle="Permite mostrar cuando has abierto un mensaje."
                     right={<Switch value={readReceipts} onValueChange={toggleReadReceipts} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={readReceipts ? colors.switchThumbOn : colors.switchThumbOff} />} />
-                <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Política de Privacidad" subtitle="Revisa cómo manejamos tus datos." onPress={() => { }} />
+                <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Política de Privacidad" subtitle="Revisa cómo manejamos tus datos." onPress={() => router.push({ pathname: '/settings-info' as any, params: { type: 'privacy' } } as any)} />
 
                 <SectionTitle color={colors.textMuted}>Apariencia</SectionTitle>
                 <SectionHint color={colors.textMuted}>Personaliza el aspecto general de la app para que se sienta mas comoda al usarla a diario.</SectionHint>
@@ -223,7 +223,7 @@ export const SettingsScreen = () => {
 
                 <SectionTitle color={colors.textMuted}>Información</SectionTitle>
                 <SectionHint color={colors.textMuted}>Datos basicos de la app y accesos para revisar soporte o version instalada.</SectionHint>
-                <SettingRow colors={colors} icon={<InfoIcon color={colors.primary} />} title="Acerca de TuChat" subtitle="Versión 1.0.0" onPress={() => { }} />
+                <SettingRow colors={colors} icon={<InfoIcon color={colors.primary} />} title="Acerca de TuChat" subtitle="Versión 1.0.0" onPress={() => router.push({ pathname: '/settings-info' as any, params: { type: 'about' } } as any)} />
                 <View style={{ height: 40 }} />
             </ScrollView>
 
