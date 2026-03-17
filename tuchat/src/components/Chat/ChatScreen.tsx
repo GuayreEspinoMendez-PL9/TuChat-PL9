@@ -1551,6 +1551,20 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setModerationModalVisible(true);
   }, [managedStudents]);
 
+  const openModerationModalForUser = useCallback((userId?: string | null, preferredAction?: 'mute' | 'ban') => {
+    const normalizedUserId = String(userId || '');
+    const targetMember = managedStudents.find((member: any) => String(member.id) === normalizedUserId);
+    if (!targetMember) return;
+
+    setModerationTarget(targetMember);
+    setModerationAction(preferredAction || 'mute');
+    setModerationDurationId('15m');
+    setModerationCustomUntil('');
+    setModerationIosPickerVisible(false);
+    setModerationReason('');
+    setModerationModalVisible(true);
+  }, [managedStudents]);
+
   const openModerationDatePicker = useCallback(() => {
     const initialDate = moderationCustomUntil ? new Date(moderationCustomUntil) : new Date();
     const safeDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
@@ -1748,6 +1762,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           initialPresenceByUser={presenceByUser}
           initialSoloProfesores={roomAccessSettings.soloProfesores}
         />
+        {renderModerationModal()}
       </View>
     );
   }
@@ -2568,6 +2583,32 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                         <Copy size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
                         <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Copiar</Text>
                       </TouchableOpacity>
+                      {esProfesor && !isMe && managedStudents.some((member: any) => String(member.id) === String(item.senderId || '')) && (
+                        <>
+                          <View style={{ height: 1, backgroundColor: colors.borderLight, marginHorizontal: 8 }} />
+                          <TouchableOpacity
+                            onPress={() => {
+                              setOpenMenuId(null);
+                              openModerationModalForUser(String(item.senderId || ''), 'mute');
+                            }}
+                            style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 12 }}
+                          >
+                            <ShieldAlert size={18} color={colors.textSecondary} style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Silenciar</Text>
+                          </TouchableOpacity>
+                          <View style={{ height: 1, backgroundColor: colors.borderLight, marginHorizontal: 8 }} />
+                          <TouchableOpacity
+                            onPress={() => {
+                              setOpenMenuId(null);
+                              openModerationModalForUser(String(item.senderId || ''), 'ban');
+                            }}
+                            style={{ flexDirection: 'row', alignItems: 'center', padding: 10, paddingHorizontal: 12 }}
+                          >
+                            <ShieldAlert size={18} color={colors.danger} style={{ marginRight: 10 }} />
+                            <Text style={{ fontSize: 14, fontWeight: '500', color: colors.textPrimary }}>Suspender</Text>
+                          </TouchableOpacity>
+                        </>
+                      )}
                     </View>
                   )}
                 </TouchableOpacity>
@@ -2876,8 +2917,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     </View >
   );
 
-  const activeModerationSummary = moderationTarget?.id ? getModerationSummary(moderationTarget.id) : null;
-  const moderationModal = (
+  function renderModerationModal() {
+    const activeModerationSummary = moderationTarget?.id ? getModerationSummary(moderationTarget.id) : null;
+    return (
     <Modal visible={moderationModalVisible} transparent animationType="fade" onRequestClose={() => setModerationModalVisible(false)}>
       <TouchableWithoutFeedback onPress={() => setModerationModalVisible(false)}>
         <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', paddingHorizontal: isDesktop ? 24 : 14, paddingVertical: isDesktop ? 24 : 12 }}>
@@ -2960,12 +3002,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                         type="datetime-local"
                         style={{
                           width: '100%',
-                          borderWidth: 1,
-                          borderColor: colors.border,
+                          boxSizing: 'border-box',
+                          border: `1px solid ${colors.border}`,
                           borderRadius: 12,
                           padding: '10px 12px',
                           color: colors.textPrimary,
                           backgroundColor: colors.background,
+                          outline: 'none',
                         } as React.CSSProperties}
                       />
                     ) : (
@@ -3020,12 +3063,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         </View>
       </TouchableWithoutFeedback>
     </Modal>
-  );
+    );
+  }
 
   if (isEmbedded) {
     return (
       <>
-        {moderationModal}
+        {renderModerationModal()}
         <TouchableWithoutFeedback onPress={() => {
           setOpenMenuId(null);
           setShowReactionPicker(null);
@@ -3114,7 +3158,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
       <React.Fragment>
-      {moderationModal}
+      {renderModerationModal()}
       <TouchableWithoutFeedback onPress={() => {
         setOpenMenuId(null);
         setShowReactionPicker(null);
