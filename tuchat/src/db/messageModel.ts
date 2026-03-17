@@ -1,6 +1,7 @@
 export type MessageSearchOptions = {
   query?: string;
   roomId?: string;
+  roomIds?: string[];
   onlyImportant?: boolean;
   onlyFiles?: boolean;
   requiresAck?: boolean;
@@ -103,6 +104,9 @@ export const normalizeMessage = (raw: any) => {
     ackReaders,
     requiresAck: Boolean(raw?.requiresAck),
     important,
+    status: raw?.status || (raw?.readByRecipient ? 'read' : raw?.delivered ? 'delivered' : raw?.isMe ? 'sent' : undefined),
+    delivered: raw?.delivered === true || raw?.delivered === 1,
+    readByRecipient: raw?.readByRecipient === true || raw?.readByRecipient === 1,
     metadataIndex: raw?.metadataIndex || buildMetadataIndex({ ...raw, text, metadata }),
   };
 };
@@ -125,6 +129,7 @@ export const matchMessageAgainstSearch = (message: any, options: MessageSearchOp
   const query = (options.query || '').trim().toLowerCase();
 
   if (options.roomId && String(normalized.roomId) !== String(options.roomId)) return false;
+  if (options.roomIds?.length && !options.roomIds.some((roomId) => String(roomId) === String(normalized.roomId))) return false;
   if (options.onlyImportant && !normalized.important) return false;
   if (options.onlyFiles && !isFileMessage(normalized)) return false;
   if (options.requiresAck && !normalized.requiresAck) return false;

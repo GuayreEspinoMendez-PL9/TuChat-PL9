@@ -7,29 +7,24 @@ import Svg, { Path } from 'react-native-svg';
 import { router } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 
-// Habilitar animaciones en Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// ============ ICONOS ============
 const BackIcon = () => (
     <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#fff" style={{ width: 24, height: 24 }}>
         <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
     </Svg>
 );
 
-const SearchIcon = () => (
-    <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#94a3b8" style={{ width: 18, height: 18 }}>
+const SearchIcon = ({ color = '#94a3b8', size = 18 }: { color?: string; size?: number }) => (
+    <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke={color} style={{ width: size, height: size }}>
         <Path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
     </Svg>
 );
 
 const ChevronIcon = ({ rotated }: { rotated: boolean }) => (
-    <Svg
-        fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#94a3b8"
-        style={{ width: 16, height: 16, transform: [{ rotate: rotated ? '90deg' : '0deg' }] }}
-    >
+    <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#94a3b8" style={{ width: 16, height: 16, transform: [{ rotate: rotated ? '90deg' : '0deg' }] }}>
         <Path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
     </Svg>
 );
@@ -40,7 +35,6 @@ const MailIcon = () => (
     </Svg>
 );
 
-// Iconos para cada FAQ
 const ChatIcon = () => (
     <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="#6366f1" style={{ width: 20, height: 20 }}>
         <Path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
@@ -77,42 +71,38 @@ const SyncIcon = () => (
     </Svg>
 );
 
-// ============ DATOS ============
-
 const FAQS = [
     {
         icon: <ChatIcon />,
-        q: "¿Cómo puedo enviar un mensaje?",
-        a: "Selecciona una conversación de grupo o un chat privado, escribe tu mensaje en el campo de texto y pulsa el botón de enviar. También puedes adjuntar imágenes y vídeos pulsando el icono de clip.",
+        q: 'Como puedo enviar un mensaje',
+        a: 'Selecciona una conversacion de grupo o un chat privado, escribe tu mensaje en el campo de texto y pulsa el boton de enviar. Tambien puedes adjuntar imagenes y videos desde el icono de clip.',
     },
     {
         icon: <BellIcon />,
-        q: "¿Cómo activo las notificaciones?",
-        a: "Ve a Configuración > Notificaciones y activa el interruptor de 'Recibir Notificaciones'. Asegúrate de que tu dispositivo también tiene las notificaciones habilitadas para TuChat.",
+        q: 'Como activo las notificaciones',
+        a: 'Ve a Configuracion > Notificaciones y activa la opcion de recibir avisos. Revisa tambien los permisos del dispositivo para TuChat.',
     },
     {
         icon: <GroupIcon />,
-        q: "¿Cómo se crean los grupos?",
-        a: "Los grupos se crean automáticamente según las asignaturas y clases en las que estés matriculado. No es necesario crear grupos manualmente.",
+        q: 'Como se crean los grupos',
+        a: 'Los grupos se crean automaticamente segun las asignaturas y clases en las que estes matriculado. No necesitas crearlos manualmente.',
     },
     {
         icon: <PhoneCallIcon />,
-        q: "¿Puedo hacer llamadas de voz o vídeo?",
-        a: "Sí. Dentro de cualquier chat, encontrarás los iconos de teléfono y cámara en la parte superior. Pulsa uno de ellos para iniciar una llamada de audio o vídeo.",
+        q: 'Puedo hacer llamadas de voz o video',
+        a: 'Si. Dentro de cada chat veras los accesos de telefono y camara en la parte superior para iniciar una llamada.',
     },
     {
         icon: <ShieldIcon />,
-        q: "¿Mis mensajes son privados?",
-        a: "Sí, los mensajes en chats privados solo son visibles para ti y la otra persona. Los mensajes de grupo son visibles para todos los miembros del grupo (profesor y alumnos de esa asignatura).",
+        q: 'Mis mensajes son privados',
+        a: 'Los chats privados solo son visibles para ti y la otra persona. En los grupos pueden ver los mensajes los miembros de esa conversacion.',
     },
     {
         icon: <SyncIcon />,
-        q: "¿Cómo sincronizo mis datos?",
-        a: "Tus datos se sincronizan automáticamente cada vez que inicias sesión. Si necesitas forzar una sincronización, cierra sesión y vuelve a entrar.",
+        q: 'Como se sincronizan mis datos',
+        a: 'La aplicacion sincroniza automaticamente al iniciar sesion y al recibir actividad nueva. Si notas desfase, cierra sesion y vuelve a entrar.',
     },
 ];
-
-// ============ PANTALLA PRINCIPAL ============
 
 export const FAQScreen = () => {
     const { colors } = useTheme();
@@ -125,13 +115,12 @@ export const FAQScreen = () => {
     };
 
     const filteredFaqs = FAQS.filter(
-        faq => faq.q.toLowerCase().includes(searchText.toLowerCase()) ||
+        (faq) => faq.q.toLowerCase().includes(searchText.toLowerCase()) ||
             faq.a.toLowerCase().includes(searchText.toLowerCase())
     );
 
     return (
         <View style={[st.container, { backgroundColor: colors.background }]}>
-            {/* Header */}
             <View style={[st.header, { backgroundColor: colors.primary }]}>
                 <TouchableOpacity onPress={() => router.back()} style={st.backBtn}>
                     <BackIcon />
@@ -141,32 +130,43 @@ export const FAQScreen = () => {
             </View>
 
             <ScrollView style={st.scroll} contentContainerStyle={st.scrollContent}>
-                {/* Buscador */}
                 <View style={st.searchContainer}>
-                    <View style={[st.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                        <SearchIcon />
-                        <TextInput
-                            style={[st.searchInput, { color: colors.inputText }]}
-                            placeholder="Buscar pregunta..."
-                            placeholderTextColor={colors.placeholder}
-                            value={searchText}
-                            onChangeText={setSearchText}
-                        />
+                    <View style={[st.searchPanel, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                        <View style={st.searchPanelHeader}>
+                            <View style={[st.searchPanelIconWrap, { backgroundColor: colors.primaryBg }]}>
+                                <SearchIcon color="#6366f1" size={22} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={[st.searchPanelTitle, { color: colors.textPrimary }]}>Encuentra ayuda rapido</Text>
+                                <Text style={[st.searchPanelSubtitle, { color: colors.textSecondary }]}>Busca por funcion, problema o palabra clave sin salir de esta pantalla.</Text>
+                            </View>
+                        </View>
+
+                        <View style={[st.searchBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                            <SearchIcon />
+                            <TextInput
+                                style={[st.searchInput, { color: colors.inputText }]}
+                                placeholder="Buscar en preguntas frecuentes"
+                                placeholderTextColor={colors.placeholder}
+                                value={searchText}
+                                onChangeText={setSearchText}
+                            />
+                            {!!searchText && (
+                                <TouchableOpacity onPress={() => setSearchText('')} style={[st.clearBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                                    <Text style={[st.clearBtnText, { color: colors.textSecondary }]}>Limpiar</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </View>
                 </View>
 
-                {/* FAQs */}
-                <Text style={[st.sectionTitle, { color: colors.textMuted }]}>PREGUNTAS FRECUENTES</Text>
+                <Text style={[st.sectionTitle, { color: colors.textMuted }]}>Preguntas frecuentes</Text>
 
-                {filteredFaqs.map((faq, i) => {
-                    const isOpen = openIndex === i;
+                {filteredFaqs.map((faq, index) => {
+                    const isOpen = openIndex === index;
                     return (
-                        <View key={i} style={[st.faqItem, { backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]}>
-                            <TouchableOpacity
-                                style={st.faqHeader}
-                                onPress={() => toggleFaq(i)}
-                                activeOpacity={0.6}
-                            >
+                        <View key={index} style={[st.faqItem, { backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]}>
+                            <TouchableOpacity style={st.faqHeader} onPress={() => toggleFaq(index)} activeOpacity={0.7}>
                                 <View style={[st.faqIconBox, { backgroundColor: colors.primaryBg }]}>{faq.icon}</View>
                                 <Text style={[st.faqQuestion, { color: colors.textPrimary }]}>{faq.q}</Text>
                                 <ChevronIcon rotated={isOpen} />
@@ -182,23 +182,22 @@ export const FAQScreen = () => {
 
                 {filteredFaqs.length === 0 && (
                     <View style={st.emptyState}>
-                        <Text style={st.emptyIcon}>🔍</Text>
+                        <View style={[st.emptyIconWrap, { backgroundColor: colors.primaryBg }]}>
+                            <SearchIcon color="#6366f1" size={24} />
+                        </View>
                         <Text style={[st.emptyTitle, { color: colors.textPrimary }]}>Sin resultados</Text>
-                        <Text style={st.emptyText}>No se encontraron preguntas con "{searchText}"</Text>
+                        <Text style={[st.emptyText, { color: colors.textMuted }]}>No se encontraron preguntas con "{searchText}"</Text>
                     </View>
                 )}
 
-                {/* Contacto */}
-                <Text style={[st.sectionTitle, { color: colors.textMuted }]}>¿NO ENCUENTRAS LO QUE BUSCAS?</Text>
-                <TouchableOpacity style={[st.row, { backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]} onPress={() => { }} activeOpacity={0.6}>
+                <Text style={[st.sectionTitle, { color: colors.textMuted }]}>Necesitas mas ayuda</Text>
+                <TouchableOpacity style={[st.row, { backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]} activeOpacity={0.7}>
                     <View style={[st.faqIconBox, { backgroundColor: colors.primaryBg }]}><MailIcon /></View>
                     <View style={st.rowContent}>
                         <Text style={[st.rowTitle, { color: colors.textPrimary }]}>Contactar soporte</Text>
-                        <Text style={[st.rowSubtitle, { color: colors.textMuted }]}>Envíanos un correo con tu consulta.</Text>
+                        <Text style={[st.rowSubtitle, { color: colors.textMuted }]}>Usa este acceso para escribir una consulta mas concreta.</Text>
                     </View>
-                    <Svg fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="#94a3b8" style={{ width: 16, height: 16 }}>
-                        <Path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-                    </Svg>
+                    <ChevronIcon rotated={false} />
                 </TouchableOpacity>
 
                 <View style={{ height: 40 }} />
@@ -207,62 +206,107 @@ export const FAQScreen = () => {
     );
 };
 
-// ============ ESTILOS ============
-
 const st = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#f8fafc' },
     header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 16, paddingVertical: 14, backgroundColor: '#6366f1',
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 14,
         paddingTop: Platform.OS === 'ios' ? 56 : Platform.OS === 'android' ? 44 : 14,
     },
     backBtn: { padding: 4 },
     headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
     scroll: { flex: 1 },
     scrollContent: { paddingBottom: 40 },
-
-    // Search
     searchContainer: { padding: 16, paddingBottom: 8 },
+    searchPanel: {
+        borderWidth: 1,
+        borderRadius: 20,
+        padding: 16,
+    },
+    searchPanelHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginBottom: 14,
+    },
+    searchPanelIconWrap: {
+        width: 46,
+        height: 46,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    searchPanelTitle: { fontSize: 16, fontWeight: '700' },
+    searchPanelSubtitle: { fontSize: 13, marginTop: 3, lineHeight: 18 },
     searchBox: {
-        flexDirection: 'row', alignItems: 'center', gap: 10,
-        backgroundColor: '#fff', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-        borderWidth: 1, borderColor: '#e2e8f0',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: 14,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+        borderWidth: 1,
     },
     searchInput: { flex: 1, fontSize: 14 },
-
-    // Section
-    sectionTitle: {
-        fontSize: 12, fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase',
-        letterSpacing: 0.8, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10,
+    clearBtn: {
+        borderWidth: 1,
+        borderRadius: 999,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
     },
-
-    // FAQ items
-    faqItem: { backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+    clearBtnText: { fontSize: 12, fontWeight: '700' },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        paddingHorizontal: 20,
+        paddingTop: 24,
+        paddingBottom: 10,
+    },
+    faqItem: { borderBottomWidth: 1 },
     faqHeader: {
-        flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20, gap: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        gap: 14,
     },
     faqIconBox: {
-        width: 38, height: 38, borderRadius: 10, backgroundColor: '#eef2ff',
-        justifyContent: 'center', alignItems: 'center',
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    faqQuestion: { flex: 1, fontSize: 15, fontWeight: '500', color: '#1e293b' },
-    faqAnswerContainer: { paddingHorizontal: 20, paddingBottom: 16, paddingLeft: 72 },
-    faqAnswer: { fontSize: 14, color: '#64748b', lineHeight: 22 },
-
-    // Empty state
+    faqQuestion: { flex: 1, fontSize: 15, fontWeight: '600' },
+    faqAnswerContainer: { paddingHorizontal: 20, paddingBottom: 16, paddingLeft: 74 },
+    faqAnswer: { fontSize: 14, lineHeight: 22 },
     emptyState: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 40 },
-    emptyIcon: { fontSize: 40, marginBottom: 12 },
-    emptyTitle: { fontSize: 16, fontWeight: '600', color: '#1e293b', marginBottom: 4 },
-    emptyText: { fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-
-    // Contact row
+    emptyIconWrap: {
+        width: 64,
+        height: 64,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 12,
+    },
+    emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 4 },
+    emptyText: { fontSize: 14, textAlign: 'center' },
     row: {
-        flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20,
-        backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#f1f5f9', gap: 14,
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        gap: 14,
     },
     rowContent: { flex: 1 },
-    rowTitle: { fontSize: 15, fontWeight: '500', color: '#1e293b' },
-    rowSubtitle: { fontSize: 13, color: '#94a3b8', marginTop: 2 },
+    rowTitle: { fontSize: 15, fontWeight: '600' },
+    rowSubtitle: { fontSize: 13, marginTop: 2 },
 });
 
 export default FAQScreen;

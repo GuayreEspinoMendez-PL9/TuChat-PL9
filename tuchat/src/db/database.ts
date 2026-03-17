@@ -42,6 +42,9 @@ export const initDB = () => {
       mediaType TEXT,
       fileName TEXT, 
       timestamp INTEGER,
+      status TEXT,
+      delivered INTEGER DEFAULT 0,
+      readByRecipient INTEGER DEFAULT 0,
       read INTEGER DEFAULT 0,
       reactions TEXT,
       replyTo TEXT,
@@ -108,6 +111,9 @@ export const initDB = () => {
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN replyTo TEXT'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN mediaType TEXT'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN fileName TEXT'); } catch (e) { }
+  try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN status TEXT'); } catch (e) { }
+  try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN delivered INTEGER DEFAULT 0'); } catch (e) { }
+  try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN readByRecipient INTEGER DEFAULT 0'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN roomName TEXT'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN metadata TEXT'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN threadTopic TEXT'); } catch (e) { }
@@ -123,12 +129,36 @@ export const saveMessageLocal = (msg: any) => {
   try {
     const serialized = prepareMessageForStorage(msg);
     const isRead = typeof msg.read === 'boolean' ? (msg.read ? 1 : 0) : (msg.isMe ? 1 : 0);
+    const delivered = msg.delivered ? 1 : 0;
+    const readByRecipient = msg.readByRecipient ? 1 : 0;
 
     db.runSync(
-      'INSERT OR REPLACE INTO mensajes_locales (msg_id, roomId, roomName, senderId, senderName, text, image, mediaType, fileName, timestamp, read, reactions, replyTo, metadata, threadTopic, messageType, important, metadataIndex, requiresAck, ackReaders) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [serialized.msg_id, serialized.roomId, serialized.roomName || null, serialized.senderId, serialized.senderName || "Usuario", serialized.text, serialized.image, serialized.mediaType || null, serialized.fileName || null, serialized.timestamp, isRead, serialized.reactions, serialized.replyTo, serialized.metadata, serialized.threadTopic || null, serialized.messageType || null, serialized.important ? 1 : 0, serialized.metadataIndex || '', serialized.requiresAck ? 1 : 0, serialized.ackReaders]
+      'INSERT OR REPLACE INTO mensajes_locales (msg_id, roomId, roomName, senderId, senderName, text, image, mediaType, fileName, timestamp, status, delivered, readByRecipient, read, reactions, replyTo, metadata, threadTopic, messageType, important, metadataIndex, requiresAck, ackReaders) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [serialized.msg_id, serialized.roomId, serialized.roomName || null, serialized.senderId, serialized.senderName || "Usuario", serialized.text, serialized.image, serialized.mediaType || null, serialized.fileName || null, serialized.timestamp, serialized.status || null, delivered, readByRecipient, isRead, serialized.reactions, serialized.replyTo, serialized.metadata, serialized.threadTopic || null, serialized.messageType || null, serialized.important ? 1 : 0, serialized.metadataIndex || '', serialized.requiresAck ? 1 : 0, serialized.ackReaders]
     );
   } catch (e) { console.error("Error saveMessageLocal:", e); }
+};
+
+export const updateMessageLocal = (msgId: string, patch: any) => {
+  if (!db || !msgId || !patch || typeof patch !== 'object') return;
+  try {
+    const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
+    if (!entries.length) return;
+    const normalizedEntries = entries.map(([key, value]) => {
+      if (key === 'reactions' || key === 'ackReaders' || key === 'replyTo' || key === 'metadata') {
+        return [key, value == null ? null : JSON.stringify(value)];
+      }
+      if (key === 'read' || key === 'delivered' || key === 'readByRecipient' || key === 'important' || key === 'requiresAck') {
+        return [key, value ? 1 : 0];
+      }
+      return [key, value];
+    });
+    const setClause = normalizedEntries.map(([key]) => `${key} = ?`).join(', ');
+    const values = normalizedEntries.map(([, value]) => value);
+    db.runSync(`UPDATE mensajes_locales SET ${setClause} WHERE msg_id = ?`, [...values, msgId]);
+  } catch (e) {
+    console.error("Error updateMessageLocal:", e);
+  }
 };
 
 const isImportantDismissed = (userId?: string, itemId?: string) => {
@@ -272,9 +302,10 @@ const getStoredPins = (roomId?: string) => {
   return rows.map(normalizePinRecord);
 };
 
-export const getImportantMessages = (userId?: string): any[] => {
+export const getImportantMessages = (userId?: string, roomIds?: string[]): any[] => {
   if (!db) return [];
   try {
+    const scopedRoomIds = Array.isArray(roomIds) && roomIds.length > 0 ? roomIds.map(String) : null;
     const rows: any[] = db.getAllSync(`SELECT * FROM mensajes_locales WHERE important = 1 ORDER BY timestamp DESC`);
     return [
       ...rows.map(normalizeMessage),
@@ -282,6 +313,7 @@ export const getImportantMessages = (userId?: string): any[] => {
       ...getStoredPolls(),
       ...getStoredPins(),
     ]
+      .filter((item) => !scopedRoomIds || scopedRoomIds.includes(String(item.roomId)))
       .filter((item) => !isImportantDismissed(userId, item.msg_id))
       .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   } catch (e) {

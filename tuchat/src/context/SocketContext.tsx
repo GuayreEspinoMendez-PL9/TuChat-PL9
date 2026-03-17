@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useRef, useCallb
 import { Platform, AppState } from 'react-native';
 import { io, Socket } from 'socket.io-client';
 import * as SecureStore from 'expo-secure-store';
-import { saveMessageLocal, getAllUnreadCounts } from '../db/database';
+import { saveMessageLocal, getAllUnreadCounts, updateMessageLocal } from '../db/database';
 import { decodeJwt } from '../utils/auth';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
@@ -118,6 +118,23 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
           if (!isMe && msg.roomId !== activeRoomIdRef.current) {
             refreshUnreadCounts();
           }
+        });
+
+        newSocket.on('chat:msg_sent', ({ msg_id }) => {
+          if (typeof updateMessageLocal === 'function') updateMessageLocal(msg_id, { status: 'sent' });
+        });
+
+        newSocket.on('chat:update_delivered_status', ({ msg_id }) => {
+          if (typeof updateMessageLocal === 'function') updateMessageLocal(msg_id, { status: 'delivered', delivered: true });
+        });
+
+        newSocket.on('chat:update_read_status', ({ msg_id }) => {
+          if (typeof updateMessageLocal === 'function') updateMessageLocal(msg_id, {
+            status: 'read',
+            delivered: true,
+            read: true,
+            readByRecipient: true,
+          });
         });
 
         setSocket(newSocket);

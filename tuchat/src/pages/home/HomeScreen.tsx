@@ -139,6 +139,10 @@ export const HomeScreen = () => {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [importantItems, setImportantItems] = useState<any[]>([]);
 
+  const currentScopeChats = activeTab === 'grupos' ? chats : privateChats;
+  const scopeRoomIdsKey = currentScopeChats.map((chat) => String(chat.id_chat)).join('|');
+  const scopeLabel = activeTab === 'grupos' ? 'grupos' : (userType === 'ALUMNO' ? 'profesores' : 'alumnos');
+
   const resetSessionViewState = useCallback(() => {
     setChats([]);
     setPrivateChats([]);
@@ -246,8 +250,9 @@ export const HomeScreen = () => {
   }, [resetSessionViewState]);
 
   const refreshImportantItems = useCallback(() => {
-    setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId) : []);
-  }, [userId]);
+    const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));
+    setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId, roomIds) : []);
+  }, [userId, currentScopeChats]);
 
   useEffect(() => {
     fetchUserData();
@@ -268,17 +273,19 @@ export const HomeScreen = () => {
   }, [refreshImportantItems, unreadCounts, panelMode]);
 
   useEffect(() => {
+    const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));
     if (!searchQuery.trim() && !searchFilters.onlyImportant && !searchFilters.onlyFiles && !searchFilters.requiresAck) {
       setSearchResults([]);
       return;
     }
     setSearchResults(typeof searchMessagesAdvanced === 'function' ? searchMessagesAdvanced({
       query: searchQuery,
+      roomIds,
       onlyImportant: searchFilters.onlyImportant,
       onlyFiles: searchFilters.onlyFiles,
       requiresAck: searchFilters.requiresAck,
     }) : []);
-  }, [searchQuery, searchFilters]);
+  }, [searchQuery, searchFilters, currentScopeChats, scopeRoomIdsKey]);
 
   const toggleSearchFilter = (key: 'onlyImportant' | 'onlyFiles' | 'requiresAck') => {
     setSearchFilters((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -414,8 +421,13 @@ export const HomeScreen = () => {
     const lastMessage = lastMessages[item.id_chat];
     const lastMessageText = lastMessage?.text || lastMessage?.contenido || '';
     const lastMessageTime = lastMessage?.timestamp;
-    const isMyMessage = lastMessage?.isMe || lastMessage?.senderId === item.myUserId;
-    const messageStatus: 'sent' | 'delivered' | 'read' = lastMessage?.read ? 'read' : 'delivered';
+    const isMyMessage = lastMessage?.isMe || String(lastMessage?.senderId || '') === String(userId);
+    const messageStatus: 'sent' | 'delivered' | 'read' =
+      lastMessage?.readByRecipient || lastMessage?.status === 'read'
+        ? 'read'
+        : lastMessage?.delivered || lastMessage?.status === 'delivered'
+          ? 'delivered'
+          : 'sent';
     const isSelected = isDesktop && selectedChat?.id_chat === item.id_chat;
 
     return (
@@ -463,7 +475,7 @@ export const HomeScreen = () => {
     );
   };
 
-  const currentChats = activeTab === 'grupos' ? chats : privateChats;
+  const currentChats = currentScopeChats;
   const gruposUnread = chats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
   const privadosUnread = privateChats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0);
   const isSearchMode = panelMode === 'search';
@@ -555,6 +567,16 @@ export const HomeScreen = () => {
           <Text style={[s.quickActionText, { color: isImportantMode ? colors.primary : colors.textPrimary }]}>Importantes</Text>
         </TouchableOpacity>
       </View>
+      {panelMode !== 'chats' && (
+        <View style={[s.scopeBanner, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <Text style={[s.scopeBannerTitle, { color: colors.textPrimary }]}>
+            {panelMode === 'search' ? 'Busqueda acotada' : 'Bandeja acotada'}
+          </Text>
+          <Text style={[s.scopeBannerText, { color: colors.textSecondary }]}>
+            Mostrando resultados solo de {scopeLabel}. Cambia de pestaña para cambiar el alcance.
+          </Text>
+        </View>
+      )}
 
       {/* Tabs */}
       <View style={[s.tabsContainer, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
@@ -633,13 +655,17 @@ export const HomeScreen = () => {
         />
       ) : panelMode === 'search' ? (
         <View style={s.sidePanelBody}>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Buscar por mensaje, archivo, persona, encuesta, evento, pin o fecha"
-            placeholderTextColor={colors.textMuted}
-            style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, margin: 16, marginBottom: 12, color: colors.textPrimary, backgroundColor: colors.background }}
-          />
+          <View style={[s.searchPanelCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[s.searchPanelTitle, { color: colors.textPrimary }]}>Buscar en {scopeLabel}</Text>
+            <Text style={[s.searchPanelSubtitle, { color: colors.textSecondary }]}>Mensajes, archivos, eventos, encuestas y fijados dentro del alcance actual.</Text>
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar por mensaje, archivo, persona o fecha"
+              placeholderTextColor={colors.textMuted}
+              style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginTop: 12, marginBottom: 12, color: colors.textPrimary, backgroundColor: colors.background }}
+            />
+          </View>
           <View style={{ paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <TouchableOpacity onPress={() => toggleSearchFilter('onlyImportant')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyImportant ? colors.primary : colors.border, backgroundColor: searchFilters.onlyImportant ? colors.primaryBg : colors.background }}>
               <Text style={{ color: searchFilters.onlyImportant ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Importantes</Text>
@@ -681,7 +707,7 @@ export const HomeScreen = () => {
                 </TouchableOpacity>
               </View>
             )}
-            ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Sin resultados con los filtros actuales.</Text>}
+            ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay coincidencias en {scopeLabel} con los filtros actuales.</Text>}
           />
         </View>
       ) : (
@@ -704,7 +730,7 @@ export const HomeScreen = () => {
               </TouchableOpacity>
             </View>
           )}
-          ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes.</Text>}
+          ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes en {scopeLabel}.</Text>}
         />
       )}
 
@@ -762,6 +788,12 @@ const s = StyleSheet.create({
   quickActionButton: { flex: 1, minHeight: 42, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   quickActionText: { fontSize: 14, fontWeight: '700' },
   sidePanelBody: { flex: 1 },
+  scopeBanner: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1 },
+  scopeBannerTitle: { fontSize: 13, fontWeight: '700' },
+  scopeBannerText: { fontSize: 12, marginTop: 2 },
+  searchPanelCard: { margin: 16, marginBottom: 12, borderWidth: 1, borderRadius: 18, padding: 16 },
+  searchPanelTitle: { fontSize: 16, fontWeight: '700' },
+  searchPanelSubtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
 
   emptyChatPanel: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyChatTitle: { fontSize: 26, fontWeight: '300', marginTop: 20, marginBottom: 10 },

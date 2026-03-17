@@ -16,6 +16,7 @@ import { styles } from './chat.styles';
 import {
   getMessagesByRoom,
   saveMessageLocal,
+  updateMessageLocal,
   saveDraftLocal,
   getDraftLocal,
   markMessagesAsRead,
@@ -378,6 +379,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     });
   };
 
+  const applyMessagePatch = useCallback((msgId: string, patch: any) => {
+    setMessages((prev) => prev.map((message) => (
+      message.msg_id === msgId ? { ...message, ...patch } : message
+    )));
+    if (typeof updateMessageLocal === 'function') updateMessageLocal(msgId, patch);
+  }, []);
+
   // Calcular si el usuario puede fijar mensajes (profesor O delegado)
   const canPin = esProfesor || delegados.includes(myUserId);
   const canManageExtras = canPin;
@@ -568,6 +576,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           // Si el mensaje ya existe (enviado por nosotros optimisticamente), actualizar su estado a 'sent'
           if (existing) {
             if (existing.status === 'sending') {
+              if (typeof updateMessageLocal === 'function') updateMessageLocal(msg.msg_id, { status: 'sent' });
               return prev.map(m =>
                 m.msg_id === msg.msg_id ? { ...m, status: 'sent' } : m
               );
@@ -590,22 +599,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
     // Evento explícito del servidor confirmando que recibió el mensaje
     const handleMsgSent = ({ msg_id }: { msg_id: string }) => {
-      setMessages(prev => prev.map(m =>
-        m.msg_id === msg_id ? { ...m, status: 'sent' } : m
-      ));
+      applyMessagePatch(msg_id, { status: 'sent' });
     };
 
     // Evento del servidor confirmando que el mensaje fue entregado a todos (2 ticks grises)
     const handleDelivered = ({ msg_id }: { msg_id: string }) => {
-      setMessages(prev => prev.map(m =>
-        m.msg_id === msg_id ? { ...m, status: 'delivered', delivered: true } : m
-      ));
+      applyMessagePatch(msg_id, { status: 'delivered', delivered: true });
     };
 
     const handleReadReceipt = ({ msg_id }: { msg_id: string }) => {
-      setMessages(prev => prev.map(m =>
-        m.msg_id === msg_id ? { ...m, read: true, readByRecipient: true } : m
-      ));
+      applyMessagePatch(msg_id, { status: 'read', read: true, readByRecipient: true, delivered: true });
     };
 
     const handleIncomingReaction = ({ msgId, reaction }: { msgId: string, reaction: any }) => {
@@ -754,7 +757,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       socket.off("chat:user_stopped_typing", handleStopTyping);
       socket.off("chat:update_strong_read", handleStrongRead);
     };
-  }, [socket, id, refreshUnreadCounts, myUserId]);
+  }, [socket, id, refreshUnreadCounts, myUserId, applyMessagePatch]);
 
   const handleReaction = (msgId: string, emoji: string) => {
     const reaction = { emoji, userId: myUserId };
@@ -1077,9 +1080,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     // For now, reuse send_media logic which likely handles base64 in 'image' field.
     socket.emit(mediaUri ? "chat:send_media" : "chat:send", msg, (ack: any) => {
       // Actualizar estado cuando el servidor confirma
-      setMessages(prev => prev.map(m =>
-        m.msg_id === msgId ? { ...m, status: 'sent' } : m
-      ));
+      applyMessagePatch(msgId, { status: 'sent' });
     });
 
     if (typeof saveMessageLocal === 'function') saveMessageLocal({ ...msg, status: 'sent', isMe: true, read: true, readByRecipient: false });
