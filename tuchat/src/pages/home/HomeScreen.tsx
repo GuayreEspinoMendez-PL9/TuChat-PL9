@@ -126,6 +126,7 @@ export const HomeScreen = () => {
   const [userId, setUserId] = useState<string>('');
   const [panelMode, setPanelMode] = useState<'chats' | 'search' | 'important'>('chats');
   const [searchQuery, setSearchQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [searchFilters, setSearchFilters] = useState({
     onlyImportant: false,
     onlyFiles: false,
@@ -134,7 +135,7 @@ export const HomeScreen = () => {
 
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && width >= DESKTOP_BREAKPOINT;
-  const { unreadCounts, refreshUnreadCounts } = useSocket();
+  const { unreadCounts, refreshUnreadCounts, isConnected } = useSocket();
   const [lastMessages, setLastMessages] = useState<Record<string, any>>({});
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [importantItems, setImportantItems] = useState<any[]>([]);
@@ -151,7 +152,21 @@ export const HomeScreen = () => {
     setImportantItems([]);
     setSelectedChat(null);
     setSearchQuery('');
+    setRecentSearches([]);
     setPanelMode('chats');
+  }, []);
+
+  const getPreferenceStorage = useCallback(async () => {
+    if (Platform.OS === 'web') {
+      return {
+        getItem: async (key: string) => localStorage.getItem(key),
+        setItem: async (key: string, value: string) => localStorage.setItem(key, value),
+      };
+    }
+    return {
+      getItem: (key: string) => SecureStore.getItemAsync(key),
+      setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+    };
   }, []);
 
   const fetchUserData = async () => {
@@ -260,6 +275,37 @@ export const HomeScreen = () => {
     refreshImportantItems();
   }, [fetchChats, refreshImportantItems]);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const storage = await getPreferenceStorage();
+        const raw = await storage.getItem('home_view_preferences');
+        if (!raw || !mounted) return;
+        const parsed = JSON.parse(raw);
+        if (parsed.activeTab === 'grupos' || parsed.activeTab === 'privados') setActiveTab(parsed.activeTab);
+        if (parsed.panelMode === 'chats' || parsed.panelMode === 'search' || parsed.panelMode === 'important') setPanelMode(parsed.panelMode);
+        if (typeof parsed.searchQuery === 'string') setSearchQuery(parsed.searchQuery);
+        if (Array.isArray(parsed.recentSearches)) setRecentSearches(parsed.recentSearches.slice(0, 4));
+      } catch {}
+    })();
+    return () => { mounted = false; };
+  }, [getPreferenceStorage]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const storage = await getPreferenceStorage();
+        await storage.setItem('home_view_preferences', JSON.stringify({
+          activeTab,
+          panelMode,
+          searchQuery,
+          recentSearches: recentSearches.slice(0, 4),
+        }));
+      } catch {}
+    })();
+  }, [activeTab, panelMode, searchQuery, recentSearches, getPreferenceStorage]);
+
   useFocusEffect(
     useCallback(() => {
       refreshUnreadCounts();
@@ -286,6 +332,15 @@ export const HomeScreen = () => {
       requiresAck: searchFilters.requiresAck,
     }) : []);
   }, [searchQuery, searchFilters, currentScopeChats, scopeRoomIdsKey]);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed || trimmed.length < 3) return;
+    const timeout = setTimeout(() => {
+      setRecentSearches((prev) => [trimmed, ...prev.filter((item) => item !== trimmed)].slice(0, 4));
+    }, 450);
+    return () => clearTimeout(timeout);
+  }, [searchQuery]);
 
   const toggleSearchFilter = (key: 'onlyImportant' | 'onlyFiles' | 'requiresAck') => {
     setSearchFilters((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -372,6 +427,12 @@ export const HomeScreen = () => {
     setActiveTab(tab);
     setPanelMode('chats');
   };
+
+  const quickSummary = [
+    { label: 'No leidos', value: currentScopeChats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0) },
+    { label: 'Importantes', value: importantItems.length },
+    { label: 'Resultados', value: panelMode === 'search' ? searchResults.length : currentScopeChats.length },
+  ];
 
   const handleMenuOption = (option: string) => {
     setMenuVisible(false);
@@ -537,7 +598,12 @@ export const HomeScreen = () => {
       <View style={[s.header, isDesktop && s.headerDesktop, { backgroundColor: colors.primary }]}>
         <View style={s.headerLeft}>
           <TuChatLogoImage size={30} />
-          <Text style={s.mainTitle}>TuChat</Text>
+          <View>
+            <Text style={s.mainTitle}>TuChat</Text>
+            <Text style={[s.mainSubtitle, { color: 'rgba(255,255,255,0.82)' }]}>
+              {isConnected ? `Todo al dia en ${scopeLabel}` : 'Sin conexion. Mostrando tu copia local'}
+            </Text>
+          </View>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TouchableOpacity
@@ -547,6 +613,29 @@ export const HomeScreen = () => {
         >
           <DotsVerticalIcon />
         </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={[s.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[s.heroTitle, { color: colors.textPrimary }]}>
+            {panelMode === 'chats' ? `Tus conversaciones de ${scopeLabel}` : panelMode === 'search' ? `Busca sin salir de ${scopeLabel}` : `Lo importante primero`}
+          </Text>
+          <Text style={[s.heroSubtitle, { color: colors.textSecondary }]}>
+            {panelMode === 'chats'
+              ? 'Prioriza lo no leido y entra rapido a lo que requiere atencion.'
+              : panelMode === 'search'
+                ? 'Recupera mensajes, archivos y checker con filtros mas claros.'
+                : 'Revisa anuncios, eventos y mensajes destacados dentro del alcance actual.'}
+          </Text>
+        </View>
+        <View style={s.heroStats}>
+          {quickSummary.map((item) => (
+            <View key={item.label} style={[s.heroStatPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Text style={[s.heroStatValue, { color: colors.textPrimary }]}>{item.value}</Text>
+              <Text style={[s.heroStatLabel, { color: colors.textMuted }]}>{item.label}</Text>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -667,6 +756,11 @@ export const HomeScreen = () => {
             />
           </View>
           <View style={{ paddingHorizontal: 16, paddingBottom: 12, flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {!searchQuery && recentSearches.length > 0 && recentSearches.map((item) => (
+              <TouchableOpacity key={item} onPress={() => setSearchQuery(item)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceHover }}>
+                <Text style={{ color: colors.textSecondary, fontWeight: '700', fontSize: 12 }}>{item}</Text>
+              </TouchableOpacity>
+            ))}
             <TouchableOpacity onPress={() => toggleSearchFilter('onlyImportant')} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: searchFilters.onlyImportant ? colors.primary : colors.border, backgroundColor: searchFilters.onlyImportant ? colors.primaryBg : colors.background }}>
               <Text style={{ color: searchFilters.onlyImportant ? colors.primary : colors.textSecondary, fontWeight: '700', fontSize: 12 }}>Importantes</Text>
             </TouchableOpacity>
@@ -707,7 +801,7 @@ export const HomeScreen = () => {
                 </TouchableOpacity>
               </View>
             )}
-            ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay coincidencias en {scopeLabel} con los filtros actuales.</Text>}
+            ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No encontré coincidencias en {scopeLabel}. Prueba con otra palabra o quita algún filtro.</Text>}
           />
         </View>
       ) : (
@@ -730,7 +824,7 @@ export const HomeScreen = () => {
               </TouchableOpacity>
             </View>
           )}
-          ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>No hay elementos importantes en {scopeLabel}.</Text>}
+          ListEmptyComponent={<Text style={{ color: colors.textMuted, padding: 16 }}>Tu bandeja de importantes en {scopeLabel} esta tranquila por ahora.</Text>}
         />
       )}
 
@@ -816,10 +910,18 @@ const s = StyleSheet.create({
     gap: 10,
   },
   mainTitle: { fontSize: 22, fontWeight: '700', color: '#fff' },
+  mainSubtitle: { fontSize: 12, marginTop: 2 },
   menuButton: {
     padding: 8,
     borderRadius: 20,
   },
+  heroCard: { marginHorizontal: 16, marginTop: 14, marginBottom: 6, borderWidth: 1, borderRadius: 22, padding: 16, gap: 14 },
+  heroTitle: { fontSize: 20, fontWeight: '700' },
+  heroSubtitle: { fontSize: 13, marginTop: 6, lineHeight: 19 },
+  heroStats: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  heroStatPill: { minWidth: 82, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
+  heroStatValue: { fontSize: 18, fontWeight: '700' },
+  heroStatLabel: { fontSize: 11, marginTop: 2 },
 
   // Menú desplegable
   menuOverlay: {

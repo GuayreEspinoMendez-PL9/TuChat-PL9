@@ -71,6 +71,10 @@ const SectionTitle = ({ children, color }: { children: string; color: string }) 
     <Text style={[st.sectionTitle, { color }]}>{children}</Text>
 );
 
+const SectionHint = ({ children, color }: { children: string; color: string }) => (
+    <Text style={[st.sectionHint, { color }]}>{children}</Text>
+);
+
 const SettingRow = ({ icon, title, subtitle, right, onPress, danger, colors }: any) => (
     <TouchableOpacity
         style={[st.row, { backgroundColor: colors.surface, borderBottomColor: colors.borderLight }]}
@@ -167,6 +171,11 @@ export const SettingsScreen = () => {
         : 'Envía mensajes a TuChat Web';
 
     const themeLabel = mode === 'light' ? 'Claro' : mode === 'dark' ? 'Oscuro' : 'Sistema';
+    const comfortSummary = [
+        notifs ? 'Alertas activas' : 'Alertas pausadas',
+        readReceipts ? 'Lectura visible' : 'Lectura privada',
+        autoDownload ? 'Multimedia automatica' : 'Multimedia manual',
+    ].join('  ·  ');
 
     return (
         <View style={[st.container, { backgroundColor: colors.background }]}>
@@ -177,27 +186,43 @@ export const SettingsScreen = () => {
             </View>
 
             <ScrollView style={st.scroll} contentContainerStyle={st.scrollContent}>
+                <View style={[st.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                    <Text style={[st.heroEyebrow, { color: colors.primary }]}>Control rapido</Text>
+                    <Text style={[st.heroTitle, { color: colors.textPrimary }]}>Ajusta privacidad, avisos y sincronizacion sin perderte.</Text>
+                    <Text style={[st.heroDescription, { color: colors.textSecondary }]}>
+                        Tu configuracion actual: {comfortSummary}
+                    </Text>
+                </View>
                 <SectionTitle color={colors.textMuted}>Notificaciones</SectionTitle>
+                <SectionHint color={colors.textMuted}>Decide como quieres enterarte de actividad nueva y si la app debe sonar al momento.</SectionHint>
                 <SettingRow colors={colors} icon={<BellIcon color={colors.primary} />} title="Recibir Notificaciones" subtitle="Gestiona tus alertas de chat y actividad."
                     right={<Switch value={notifs} onValueChange={toggleNotifs} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={notifs ? colors.switchThumbOn : colors.switchThumbOff} />} />
                 <SettingRow colors={colors} icon={<SoundIcon color={colors.primary} />} title="Sonidos" subtitle="Reproduce sonido al recibir mensajes."
                     right={<Switch value={sound} onValueChange={setSound} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={sound ? colors.switchThumbOn : colors.switchThumbOff} />} />
 
                 <SectionTitle color={colors.textMuted}>Privacidad</SectionTitle>
+                <SectionHint color={colors.textMuted}>Estas opciones cambian lo que otros pueden saber sobre tu actividad dentro del chat.</SectionHint>
                 <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Confirmaciones de lectura" subtitle="Permite mostrar cuando has abierto un mensaje."
                     right={<Switch value={readReceipts} onValueChange={toggleReadReceipts} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={readReceipts ? colors.switchThumbOn : colors.switchThumbOff} />} />
                 <SettingRow colors={colors} icon={<ShieldIcon color={colors.primary} />} title="Política de Privacidad" subtitle="Revisa cómo manejamos tus datos." onPress={() => { }} />
 
                 <SectionTitle color={colors.textMuted}>Apariencia</SectionTitle>
+                <SectionHint color={colors.textMuted}>Personaliza el aspecto general de la app para que se sienta mas comoda al usarla a diario.</SectionHint>
                 <SettingRow colors={colors} icon={<PaletteIcon color={colors.primary} />} title="Tema" subtitle={themeLabel} onPress={() => setThemeModalVisible(true)} />
 
                 <SectionTitle color={colors.textMuted}>Almacenamiento</SectionTitle>
+                <SectionHint color={colors.textMuted}>Gestiona como se descargan los archivos y cuanto contenido local quieres conservar.</SectionHint>
                 <SettingRow colors={colors} icon={<StorageIcon color={colors.primary} />} title="Descarga automática de medios" subtitle="Descarga imágenes y vídeos automáticamente."
                     right={<Switch value={autoDownload} onValueChange={setAutoDownload} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={autoDownload ? colors.switchThumbOn : colors.switchThumbOff} />} />
+                <SectionTitle color={colors.textMuted}>Sincronizacion</SectionTitle>
+                <SectionHint color={colors.textMuted}>Conecta esta sesion con tu otro dispositivo para mantener el estado mas alineado.</SectionHint>
                 <SettingRow colors={colors} icon={<SyncIcon color={colors.primary} />} title="Sincronizar con Web" subtitle={syncLabel} onPress={() => setSyncVisible(true)} />
+                <SectionTitle color={colors.textMuted}>Mantenimiento</SectionTitle>
+                <SectionHint color={colors.textMuted}>Herramientas para limpiar contenido local y mantener la app ligera.</SectionHint>
                 <SettingRow colors={colors} icon={<TrashIcon />} title="Borrar mensajes antiguos" subtitle="Elimina mensajes con más de 20 días" onPress={handleClearCache} danger />
 
                 <SectionTitle color={colors.textMuted}>Información</SectionTitle>
+                <SectionHint color={colors.textMuted}>Datos basicos de la app y accesos para revisar soporte o version instalada.</SectionHint>
                 <SettingRow colors={colors} icon={<InfoIcon color={colors.primary} />} title="Acerca de TuChat" subtitle="Versión 1.0.0" onPress={() => { }} />
                 <View style={{ height: 40 }} />
             </ScrollView>
@@ -215,7 +240,12 @@ const st = StyleSheet.create({
     headerTitle: { fontSize: 18, fontWeight: '700', color: '#fff' },
     scroll: { flex: 1 },
     scrollContent: { paddingBottom: 40 },
+    heroCard: { marginHorizontal: 16, marginTop: 18, paddingHorizontal: 18, paddingVertical: 18, borderRadius: 18, borderWidth: 1 },
+    heroEyebrow: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 },
+    heroTitle: { marginTop: 8, fontSize: 20, lineHeight: 28, fontWeight: '800' },
+    heroDescription: { marginTop: 8, fontSize: 13, lineHeight: 20 },
     sectionTitle: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, paddingHorizontal: 20, paddingTop: 24, paddingBottom: 10 },
+    sectionHint: { fontSize: 13, lineHeight: 19, paddingHorizontal: 20, paddingBottom: 10 },
     row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 20, borderBottomWidth: 1, gap: 14 },
     iconBox: { width: 38, height: 38, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
     rowContent: { flex: 1 },

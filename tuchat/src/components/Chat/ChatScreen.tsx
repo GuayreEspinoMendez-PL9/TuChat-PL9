@@ -380,7 +380,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     saveDraftLocal(id, next);
   };
 
-  const { socket, refreshUnreadCounts, setActiveRoom } = useSocket();
+  const { socket, refreshUnreadCounts, setActiveRoom, isConnected } = useSocket();
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && width >= 768;
 
@@ -1315,6 +1315,27 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return 'sent';
   };
 
+  const getMessageStatusLabel = (status: 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed') => {
+    switch (status) {
+      case 'sending':
+        return 'Enviando...';
+      case 'retrying':
+        return 'Reintentando...';
+      case 'failed':
+        return 'No enviado. Toca para reintentar.';
+      case 'delivered':
+        return 'Entregado';
+      case 'read':
+        return 'Leido';
+      case 'sent':
+      default:
+        return 'Enviado';
+    }
+  };
+
+  const failedOwnMessages = messages.filter((message) => message?.isMe && getMessageStatus(message) === 'failed');
+  const pendingOwnMessages = messages.filter((message) => message?.isMe && ['sending', 'retrying'].includes(getMessageStatus(message)));
+
   useEffect(() => {
     if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
     if (activeThreadFilter !== 'Todos') {
@@ -1351,7 +1372,30 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   if (loading) {
     return (
       <View style={[styles.loadingContainer, isEmbedded && { paddingTop: 0 }, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color="#6366f1" />
+        <View style={{ width: '100%', maxWidth: 460, paddingHorizontal: 24, gap: 14 }}>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={{ textAlign: 'center', color: colors.textPrimary, fontSize: 16, fontWeight: '700' }}>
+            Preparando la conversacion
+          </Text>
+          <Text style={{ textAlign: 'center', color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
+            Cargando mensajes recientes y recuperando tu contexto para que el chat se abra sin saltos.
+          </Text>
+          {[0, 1, 2].map((index) => (
+            <View
+              key={`chat-skeleton-${index}`}
+              style={{
+                alignSelf: index === 1 ? 'flex-end' : 'flex-start',
+                width: index === 1 ? '58%' : index === 2 ? '48%' : '64%',
+                borderRadius: 18,
+                paddingVertical: 18,
+                paddingHorizontal: 16,
+                backgroundColor: index === 1 ? colors.primaryBg : colors.surface,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+            />
+          ))}
+        </View>
       </View>
     );
   }
@@ -1710,6 +1754,63 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       </View>
 
       {/* Lista de mensajes */}
+      {!isConnected && (
+        <View style={{
+          marginHorizontal: 20,
+          marginBottom: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderRadius: 14,
+          backgroundColor: colors.dangerBg,
+          borderWidth: 1,
+          borderColor: colors.danger,
+        }}>
+          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
+            Sin conexion en tiempo real
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 18 }}>
+            Puedes seguir escribiendo. Los mensajes pendientes se reenviaran cuando vuelva la conexion.
+          </Text>
+        </View>
+      )}
+      {failedOwnMessages.length > 0 && (
+        <View style={{
+          marginHorizontal: 20,
+          marginBottom: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderRadius: 14,
+          backgroundColor: colors.dangerBg,
+          borderWidth: 1,
+          borderColor: colors.danger,
+        }}>
+          <Text style={{ color: colors.danger, fontWeight: '700', fontSize: 13 }}>
+            Hay {failedOwnMessages.length === 1 ? '1 mensaje pendiente de reenviar' : `${failedOwnMessages.length} mensajes pendientes de reenviar`}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 18 }}>
+            Pulsa "Reintentar" en el mensaje que fallo para enviarlo de nuevo cuando tengas mejor conexion.
+          </Text>
+        </View>
+      )}
+      {failedOwnMessages.length === 0 && pendingOwnMessages.length > 0 && (
+        <View style={{
+          marginHorizontal: 20,
+          marginBottom: 10,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          borderRadius: 14,
+          backgroundColor: colors.primaryBg,
+          borderWidth: 1,
+          borderColor: colors.primary,
+        }}>
+          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+            {pendingOwnMessages.length === 1 ? '1 mensaje aun se esta confirmando' : `${pendingOwnMessages.length} mensajes aun se estan confirmando`}
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4, lineHeight: 18 }}>
+            El chat seguira actualizando los ticks en cuanto el servidor y el otro dispositivo respondan.
+          </Text>
+        </View>
+      )}
       <FlatList
         ref={flatListRef}
         data={filteredMessages}
@@ -2030,6 +2131,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                       </View>
                     )}
                   </View>
+                  {isMe && (
+                    <Text
+                      style={{
+                        marginTop: 4,
+                        alignSelf: 'flex-end',
+                        color: item.status === 'failed' ? '#FCA5A5' : 'rgba(255,255,255,0.78)',
+                        fontSize: 11,
+                        fontWeight: item.status === 'failed' ? '700' : '500',
+                      }}
+                    >
+                      {getMessageStatusLabel(messageStatus)}
+                    </Text>
+                  )}
                   {isMe && item.status === 'failed' && (
                     <TouchableOpacity
                       onPress={() => retryMessage(item)}
