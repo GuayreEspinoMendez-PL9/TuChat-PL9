@@ -105,7 +105,9 @@ router.get("/miembros-detalle/:roomId", async (req, res) => {
       usuarios,
       config: {
         soloProfesores: config.soloProfesores || false,
-        delegados: config.delegados || []
+        delegados: config.delegados || [],
+        mutedMembers: Array.isArray(config.mutedMembers) ? config.mutedMembers : [],
+        bannedMembers: Array.isArray(config.bannedMembers) ? config.bannedMembers : [],
       }
     });
     

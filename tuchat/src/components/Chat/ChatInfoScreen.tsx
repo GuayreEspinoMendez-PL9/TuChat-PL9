@@ -44,11 +44,13 @@ interface ChatInfoScreenProps {
   nombre: string;
   esProfesor?: boolean; // Ahora es opcional porque lo validaremos dentro
   onOpenMessage?: (message: any) => void;
+  onOpenModeration?: (participant: any) => void;
+  getModerationSummary?: (userId: string) => string | null;
 }
 
 type PermissionMode = 'todos' | 'solo_profesor' | 'profesor_delegados';
 
-export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onOpenMessage }: ChatInfoScreenProps) => {
+export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onOpenMessage, onOpenModeration, getModerationSummary }: ChatInfoScreenProps) => {
   const [participantes, setParticipantes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('todos');
@@ -376,7 +378,17 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
                       </View>
                     )}
                   </View>
+                  {getModerationSummary?.(alumno.id) && (
+                    <Text style={[styles.checkboxSublabel, { color: colors.danger, marginTop: 4 }]}>
+                      {getModerationSummary(alumno.id)}
+                    </Text>
+                  )}
                 </View>
+                {esProfesorInterno && onOpenModeration && (
+                  <TouchableOpacity onPress={() => onOpenModeration(alumno)} style={[styles.actionPill, { backgroundColor: colors.primaryBg }]}>
+                    <Text style={[styles.actionPillText, { color: colors.primary }]}>Moderar</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
           </View>

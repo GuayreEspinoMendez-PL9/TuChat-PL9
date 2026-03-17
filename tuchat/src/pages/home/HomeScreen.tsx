@@ -195,6 +195,29 @@ export const HomeScreen = () => {
 
   const fetchChats = useCallback(async () => {
     try {
+      const storage = await getPreferenceStorage();
+      const cachedListsRaw = await storage.getItem('home_cached_chat_lists');
+      if (cachedListsRaw) {
+        try {
+          const cachedLists = JSON.parse(cachedListsRaw);
+          const cachedGroups = Array.isArray(cachedLists?.groups) ? cachedLists.groups : [];
+          const cachedPrivates = Array.isArray(cachedLists?.privates) ? cachedLists.privates : [];
+          setChats(cachedGroups);
+          setPrivateChats(cachedPrivates);
+
+          const cachedLastMessages: Record<string, any> = {};
+          [...cachedGroups, ...cachedPrivates].forEach((chat: any) => {
+            const messages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(chat.id_chat) : [];
+            if (messages && messages.length > 0) {
+              cachedLastMessages[chat.id_chat] = messages[messages.length - 1];
+            }
+          });
+          setLastMessages(cachedLastMessages);
+          setLoading(false);
+        } catch {}
+      }
+      setLoading(false);
+
       const token = Platform.OS === 'web'
         ? localStorage.getItem('token')
         : await SecureStore.getItemAsync('token');
@@ -226,6 +249,11 @@ export const HomeScreen = () => {
           }
         });
         setLastMessages(prev => ({ ...prev, ...messagesMap }));
+
+        await storage.setItem('home_cached_chat_lists', JSON.stringify({
+          groups: processed,
+          privates: privateChats,
+        }));
       }
 
       try {
@@ -251,6 +279,16 @@ export const HomeScreen = () => {
             }
           });
           setLastMessages(prev => ({ ...prev, ...privateMessagesMap }));
+          await storage.setItem('home_cached_chat_lists', JSON.stringify({
+            groups: response.data.ok && response.data.chats ? response.data.chats.map((item: any) => ({
+              id_chat: item.id_chat,
+              nombre: item.nombre || "Asignatura",
+              subtitulo: item.subtitulo || "General",
+              esProfesor: item.esProfesor || false,
+              tipo: 'grupo',
+            })) : chats,
+            privates: processedPrivate,
+          }));
         }
       } catch (e) {
         console.log("Chats privados no disponibles");
@@ -427,12 +465,6 @@ export const HomeScreen = () => {
     setActiveTab(tab);
     setPanelMode('chats');
   };
-
-  const quickSummary = [
-    { label: 'No leidos', value: currentScopeChats.reduce((sum, chat) => sum + (unreadCounts[chat.id_chat] || 0), 0) },
-    { label: 'Importantes', value: importantItems.length },
-    { label: 'Resultados', value: panelMode === 'search' ? searchResults.length : currentScopeChats.length },
-  ];
 
   const handleMenuOption = (option: string) => {
     setMenuVisible(false);
@@ -613,29 +645,6 @@ export const HomeScreen = () => {
         >
           <DotsVerticalIcon />
         </TouchableOpacity>
-        </View>
-      </View>
-
-      <View style={[s.heroCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={[s.heroTitle, { color: colors.textPrimary }]}>
-            {panelMode === 'chats' ? `Tus conversaciones de ${scopeLabel}` : panelMode === 'search' ? `Busca sin salir de ${scopeLabel}` : `Lo importante primero`}
-          </Text>
-          <Text style={[s.heroSubtitle, { color: colors.textSecondary }]}>
-            {panelMode === 'chats'
-              ? 'Prioriza lo no leido y entra rapido a lo que requiere atencion.'
-              : panelMode === 'search'
-                ? 'Recupera mensajes, archivos y checker con filtros mas claros.'
-                : 'Revisa anuncios, eventos y mensajes destacados dentro del alcance actual.'}
-          </Text>
-        </View>
-        <View style={s.heroStats}>
-          {quickSummary.map((item) => (
-            <View key={item.label} style={[s.heroStatPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <Text style={[s.heroStatValue, { color: colors.textPrimary }]}>{item.value}</Text>
-              <Text style={[s.heroStatLabel, { color: colors.textMuted }]}>{item.label}</Text>
-            </View>
-          ))}
         </View>
       </View>
 
@@ -915,14 +924,6 @@ const s = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
   },
-  heroCard: { marginHorizontal: 16, marginTop: 14, marginBottom: 6, borderWidth: 1, borderRadius: 22, padding: 16, gap: 14 },
-  heroTitle: { fontSize: 20, fontWeight: '700' },
-  heroSubtitle: { fontSize: 13, marginTop: 6, lineHeight: 19 },
-  heroStats: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  heroStatPill: { minWidth: 82, borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
-  heroStatValue: { fontSize: 18, fontWeight: '700' },
-  heroStatLabel: { fontSize: 11, marginTop: 2 },
-
   // Menú desplegable
   menuOverlay: {
     flex: 1,

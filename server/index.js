@@ -182,16 +182,45 @@ async function cargarAjustesSala(roomId) {
       const config = rows[0].configuracion;
       ajustesSalas[roomId] = {
         soloProfesores: config.soloProfesores || false,
-        delegados: config.delegados || []
+        delegados: config.delegados || [],
+        mutedMembers: Array.isArray(config.mutedMembers) ? config.mutedMembers : [],
+        bannedMembers: Array.isArray(config.bannedMembers) ? config.bannedMembers : [],
       };
     }
 
-    return ajustesSalas[roomId] || { soloProfesores: false, delegados: [] };
+    return ajustesSalas[roomId] || { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
   } catch (e) {
     console.error("Error cargando ajustes:", e);
-    return { soloProfesores: false, delegados: [] };
+    return { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
   }
 }
+
+const getActiveModerationEntry = (entries = [], userId) => {
+  const now = Date.now();
+  return (Array.isArray(entries) ? entries : []).find((entry) => {
+    if (String(entry?.userId || '') !== String(userId || '')) return false;
+    if (!entry?.expiresAt) return true;
+    return Number(entry.expiresAt) > now;
+  }) || null;
+};
+
+const getModerationBlockMessage = (settings, senderId) => {
+  const bannedEntry = getActiveModerationEntry(settings?.bannedMembers, senderId);
+  if (bannedEntry) {
+    return bannedEntry.expiresAt
+      ? `No puedes enviar mensajes hasta ${new Date(Number(bannedEntry.expiresAt)).toLocaleString('es-ES')}.`
+      : 'No puedes enviar mensajes en este chat hasta que el profesorado retire la restriccion.';
+  }
+
+  const mutedEntry = getActiveModerationEntry(settings?.mutedMembers, senderId);
+  if (mutedEntry) {
+    return mutedEntry.expiresAt
+      ? `Estas silenciado hasta ${new Date(Number(mutedEntry.expiresAt)).toLocaleString('es-ES')}.`
+      : 'Estas silenciado en este chat hasta que el profesorado retire la restriccion.';
+  }
+
+  return null;
+};
 
 
 // ESTRUCTURA DE SALAS DE VIDEOLLAMADA (Tipo Google Meet)
@@ -346,11 +375,15 @@ io.on("connection", async (socket) => {
       await cargarAjustesSala(roomId);
     }
     // Check de permisos (ajustesSalas debe estar definido arriba en tu index.js)
-    const settings = ajustesSalas[roomId] || { soloProfesores: false, delegados: [] };
+    const settings = ajustesSalas[roomId] || { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
     const puedeHablar = !settings.soloProfesores || esProfesor || settings.delegados?.includes(senderId);
+    const moderationBlockMessage = esProfesor ? null : getModerationBlockMessage(settings, senderId);
 
     if (!puedeHablar) {
       return socket.emit("error_permisos", { msg: "Chat restringido" });
+    }
+    if (moderationBlockMessage) {
+      return socket.emit("error_permisos", { msg: moderationBlockMessage });
     }
 
     const message = buildIndexedMessage({
@@ -451,24 +484,39 @@ io.on("connection", async (socket) => {
   // --- SETTINGS ---
   socket.on("chat:update_settings", async (settings) => {
     const { roomId, soloProfesores, delegados } = settings;
+    const currentSettings = ajustesSalas[roomId] || { mutedMembers: [], bannedMembers: [] };
 
-    ajustesSalas[roomId] = { soloProfesores, delegados };
+    ajustesSalas[roomId] = {
+      soloProfesores,
+      delegados,
+      mutedMembers: currentSettings.mutedMembers || [],
+      bannedMembers: currentSettings.bannedMembers || [],
+    };
 
     try {
       await appDb.query(
         `UPDATE comunicacion.salas_chat SET configuracion = $1 WHERE id_sala = $2`,
-        [JSON.stringify({ soloProfesores, delegados }), roomId]
+        [JSON.stringify(ajustesSalas[roomId]), roomId]
       );
     } catch (e) {
       console.error("Error guardando ajustes:", e);
     }
 
-    io.to(roomId).emit("chat:settings_changed", { soloProfesores, delegados });
+    io.to(roomId).emit("chat:settings_changed", ajustesSalas[roomId]);
   });
 
   socket.on("chat:send_media", async (payload, ackFn) => {
     // 1. Extraemos los datos (payload trae el campo 'image' con el base64)
     const { roomId, senderId, recipients, image, nombreEmisor } = payload;
+
+    if (!ajustesSalas[roomId]) {
+      await cargarAjustesSala(roomId);
+    }
+    const settings = ajustesSalas[roomId] || { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
+    const moderationBlockMessage = payload.esProfesor ? null : getModerationBlockMessage(settings, senderId);
+    if (moderationBlockMessage) {
+      return socket.emit("error_permisos", { msg: moderationBlockMessage });
+    }
 
     const message = buildIndexedMessage({
       ...payload,

@@ -85,6 +85,22 @@ const canManageRoomExtras = async (roomId, currentUser) => {
     return Array.isArray(config.delegados) && config.delegados.includes(currentUser?.id_usuario_app);
 };
 
+const sanitizeModerationEntries = (entries = []) => {
+    const now = Date.now();
+    return (Array.isArray(entries) ? entries : [])
+        .filter((entry) => entry?.userId)
+        .map((entry) => ({
+            userId: String(entry.userId),
+            userName: entry.userName || 'Alumno',
+            reason: entry.reason || '',
+            createdAt: Number(entry.createdAt) || now,
+            createdBy: entry.createdBy ? String(entry.createdBy) : null,
+            createdByName: entry.createdByName || '',
+            expiresAt: entry.expiresAt ? Number(entry.expiresAt) : null,
+        }))
+        .filter((entry) => !entry.expiresAt || entry.expiresAt > now);
+};
+
 const emitChatSystemMessage = async (req, roomId, message, memberIds = []) => {
     const io = req.app.get("io");
     io?.to(String(roomId)).emit("chat:receive", message);
@@ -118,12 +134,78 @@ router.get("/settings/:roomId", async (req, res) => {
             ok: true,
             settings: {
                 soloProfesores: config.soloProfesores || false,
-                delegados: config.delegados || []
+                delegados: config.delegados || [],
+                mutedMembers: sanitizeModerationEntries(config.mutedMembers || []),
+                bannedMembers: sanitizeModerationEntries(config.bannedMembers || []),
             }
         });
     } catch (err) {
         console.error("❌ Error en /chat/settings:", err);
         res.json({ ok: false, error: err.message });
+    }
+});
+
+router.post("/moderation/:roomId", async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const { targetUserId, targetUserName, action, durationMinutes, customUntil, reason } = req.body || {};
+
+        if (!(req.currentUser?.tipo_externo === 'PROFESOR' || req.currentUser?.id_rol === 2)) {
+            return res.status(403).json({ ok: false, msg: "Solo el profesorado puede moderar este chat" });
+        }
+
+        if (!targetUserId || !['mute', 'ban', 'clear_mute', 'clear_ban'].includes(action)) {
+            return res.status(400).json({ ok: false, msg: "Datos de moderacion no validos" });
+        }
+
+        const { rows } = await appDb.query(
+            `SELECT configuracion FROM comunicacion.salas_chat WHERE id_sala = $1`,
+            [roomId]
+        );
+
+        const currentConfig = rows[0]?.configuracion || {};
+        const nextConfig = {
+            soloProfesores: currentConfig.soloProfesores || false,
+            delegados: currentConfig.delegados || [],
+            mutedMembers: sanitizeModerationEntries(currentConfig.mutedMembers || []),
+            bannedMembers: sanitizeModerationEntries(currentConfig.bannedMembers || []),
+        };
+
+        const normalizedTargetId = String(targetUserId);
+        nextConfig.mutedMembers = nextConfig.mutedMembers.filter((entry) => String(entry.userId) !== normalizedTargetId);
+        nextConfig.bannedMembers = nextConfig.bannedMembers.filter((entry) => String(entry.userId) !== normalizedTargetId);
+
+        if (action === 'mute' || action === 'ban') {
+            const expiresAt = customUntil
+                ? Number(new Date(customUntil).getTime())
+                : durationMinutes
+                    ? Date.now() + Number(durationMinutes) * 60 * 1000
+                    : null;
+
+            const nextEntry = {
+                userId: normalizedTargetId,
+                userName: targetUserName || 'Alumno',
+                reason: reason || '',
+                createdAt: Date.now(),
+                createdBy: String(req.currentUser.id_usuario_app),
+                createdByName: req.currentUser.nombre || 'Profesor',
+                expiresAt: Number.isFinite(expiresAt) ? expiresAt : null,
+            };
+
+            if (action === 'mute') nextConfig.mutedMembers.push(nextEntry);
+            if (action === 'ban') nextConfig.bannedMembers.push(nextEntry);
+        }
+
+        await appDb.query(
+            `UPDATE comunicacion.salas_chat SET configuracion = $1 WHERE id_sala = $2`,
+            [JSON.stringify(nextConfig), roomId]
+        );
+
+        req.app.get("io")?.to(String(roomId)).emit("chat:settings_changed", nextConfig);
+
+        return res.json({ ok: true, settings: nextConfig });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
     }
 });
 

@@ -37,7 +37,7 @@ import { ReactionPicker } from './ReactionPicker';
 import { MentionDropdown, MentionCandidate } from './MentionDropdown';
 import axios from 'axios';
 import * as Clipboard from 'expo-clipboard';
-import { ChevronDown, Copy, Smile, CornerUpLeft, X, FileText, Pin, Download, CalendarDays, ListChecks, AtSign } from 'lucide-react-native';
+import { ChevronDown, Copy, Smile, CornerUpLeft, X, FileText, Pin, Download, CalendarDays, ListChecks, AtSign, ShieldAlert } from 'lucide-react-native';
 import { Alert, Linking } from 'react-native';
 import { decodeJwt } from '../../utils/auth';
 import { PinWizardModal, PinnedMessagesBanner } from './PinComponents';
@@ -88,6 +88,13 @@ const TEACHER_MESSAGE_TYPES = [
 
 const THREAD_TOPICS = ['General', 'Examen', 'Tarea', 'Dudas', 'Material'] as const;
 const CONVERSATION_FILTERS = ['Todos', 'Importantes', 'Checker', 'Menciones', 'Encuestas', 'Eventos'] as const;
+const MODERATION_PRESETS = [
+  { id: '15m', label: '15 min', minutes: 15 },
+  { id: '30m', label: '30 min', minutes: 30 },
+  { id: '1h', label: '1 hora', minutes: 60 },
+  { id: 'forever', label: 'Indefinido', minutes: null },
+  { id: 'custom', label: 'Personalizado', minutes: 'custom' },
+] as const;
 
 const normalizeEmojiValue = (candidate: unknown): string | null => {
   if (typeof candidate !== 'string') return null;
@@ -146,6 +153,19 @@ const toDateTimeLocalValue = (value: string) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return formatDateTimeLocal(parsed);
+};
+
+const getClientStorage = () => {
+  if (Platform.OS === 'web') {
+    return {
+      getItem: async (key: string) => localStorage.getItem(key),
+      setItem: async (key: string, value: string) => localStorage.setItem(key, value),
+    };
+  }
+  return {
+    getItem: (key: string) => SecureStore.getItemAsync(key),
+    setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+  };
 };
 
 // ─── FILE HELPERS ────────────────────────────────────────
@@ -349,6 +369,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [activeThreadFilter, setActiveThreadFilter] = useState<string>('Todos');
   const [showThreadFilterMenu, setShowThreadFilterMenu] = useState(false);
   const [expandedCheckerInfoId, setExpandedCheckerInfoId] = useState<string | null>(null);
+  const [chatModeration, setChatModeration] = useState<{ mutedMembers: any[]; bannedMembers: any[] }>({ mutedMembers: [], bannedMembers: [] });
+  const [moderationModalVisible, setModerationModalVisible] = useState(false);
+  const [moderationTarget, setModerationTarget] = useState<any | null>(null);
+  const [moderationAction, setModerationAction] = useState<'mute' | 'ban'>('mute');
+  const [moderationDurationId, setModerationDurationId] = useState<'15m' | '30m' | '1h' | 'forever' | 'custom'>('15m');
+  const [moderationCustomUntil, setModerationCustomUntil] = useState('');
+  const [moderationReason, setModerationReason] = useState('');
+  const [moderationSaving, setModerationSaving] = useState(false);
+  const [roomAccessSettings, setRoomAccessSettings] = useState<{ soloProfesores: boolean }>({ soloProfesores: false });
+  const roomCacheKey = `chat_room_cache_${id}`;
   const flatListRef = useRef<FlatList>(null);
   const pendingScrollTargetRef = useRef<string | null>(null);
   const hasAutoScrolledRef = useRef(false);
@@ -511,6 +541,33 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     const setup = async () => {
       try {
         let currentUserId = '';
+        const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
+        setMessages(localMessages);
+        setInput(typeof getDraftLocal === 'function' ? getDraftLocal(id) : '');
+        if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
+        refreshUnreadCounts();
+        if (typeof getPinnedMessagesByRoom === 'function') {
+          setPinnedMessages(getPinnedMessagesByRoom(id));
+        }
+        try {
+          const storage = getClientStorage();
+          const cachedRoomStateRaw = await storage.getItem(roomCacheKey);
+          if (cachedRoomStateRaw) {
+            const cachedRoomState = JSON.parse(cachedRoomStateRaw);
+            if (Array.isArray(cachedRoomState.memberDetails)) setMemberDetails(cachedRoomState.memberDetails);
+            if (Array.isArray(cachedRoomState.miembros)) setMiembros(cachedRoomState.miembros);
+            if (Array.isArray(cachedRoomState.delegados)) setDelegados(cachedRoomState.delegados);
+            setChatModeration({
+              mutedMembers: Array.isArray(cachedRoomState.mutedMembers) ? cachedRoomState.mutedMembers : [],
+              bannedMembers: Array.isArray(cachedRoomState.bannedMembers) ? cachedRoomState.bannedMembers : [],
+            });
+            setRoomAccessSettings({
+              soloProfesores: Boolean(cachedRoomState.soloProfesores),
+            });
+          }
+        } catch { }
+        setLoading(false);
+
         const token = Platform.OS === 'web'
           ? localStorage.getItem('token')
           : await SecureStore.getItemAsync('token');
@@ -555,6 +612,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             if (detailResponse.data.ok) {
               setMemberDetails(detailResponse.data.usuarios || []);
               setDelegados(detailResponse.data.config?.delegados || []);
+              setChatModeration({
+                mutedMembers: detailResponse.data.config?.mutedMembers || [],
+                bannedMembers: detailResponse.data.config?.bannedMembers || [],
+              });
+              setRoomAccessSettings({
+                soloProfesores: Boolean(detailResponse.data.config?.soloProfesores),
+              });
             }
           } catch (e) {
             console.log("âš ï¸ No se pudieron cargar detalles de miembros:", e);
@@ -567,6 +631,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             });
             if (settingsResponse.data.ok) {
               setDelegados(settingsResponse.data.settings?.delegados || []);
+              setChatModeration({
+                mutedMembers: settingsResponse.data.settings?.mutedMembers || [],
+                bannedMembers: settingsResponse.data.settings?.bannedMembers || [],
+              });
+              setRoomAccessSettings({
+                soloProfesores: Boolean(settingsResponse.data.settings?.soloProfesores),
+              });
             }
           } catch (e) {
             console.log("⚠️ No se pudieron cargar los delegados:", e);
@@ -612,13 +683,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             console.log("No se pudo cargar la preferencia de lectura:", e);
           }
         }
-
-        const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
-        setMessages(localMessages);
-        setInput(typeof getDraftLocal === 'function' ? getDraftLocal(id) : '');
-        if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
-        refreshUnreadCounts();
-
         if (socket) {
           socket.emit("join_room", id);
           localMessages
@@ -646,11 +710,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             console.log("No se pudieron sincronizar estados persistidos:", e);
           }
         }
-
-        setLoading(false);
+        try {
+          const storage = getClientStorage();
+          await storage.setItem(roomCacheKey, JSON.stringify({
+            miembros,
+            memberDetails,
+            delegados,
+            soloProfesores: roomAccessSettings.soloProfesores,
+            mutedMembers: chatModeration.mutedMembers,
+            bannedMembers: chatModeration.bannedMembers,
+          }));
+        } catch { }
       } catch (error) {
         console.error('Error en setup del Chat:', error);
-        setLoading(false);
       }
     };
     setup();
@@ -671,6 +743,22 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       return () => setActiveRoom(null);
     }, [id, messages, socket, readReceiptsEnabled])
   );
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const storage = getClientStorage();
+        await storage.setItem(roomCacheKey, JSON.stringify({
+          miembros,
+          memberDetails,
+          delegados,
+          soloProfesores: roomAccessSettings.soloProfesores,
+          mutedMembers: chatModeration.mutedMembers,
+          bannedMembers: chatModeration.bannedMembers,
+        }));
+      } catch { }
+    })();
+  }, [roomCacheKey, miembros, memberDetails, delegados, roomAccessSettings, chatModeration]);
 
   useEffect(() => {
     if (!socket) return;
@@ -842,6 +930,22 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }));
     };
 
+    const handleSettingsChanged = (settings: any) => {
+      setDelegados(settings?.delegados || []);
+      setChatModeration({
+        mutedMembers: settings?.mutedMembers || [],
+        bannedMembers: settings?.bannedMembers || [],
+      });
+      setRoomAccessSettings({
+        soloProfesores: Boolean(settings?.soloProfesores),
+      });
+    };
+
+    const handlePermissionError = ({ msg }: { msg?: string }) => {
+      if (!msg) return;
+      Alert.alert('No puedes enviar el mensaje', msg);
+    };
+
     socket.on("chat:receive", handleNewMessage);
     socket.on("chat:msg_sent", handleMsgSent);
     socket.on("chat:update_delivered_status", handleDelivered);
@@ -858,6 +962,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     socket.on("chat:user_typing", handleTyping);
     socket.on("chat:user_stopped_typing", handleStopTyping);
     socket.on("chat:update_strong_read", handleStrongRead);
+    socket.on("chat:settings_changed", handleSettingsChanged);
+    socket.on("error_permisos", handlePermissionError);
 
     return () => {
       socket.off("chat:receive", handleNewMessage);
@@ -876,6 +982,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       socket.off("chat:user_typing", handleTyping);
       socket.off("chat:user_stopped_typing", handleStopTyping);
       socket.off("chat:update_strong_read", handleStrongRead);
+      socket.off("chat:settings_changed", handleSettingsChanged);
+      socket.off("error_permisos", handlePermissionError);
     };
   }, [socket, id, refreshUnreadCounts, myUserId, applyMessagePatch, readReceiptsEnabled]);
 
@@ -1131,6 +1239,64 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  const submitModeration = async (actionOverride?: 'mute' | 'ban' | 'clear_mute' | 'clear_ban') => {
+    if (!moderationTarget?.id) {
+      Alert.alert('Selecciona un alumno', 'Elige primero a quien quieres moderar.');
+      return;
+    }
+
+    const action = actionOverride || moderationAction;
+    const token = Platform.OS === 'web'
+      ? localStorage.getItem('token')
+      : await SecureStore.getItemAsync('token');
+
+    if (!token) return;
+
+    let durationMinutes: number | null = null;
+    let customUntil: string | null = null;
+
+    if (action === 'mute' || action === 'ban') {
+      const selectedPreset = MODERATION_PRESETS.find((preset) => preset.id === moderationDurationId);
+      if (selectedPreset?.minutes === 'custom') {
+        if (!moderationCustomUntil.trim()) {
+          Alert.alert('Falta la fecha', 'Indica hasta cuando debe durar la restriccion personalizada.');
+          return;
+        }
+        customUntil = moderationCustomUntil;
+      } else {
+        durationMinutes = typeof selectedPreset?.minutes === 'number' ? selectedPreset.minutes : null;
+      }
+    }
+
+    try {
+      setModerationSaving(true);
+      const response = await axios.post(`${API_URL}/chat/moderation/${id}`, {
+        targetUserId: moderationTarget.id,
+        targetUserName: moderationTarget.nombre,
+        action,
+        durationMinutes,
+        customUntil,
+        reason: moderationReason.trim(),
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.data?.ok) {
+        setChatModeration({
+          mutedMembers: response.data.settings?.mutedMembers || [],
+          bannedMembers: response.data.settings?.bannedMembers || [],
+        });
+        setModerationModalVisible(false);
+      } else {
+        Alert.alert('No se pudo guardar', response.data?.msg || 'La moderacion no se pudo aplicar.');
+      }
+    } catch (e: any) {
+      Alert.alert('No se pudo guardar', e?.response?.data?.msg || 'La moderacion no se pudo aplicar.');
+    } finally {
+      setModerationSaving(false);
+    }
+  };
+
   const sendMessage = async (mediaUri?: string, mediaType: 'text' | 'image' | 'video' | 'file' = 'text', fileName?: string, fileSize?: number, mimeType?: string) => {
     console.log("SENDING MESSAGE...", { input, mediaUri: mediaUri?.substring(0, 60), socket: !!socket, myUserId, mediaType, fileName });
     if (!input.trim() && !mediaUri) return;
@@ -1335,6 +1501,71 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const failedOwnMessages = messages.filter((message) => message?.isMe && getMessageStatus(message) === 'failed');
   const pendingOwnMessages = messages.filter((message) => message?.isMe && ['sending', 'retrying'].includes(getMessageStatus(message)));
+  const managedStudents = memberDetails.filter((member: any) => !member.es_profesor);
+  const isDelegate = delegados.includes(String(myUserId || ''));
+
+  const getModerationEntry = useCallback((userId: string, kind: 'mute' | 'ban') => {
+    const source = kind === 'mute' ? chatModeration.mutedMembers : chatModeration.bannedMembers;
+    const now = Date.now();
+    return source.find((entry: any) => String(entry?.userId) === String(userId) && (!entry?.expiresAt || Number(entry.expiresAt) > now)) || null;
+  }, [chatModeration]);
+
+  const getModerationSummary = useCallback((userId: string) => {
+    const banEntry = getModerationEntry(userId, 'ban');
+    if (banEntry) {
+      return banEntry.expiresAt
+        ? `Suspendido hasta ${new Date(Number(banEntry.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+        : 'Suspendido indefinidamente';
+    }
+
+    const muteEntry = getModerationEntry(userId, 'mute');
+    if (muteEntry) {
+      return muteEntry.expiresAt
+        ? `Silenciado hasta ${new Date(Number(muteEntry.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+        : 'Silenciado indefinidamente';
+    }
+
+    return null;
+  }, [getModerationEntry]);
+
+  const openModerationModal = useCallback((member?: any | null) => {
+    setModerationTarget(member || managedStudents[0] || null);
+    setModerationAction('mute');
+    setModerationDurationId('15m');
+    setModerationCustomUntil('');
+    setModerationReason('');
+    setModerationModalVisible(true);
+  }, [managedStudents]);
+
+  const activeMuteForMe = getModerationEntry(String(myUserId || ''), 'mute');
+  const activeBanForMe = getModerationEntry(String(myUserId || ''), 'ban');
+  const blockedByDelegateMode = roomAccessSettings.soloProfesores && !esProfesor && !isDelegate;
+  const composerLockState = activeBanForMe
+    ? {
+        title: 'No puedes escribir en este chat',
+        body: activeBanForMe.expiresAt
+          ? `El profesorado ha bloqueado tus mensajes hasta ${new Date(Number(activeBanForMe.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
+          : 'El profesorado ha bloqueado tus mensajes de forma indefinida.',
+        accent: colors.danger,
+        background: colors.dangerBg,
+      }
+    : activeMuteForMe
+      ? {
+          title: 'Estas silenciado temporalmente',
+          body: activeMuteForMe.expiresAt
+            ? `Podras volver a escribir el ${new Date(Number(activeMuteForMe.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
+            : 'No puedes escribir hasta que el profesorado retire el silencio.',
+          accent: colors.danger,
+          background: colors.dangerBg,
+        }
+      : blockedByDelegateMode
+        ? {
+            title: 'Solo profesorado y delegados pueden escribir',
+            body: 'Este chat esta en modo restringido. Puedes leer mensajes y seguir el hilo, pero no enviar nuevos.',
+            accent: colors.primary,
+            background: colors.primaryBg,
+          }
+        : null;
 
   useEffect(() => {
     if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
@@ -1443,6 +1674,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           nombre={nombre}
           esProfesor={esProfesor}
           onOpenMessage={handleOpenMessageFromInfo}
+          onOpenModeration={openModerationModal}
+          getModerationSummary={getModerationSummary}
         />
       </View>
     );
@@ -2376,33 +2609,54 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
       {/* Input */}
       <View style={[styles.inputContainer, isEmbedded && { paddingBottom: 16 }, replyingTo && { borderTopLeftRadius: 0, borderTopRightRadius: 0 }, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-        {(showComposerMeta || teacherMessageType || requiresAck || selectedThreadTopic !== 'General') && (
-          <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, gap: 8 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {THREAD_TOPICS.map((topic) => (
-                <TouchableOpacity key={topic} onPress={() => setSelectedThreadTopic(topic)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: selectedThreadTopic === topic ? colors.primary : colors.surfaceHover }}>
-                  <Text style={{ color: selectedThreadTopic === topic ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{topic}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            {canManageExtras && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                <TouchableOpacity onPress={() => setTeacherMessageType(null)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: !teacherMessageType ? colors.primary : colors.surfaceHover }}>
-                  <Text style={{ color: !teacherMessageType ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Normal</Text>
-                </TouchableOpacity>
-                {TEACHER_MESSAGE_TYPES.map((type) => (
-                  <TouchableOpacity key={type.id} onPress={() => setTeacherMessageType(type.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: teacherMessageType === type.id ? colors.primary : colors.surfaceHover }}>
-                    <Text style={{ color: teacherMessageType === type.id ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{type.label}</Text>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity onPress={() => setRequiresAck(prev => !prev)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: requiresAck ? colors.primary : colors.surfaceHover }}>
-                  <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Checker</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            )}
+        {composerLockState ? (
+          <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 14, backgroundColor: composerLockState.background, borderWidth: 1, borderColor: composerLockState.accent }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' }}>
+                <ShieldAlert size={18} color={composerLockState.accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: composerLockState.accent, fontWeight: '800', fontSize: 14 }}>
+                  {composerLockState.title}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
+                  {composerLockState.body}
+                </Text>
+              </View>
+            </View>
           </View>
-        )}
-        {showInputEmojiPicker && (
+        ) : (
+          <>
+            {(showComposerMeta || teacherMessageType || requiresAck || selectedThreadTopic !== 'General') && (
+              <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, gap: 8 }}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {THREAD_TOPICS.map((topic) => (
+                    <TouchableOpacity key={topic} onPress={() => setSelectedThreadTopic(topic)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: selectedThreadTopic === topic ? colors.primary : colors.surfaceHover }}>
+                      <Text style={{ color: selectedThreadTopic === topic ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{topic}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                {canManageExtras && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <TouchableOpacity onPress={() => setTeacherMessageType(null)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: !teacherMessageType ? colors.primary : colors.surfaceHover }}>
+                      <Text style={{ color: !teacherMessageType ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Normal</Text>
+                    </TouchableOpacity>
+                    {TEACHER_MESSAGE_TYPES.map((type) => (
+                      <TouchableOpacity key={type.id} onPress={() => setTeacherMessageType(type.id)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: teacherMessageType === type.id ? colors.primary : colors.surfaceHover }}>
+                        <Text style={{ color: teacherMessageType === type.id ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{type.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity onPress={() => setRequiresAck(prev => !prev)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: requiresAck ? colors.primary : colors.surfaceHover }}>
+                      <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Checker</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => openModerationModal()} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover }}>
+                      <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Moderacion</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                )}
+              </View>
+            )}
+            {showInputEmojiPicker && (
           <View style={{
             position: 'absolute',
             bottom: Platform.OS === 'ios' ? 74 : 66,
@@ -2471,76 +2725,185 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               </Text>
             </View>
           </View>
-        )}
+            )}
 
-        {mentionCandidates.length > 0 && (
+            {mentionCandidates.length > 0 && (
           <MentionDropdown
             candidates={mentionCandidates}
             onSelect={handleMentionSelect}
             colors={colors}
           />
-        )}
+            )}
 
-        <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
-          <TouchableOpacity onPress={() => setShowComposerMeta(prev => !prev)} style={styles.attachButton}>
-            <FileText size={18} color={colors.textSecondary} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setShowInputEmojiPicker(false); handleAttachment(); }} style={styles.attachButton}>
-            <PaperclipIcon />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setShowInputEmojiPicker(prev => !prev)}
-            style={styles.attachButton}
-          >
-            <SmileyIcon color={colors.textSecondary} />
-          </TouchableOpacity>
-          <TextInput
-            ref={inputRef} // Ensure ref is attached
-            style={[styles.input, { color: colors.inputText }]}
-            value={input}
-            onChangeText={(text) => {
-              setInput(text);
-              saveDraftLocal(id, text);
-              emitTyping(text);
-              updateMentionCandidates(text);
-            }}
-            onFocus={() => setShowInputEmojiPicker(false)}
-            onBlur={() => socket?.emit("chat:stop_typing", { roomId: id })}
-            placeholder="Escribe un mensaje..."
-            placeholderTextColor={colors.placeholder}
-            multiline
-            onKeyPress={(e: any) => {
-              if (Platform.OS === 'web' && e.nativeEvent.key === 'Escape') {
-                setMentionCandidates([]);
-                setMentionQuery(null);
-              }
-              if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                setShowInputEmojiPicker(false);
-                setMentionCandidates([]);
-                setMentionQuery(null);
-                sendMessage();
-              }
-            }}
-          />
-          <TouchableOpacity
-            onPress={() => {
-              setShowInputEmojiPicker(false);
-              sendMessage();
-            }}
-            disabled={!input.trim() || sending}
-            style={[styles.sendButton, (!input.trim() || sending) && styles.sendButtonDisabled]}
-          >
-            {sending ? <ActivityIndicator size="small" color="white" /> : <SendIcon />}
-          </TouchableOpacity>
-        </View>
+            <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.inputBorder }]}>
+              <TouchableOpacity onPress={() => setShowComposerMeta(prev => !prev)} style={styles.attachButton}>
+                <FileText size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => { setShowInputEmojiPicker(false); handleAttachment(); }} style={styles.attachButton}>
+                <PaperclipIcon />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowInputEmojiPicker(prev => !prev)}
+                style={styles.attachButton}
+              >
+                <SmileyIcon color={colors.textSecondary} />
+              </TouchableOpacity>
+              <TextInput
+                ref={inputRef} // Ensure ref is attached
+                style={[styles.input, { color: colors.inputText }]}
+                value={input}
+                onChangeText={(text) => {
+                  setInput(text);
+                  saveDraftLocal(id, text);
+                  emitTyping(text);
+                  updateMentionCandidates(text);
+                }}
+                onFocus={() => setShowInputEmojiPicker(false)}
+                onBlur={() => socket?.emit("chat:stop_typing", { roomId: id })}
+                placeholder="Escribe un mensaje..."
+                placeholderTextColor={colors.placeholder}
+                multiline
+                onKeyPress={(e: any) => {
+                  if (Platform.OS === 'web' && e.nativeEvent.key === 'Escape') {
+                    setMentionCandidates([]);
+                    setMentionQuery(null);
+                  }
+                  if (Platform.OS === 'web' && e.nativeEvent.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    setShowInputEmojiPicker(false);
+                    setMentionCandidates([]);
+                    setMentionQuery(null);
+                    sendMessage();
+                  }
+                }}
+              />
+              <TouchableOpacity
+                onPress={() => {
+                  setShowInputEmojiPicker(false);
+                  sendMessage();
+                }}
+                disabled={!input.trim() || sending}
+                style={[styles.sendButton, (!input.trim() || sending) && styles.sendButtonDisabled]}
+              >
+                {sending ? <ActivityIndicator size="small" color="white" /> : <SendIcon />}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </View>
     </View >
+  );
+
+  const activeModerationSummary = moderationTarget?.id ? getModerationSummary(moderationTarget.id) : null;
+  const moderationModal = (
+    <Modal visible={moderationModalVisible} transparent animationType="fade" onRequestClose={() => setModerationModalVisible(false)}>
+      <TouchableWithoutFeedback onPress={() => setModerationModalVisible(false)}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 18 }}>
+          <TouchableWithoutFeedback>
+            <View style={{ backgroundColor: colors.surface, borderRadius: 22, borderWidth: 1, borderColor: colors.border, padding: 18, gap: 14 }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: '800' }}>Moderacion del chat</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
+                Silencia o suspende temporalmente a un alumno. Solo el profesorado puede aplicar estos cambios.
+              </Text>
+
+              <View style={{ gap: 8 }}>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Alumno</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {managedStudents.map((member) => {
+                    const selected = String(moderationTarget?.id || '') === String(member.id);
+                    return (
+                      <TouchableOpacity
+                        key={member.id}
+                        onPress={() => setModerationTarget(member)}
+                        style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                      >
+                        <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{member.nombre}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                {activeModerationSummary && (
+                  <Text style={{ color: colors.danger, fontSize: 12, lineHeight: 18 }}>
+                    Estado actual: {activeModerationSummary}
+                  </Text>
+                )}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {(['mute', 'ban'] as const).map((action) => {
+                  const selected = moderationAction === action;
+                  return (
+                    <TouchableOpacity
+                      key={action}
+                      onPress={() => setModerationAction(action)}
+                      style={{ flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700' }}>
+                        {action === 'mute' ? 'Silenciar' : 'Suspender'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={{ gap: 8 }}>
+                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Duracion</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                  {MODERATION_PRESETS.map((preset) => {
+                    const selected = moderationDurationId === preset.id;
+                    return (
+                      <TouchableOpacity
+                        key={preset.id}
+                        onPress={() => setModerationDurationId(preset.id)}
+                        style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                      >
+                        <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{preset.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {moderationDurationId === 'custom' && (
+                <TextInput
+                  value={moderationCustomUntil}
+                  onChangeText={setModerationCustomUntil}
+                  placeholder="YYYY-MM-DDTHH:mm"
+                  placeholderTextColor={colors.placeholder}
+                  style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: colors.textPrimary, backgroundColor: colors.background }}
+                />
+              )}
+
+              <TextInput
+                value={moderationReason}
+                onChangeText={setModerationReason}
+                placeholder="Motivo opcional"
+                placeholderTextColor={colors.placeholder}
+                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: colors.textPrimary, backgroundColor: colors.background }}
+              />
+
+              <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                <TouchableOpacity onPress={() => submitModeration()} disabled={moderationSaving} style={{ flex: 1, minWidth: 140, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}>
+                  <Text style={{ color: colors.textOnPrimary, fontWeight: '800' }}>{moderationSaving ? 'Guardando...' : moderationAction === 'mute' ? 'Aplicar silencio' : 'Aplicar suspension'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => submitModeration('clear_mute')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar silencio</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => submitModeration('clear_ban')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover }}>
+                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar suspension</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
   );
 
   if (isEmbedded) {
     return (
       <>
+        {moderationModal}
         <TouchableWithoutFeedback onPress={() => {
           setOpenMenuId(null);
           setShowReactionPicker(null);
@@ -2629,6 +2992,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
       <React.Fragment>
+      {moderationModal}
       <TouchableWithoutFeedback onPress={() => {
         setOpenMenuId(null);
         setShowReactionPicker(null);
