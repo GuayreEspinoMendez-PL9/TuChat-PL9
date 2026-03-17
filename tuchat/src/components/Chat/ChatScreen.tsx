@@ -378,8 +378,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [moderationReason, setModerationReason] = useState('');
   const [moderationSaving, setModerationSaving] = useState(false);
   const [roomAccessSettings, setRoomAccessSettings] = useState<{ soloProfesores: boolean }>({ soloProfesores: false });
+  const [chatSetupReady, setChatSetupReady] = useState(false);
   const roomCacheKey = `chat_room_cache_${id}`;
   const flatListRef = useRef<FlatList>(null);
+  const messagesRef = useRef<any[]>([]);
   const pendingScrollTargetRef = useRef<string | null>(null);
   const hasAutoScrolledRef = useRef(false);
   const inputRef = useRef<TextInput>(null); // New ref for input
@@ -393,6 +395,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null); // For touch/click
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const [replyingTo, setReplyingTo] = useState<any>(null); // New state for reply
   const [inputEmojis, setInputEmojis] = useState<string[]>(DEFAULT_INPUT_EMOJIS);
   const [showInputEmojiPicker, setShowInputEmojiPicker] = useState(false);
@@ -539,6 +545,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   useEffect(() => {
     const setup = async () => {
+      setChatSetupReady(false);
       try {
         let currentUserId = '';
         const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
@@ -717,6 +724,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         } catch { }
       } catch (error) {
         console.error('Error en setup del Chat:', error);
+      } finally {
+        setChatSetupReady(true);
       }
     };
     setup();
@@ -727,9 +736,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
       refreshUnreadCounts();
       setActiveRoom(id);
-      emitReadReceiptsForMessages(messages, String(myUserIdRef.current || ''));
+      emitReadReceiptsForMessages(messagesRef.current, String(myUserIdRef.current || ''));
       return () => setActiveRoom(null);
-    }, [id, messages, socket, readReceiptsEnabled])
+    }, [id, refreshUnreadCounts, setActiveRoom, socket, readReceiptsEnabled])
   );
 
   useEffect(() => {
@@ -1543,7 +1552,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const activeMuteForMe = getModerationEntry(String(myUserId || ''), 'mute');
   const activeBanForMe = getModerationEntry(String(myUserId || ''), 'ban');
   const blockedByDelegateMode = roomAccessSettings.soloProfesores && !esProfesor && !isDelegate;
-  const composerLockState = activeBanForMe
+  const waitingForRealtime = !chatSetupReady || !isConnected || !socket?.connected;
+  const composerLockState = waitingForRealtime
+    ? {
+        title: 'Preparando el chat en tiempo real',
+        body: !chatSetupReady
+          ? 'Estamos terminando de cargar participantes, permisos y estado del chat para que puedas escribir sin errores.'
+          : 'Esperando a que el socket vuelva a conectarse para enviar mensajes con seguridad.',
+        accent: colors.primary,
+        background: colors.primaryBg,
+      }
+    : activeBanForMe
     ? {
         title: 'No puedes escribir en este chat',
         body: activeBanForMe.expiresAt
@@ -1679,6 +1698,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           onOpenMessage={handleOpenMessageFromInfo}
           onOpenModeration={openModerationModal}
           getModerationSummary={getModerationSummary}
+          initialParticipants={memberDetails}
+          initialDelegates={delegados}
+          initialPresenceByUser={presenceByUser}
+          initialSoloProfesores={roomAccessSettings.soloProfesores}
         />
       </View>
     );

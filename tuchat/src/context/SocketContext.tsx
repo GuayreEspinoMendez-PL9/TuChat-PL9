@@ -38,7 +38,6 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       const counts = typeof getAllUnreadCounts === 'function' ? getAllUnreadCounts() : {};
       setUnreadCounts(counts);
-      console.log('Contadores actualizados:', counts);
     } catch (e) {
       console.error('Error refreshing unread counts:', e);
     }
@@ -46,7 +45,6 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
   const setActiveRoom = useCallback((roomId: string | null) => {
     activeRoomIdRef.current = roomId;
-    console.log('Chat activo (Ref):', roomId);
   }, []);
 
   useEffect(() => {

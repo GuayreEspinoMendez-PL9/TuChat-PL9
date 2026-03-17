@@ -46,17 +46,36 @@ interface ChatInfoScreenProps {
   onOpenMessage?: (message: any) => void;
   onOpenModeration?: (participant: any) => void;
   getModerationSummary?: (userId: string) => string | null;
+  initialParticipants?: any[];
+  initialDelegates?: string[];
+  initialPresenceByUser?: Record<string, any>;
+  initialSoloProfesores?: boolean;
 }
 
 type PermissionMode = 'todos' | 'solo_profesor' | 'profesor_delegados';
 
-export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onOpenMessage, onOpenModeration, getModerationSummary }: ChatInfoScreenProps) => {
-  const [participantes, setParticipantes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>('todos');
-  const [delegados, setDelegados] = useState<string[]>([]);
+export const ChatInfoScreen = ({
+  roomId,
+  nombre,
+  esProfesor: esProfesorProp,
+  onOpenMessage,
+  onOpenModeration,
+  getModerationSummary,
+  initialParticipants = [],
+  initialDelegates = [],
+  initialPresenceByUser = {},
+  initialSoloProfesores = false,
+}: ChatInfoScreenProps) => {
+  const [participantes, setParticipantes] = useState<any[]>(initialParticipants);
+  const [loading, setLoading] = useState(initialParticipants.length === 0);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    initialSoloProfesores
+      ? (initialDelegates.length > 0 ? 'profesor_delegados' : 'solo_profesor')
+      : 'todos'
+  );
+  const [delegados, setDelegados] = useState<string[]>(initialDelegates);
   const [saving, setSaving] = useState(false);
-  const [presenceByUser, setPresenceByUser] = useState<Record<string, any>>({});
+  const [presenceByUser, setPresenceByUser] = useState<Record<string, any>>(initialPresenceByUser);
   const [activeTab, setActiveTab] = useState<'participants' | 'files'>('participants');
   const [sharedFiles, setSharedFiles] = useState<any[]>([]);
   const [fileQuery, setFileQuery] = useState('');
@@ -67,6 +86,31 @@ export const ChatInfoScreen = ({ roomId, nombre, esProfesor: esProfesorProp, onO
 
   const { socket } = useSocket();
   const { colors } = useTheme();
+
+  useEffect(() => {
+    if (initialParticipants.length > 0) {
+      setParticipantes(initialParticipants);
+      setLoading(false);
+    }
+  }, [initialParticipants]);
+
+  useEffect(() => {
+    setDelegados(initialDelegates);
+  }, [initialDelegates]);
+
+  useEffect(() => {
+    if (initialPresenceByUser && Object.keys(initialPresenceByUser).length > 0) {
+      setPresenceByUser(initialPresenceByUser);
+    }
+  }, [initialPresenceByUser]);
+
+  useEffect(() => {
+    setPermissionMode(
+      initialSoloProfesores
+        ? (initialDelegates.length > 0 ? 'profesor_delegados' : 'solo_profesor')
+        : 'todos'
+    );
+  }, [initialSoloProfesores, initialDelegates]);
 
   const loadSharedFiles = useCallback(() => {
     try {
