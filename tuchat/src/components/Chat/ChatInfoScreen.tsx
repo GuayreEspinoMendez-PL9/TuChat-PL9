@@ -105,11 +105,11 @@ export const ChatInfoScreen = ({
   }, [initialPresenceByUser]);
 
   useEffect(() => {
-    setPermissionMode(
-      initialSoloProfesores
-        ? (initialDelegates.length > 0 ? 'profesor_delegados' : 'solo_profesor')
-        : 'todos'
-    );
+    setPermissionMode((currentMode) => {
+      if (!initialSoloProfesores) return 'todos';
+      if (initialDelegates.length > 0) return 'profesor_delegados';
+      return currentMode === 'profesor_delegados' ? currentMode : 'solo_profesor';
+    });
   }, [initialSoloProfesores, initialDelegates]);
 
   const loadSharedFiles = useCallback(() => {
@@ -196,6 +196,7 @@ export const ChatInfoScreen = ({
     if (!roomId) return;
     setSaving(true);
     const delegadosList = newDelegados !== undefined ? newDelegados : delegados;
+    const shouldPersistDelegatesMode = mode !== 'profesor_delegados' || delegadosList.length > 0;
 
     const settings = {
       roomId: roomId,
@@ -204,7 +205,7 @@ export const ChatInfoScreen = ({
       esProfesor: true
     };
 
-    if (socket) {
+    if (socket && shouldPersistDelegatesMode) {
       socket.emit("chat:update_settings", settings);
     }
 
@@ -270,11 +271,7 @@ export const ChatInfoScreen = ({
     return 'Desconectado';
   };
 
-  // ✅ DEBUG REAL: Ahora comparamos la prop con lo que detectamos nosotros
-  console.log("🔍 DEBUG ROL:", { 
-    víaProp: esProfesorProp, 
-    víaInterna: esProfesorInterno 
-  });
+
 
   if (loading) {
     return (
@@ -356,6 +353,11 @@ export const ChatInfoScreen = ({
             {permissionMode === 'profesor_delegados' && alumnos.length > 0 && (
               <View style={styles.delegadosSection}>
                 <Text style={[styles.delegadosTitle, { color: colors.textSecondary }]}>Seleccionar delegados:</Text>
+                {delegados.length === 0 && (
+                  <Text style={[styles.checkboxSublabel, { color: colors.textMuted, marginBottom: 12 }]}>
+                    Elige al menos un delegado para activar este modo en el chat.
+                  </Text>
+                )}
                 {alumnos.map((alumno) => (
                   <Checkbox
                     key={alumno.id}

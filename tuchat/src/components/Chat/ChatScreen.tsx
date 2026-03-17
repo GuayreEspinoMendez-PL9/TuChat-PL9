@@ -375,6 +375,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [moderationAction, setModerationAction] = useState<'mute' | 'ban'>('mute');
   const [moderationDurationId, setModerationDurationId] = useState<'15m' | '30m' | '1h' | 'forever' | 'custom'>('15m');
   const [moderationCustomUntil, setModerationCustomUntil] = useState('');
+  const [moderationIosPickerVisible, setModerationIosPickerVisible] = useState(false);
   const [moderationReason, setModerationReason] = useState('');
   const [moderationSaving, setModerationSaving] = useState(false);
   const [roomAccessSettings, setRoomAccessSettings] = useState<{ soloProfesores: boolean }>({ soloProfesores: false });
@@ -1545,13 +1546,48 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setModerationAction('mute');
     setModerationDurationId('15m');
     setModerationCustomUntil('');
+    setModerationIosPickerVisible(false);
     setModerationReason('');
     setModerationModalVisible(true);
   }, [managedStudents]);
 
+  const openModerationDatePicker = useCallback(() => {
+    const initialDate = moderationCustomUntil ? new Date(moderationCustomUntil) : new Date();
+    const safeDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
+
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: safeDate,
+        mode: 'date',
+        is24Hour: true,
+        onChange: (_, selectedDate) => {
+          if (!selectedDate) return;
+          DateTimePickerAndroid.open({
+            value: selectedDate,
+            mode: 'time',
+            is24Hour: true,
+            onChange: (_timeEvent, selectedTime) => {
+              if (!selectedTime) return;
+              const next = new Date(selectedDate);
+              next.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+              setModerationCustomUntil(next.toISOString());
+            },
+          });
+        },
+      });
+      return;
+    }
+
+    if (Platform.OS === 'ios') {
+      setModerationIosPickerVisible((current) => !current);
+    }
+  }, [moderationCustomUntil]);
+
   const activeMuteForMe = getModerationEntry(String(myUserId || ''), 'mute');
   const activeBanForMe = getModerationEntry(String(myUserId || ''), 'ban');
-  const blockedByDelegateMode = roomAccessSettings.soloProfesores && !esProfesor && !isDelegate;
+  const roomAllowsDelegates = roomAccessSettings.soloProfesores && delegados.length > 0;
+  const blockedByTeacherOnlyMode = roomAccessSettings.soloProfesores && !roomAllowsDelegates && !esProfesor;
+  const blockedByDelegateMode = roomAllowsDelegates && !esProfesor && !isDelegate;
   const waitingForRealtime = !chatSetupReady || !isConnected || !socket?.connected;
   const composerLockState = waitingForRealtime
     ? {
@@ -1565,21 +1601,30 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     : activeBanForMe
     ? {
         title: 'No puedes escribir en este chat',
-        body: activeBanForMe.expiresAt
+        body: `${activeBanForMe.expiresAt
           ? `El profesorado ha bloqueado tus mensajes hasta ${new Date(Number(activeBanForMe.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
-          : 'El profesorado ha bloqueado tus mensajes de forma indefinida.',
+          : 'El profesorado ha bloqueado tus mensajes de forma indefinida.'
+        }${activeBanForMe.reason ? ` Motivo: ${activeBanForMe.reason}` : ''}`,
         accent: colors.danger,
         background: colors.dangerBg,
       }
     : activeMuteForMe
       ? {
           title: 'Estas silenciado temporalmente',
-          body: activeMuteForMe.expiresAt
+          body: `${activeMuteForMe.expiresAt
             ? `Podras volver a escribir el ${new Date(Number(activeMuteForMe.expiresAt)).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
-            : 'No puedes escribir hasta que el profesorado retire el silencio.',
+            : 'No puedes escribir hasta que el profesorado retire el silencio.'
+          }${activeMuteForMe.reason ? ` Motivo: ${activeMuteForMe.reason}` : ''}`,
           accent: colors.danger,
           background: colors.dangerBg,
         }
+      : blockedByTeacherOnlyMode
+        ? {
+            title: 'Solo el profesorado puede escribir',
+            body: 'Este chat esta en modo solo profesorado. Puedes leer los mensajes, pero no enviar nuevos.',
+            accent: colors.primary,
+            background: colors.primaryBg,
+          }
       : blockedByDelegateMode
         ? {
             title: 'Solo profesorado y delegados pueden escribir',
@@ -1799,6 +1844,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           <TouchableOpacity onPress={() => iniciarLlamada('video')} style={styles.iconButton}>
             <VideoIcon />
           </TouchableOpacity>
+          {esProfesor && managedStudents.length > 0 && (
+            <TouchableOpacity onPress={() => openModerationModal()} style={styles.iconButton}>
+              <ShieldAlert size={18} color={colors.primary} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => setShowInfo(true)} style={styles.iconButton}>
             <InfoIcon />
           </TouchableOpacity>
@@ -1878,6 +1928,15 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             <ChevronDown size={15} color={colors.textSecondary} />
             <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>{activeThreadFilter}</Text>
           </TouchableOpacity>
+          {esProfesor && managedStudents.length > 0 && (
+            <TouchableOpacity
+              onPress={() => openModerationModal()}
+              style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: colors.primaryBg, borderWidth: 1, borderColor: colors.primary, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
+              <ShieldAlert size={15} color={colors.primary} />
+              <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 12 }}>Moderar</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
 
         {showExtrasPanel === 'threads' && (
@@ -2675,9 +2734,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                     <TouchableOpacity onPress={() => setRequiresAck(prev => !prev)} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: requiresAck ? colors.primary : colors.surfaceHover }}>
                       <Text style={{ color: requiresAck ? colors.textOnPrimary : colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Checker</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => openModerationModal()} style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: colors.surfaceHover }}>
-                      <Text style={{ color: colors.textPrimary, fontWeight: '600', fontSize: 12 }}>Moderacion</Text>
-                    </TouchableOpacity>
                   </ScrollView>
                 )}
               </View>
@@ -2824,101 +2880,141 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const moderationModal = (
     <Modal visible={moderationModalVisible} transparent animationType="fade" onRequestClose={() => setModerationModalVisible(false)}>
       <TouchableWithoutFeedback onPress={() => setModerationModalVisible(false)}>
-        <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 18 }}>
+        <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', paddingHorizontal: isDesktop ? 24 : 14, paddingVertical: isDesktop ? 24 : 12 }}>
           <TouchableWithoutFeedback>
-            <View style={{ backgroundColor: colors.surface, borderRadius: 22, borderWidth: 1, borderColor: colors.border, padding: 18, gap: 14 }}>
-              <Text style={{ color: colors.textPrimary, fontSize: 20, fontWeight: '800' }}>Moderacion del chat</Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
-                Silencia o suspende temporalmente a un alumno. Solo el profesorado puede aplicar estos cambios.
-              </Text>
+            <View style={{ width: '100%', maxWidth: isDesktop ? 620 : 520, maxHeight: screenHeight * (isDesktop ? 0.8 : 0.9), alignSelf: 'center', backgroundColor: colors.surface, borderRadius: 22, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' }}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: isDesktop ? 18 : 14, gap: 14 }}>
+                <Text style={{ color: colors.textPrimary, fontSize: isDesktop ? 20 : 18, fontWeight: '800' }}>Moderacion del chat</Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 13, lineHeight: 20 }}>
+                  Silencia o suspende temporalmente a un alumno. Solo el profesorado puede aplicar estos cambios.
+                </Text>
 
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Alumno</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {managedStudents.map((member) => {
-                    const selected = String(moderationTarget?.id || '') === String(member.id);
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Alumno</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                    {managedStudents.map((member) => {
+                      const selected = String(moderationTarget?.id || '') === String(member.id);
+                      return (
+                        <TouchableOpacity
+                          key={member.id}
+                          onPress={() => setModerationTarget(member)}
+                          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                        >
+                          <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{member.nombre}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                  {activeModerationSummary && (
+                    <Text style={{ color: colors.danger, fontSize: 12, lineHeight: 18 }}>
+                      Estado actual: {activeModerationSummary}
+                    </Text>
+                  )}
+                </View>
+
+                <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 8 }}>
+                  {(['mute', 'ban'] as const).map((action) => {
+                    const selected = moderationAction === action;
                     return (
                       <TouchableOpacity
-                        key={member.id}
-                        onPress={() => setModerationTarget(member)}
-                        style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                        key={action}
+                        onPress={() => setModerationAction(action)}
+                        style={{ flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background, alignItems: 'center' }}
                       >
-                        <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{member.nombre}</Text>
+                        <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700' }}>
+                          {action === 'mute' ? 'Silenciar' : 'Suspender'}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
-                {activeModerationSummary && (
-                  <Text style={{ color: colors.danger, fontSize: 12, lineHeight: 18 }}>
-                    Estado actual: {activeModerationSummary}
-                  </Text>
+                </View>
+
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Duracion</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                    {MODERATION_PRESETS.map((preset) => {
+                      const selected = moderationDurationId === preset.id;
+                      return (
+                        <TouchableOpacity
+                          key={preset.id}
+                          onPress={() => setModerationDurationId(preset.id)}
+                          style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
+                        >
+                          <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{preset.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+
+                {moderationDurationId === 'custom' && (
+                  <>
+                    {Platform.OS === 'web' ? (
+                      <input
+                        value={toDateTimeLocalValue(moderationCustomUntil)}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setModerationCustomUntil(nextValue ? new Date(nextValue).toISOString() : '');
+                        }}
+                        placeholder="Hasta cuando"
+                        type="datetime-local"
+                        style={{
+                          width: '100%',
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          borderRadius: 12,
+                          padding: '10px 12px',
+                          color: colors.textPrimary,
+                          backgroundColor: colors.background,
+                        } as React.CSSProperties}
+                      />
+                    ) : (
+                      <TouchableOpacity
+                        onPress={openModerationDatePicker}
+                        style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: colors.background }}
+                      >
+                        <Text style={{ color: moderationCustomUntil ? colors.textPrimary : colors.placeholder }}>
+                          {moderationCustomUntil
+                            ? new Date(moderationCustomUntil).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                            : 'Hasta cuando'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {Platform.OS === 'ios' && moderationIosPickerVisible && (
+                      <View style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: colors.background }}>
+                        <DateTimePicker
+                          value={moderationCustomUntil ? new Date(moderationCustomUntil) : new Date()}
+                          mode="datetime"
+                          display="inline"
+                          onChange={(_, selectedDate) => {
+                            if (selectedDate) setModerationCustomUntil(selectedDate.toISOString());
+                          }}
+                        />
+                      </View>
+                    )}
+                  </>
                 )}
-              </View>
 
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {(['mute', 'ban'] as const).map((action) => {
-                  const selected = moderationAction === action;
-                  return (
-                    <TouchableOpacity
-                      key={action}
-                      onPress={() => setModerationAction(action)}
-                      style={{ flex: 1, paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background, alignItems: 'center' }}
-                    >
-                      <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700' }}>
-                        {action === 'mute' ? 'Silenciar' : 'Suspender'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: colors.textMuted, fontSize: 12, fontWeight: '700' }}>Duracion</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                  {MODERATION_PRESETS.map((preset) => {
-                    const selected = moderationDurationId === preset.id;
-                    return (
-                      <TouchableOpacity
-                        key={preset.id}
-                        onPress={() => setModerationDurationId(preset.id)}
-                        style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryBg : colors.background }}
-                      >
-                        <Text style={{ color: selected ? colors.primary : colors.textPrimary, fontWeight: '700', fontSize: 12 }}>{preset.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              {moderationDurationId === 'custom' && (
                 <TextInput
-                  value={moderationCustomUntil}
-                  onChangeText={setModerationCustomUntil}
-                  placeholder="YYYY-MM-DDTHH:mm"
+                  value={moderationReason}
+                  onChangeText={setModerationReason}
+                  placeholder="Motivo opcional"
                   placeholderTextColor={colors.placeholder}
                   style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: colors.textPrimary, backgroundColor: colors.background }}
                 />
-              )}
 
-              <TextInput
-                value={moderationReason}
-                onChangeText={setModerationReason}
-                placeholder="Motivo opcional"
-                placeholderTextColor={colors.placeholder}
-                style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: colors.textPrimary, backgroundColor: colors.background }}
-              />
-
-              <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                <TouchableOpacity onPress={() => submitModeration()} disabled={moderationSaving} style={{ flex: 1, minWidth: 140, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}>
-                  <Text style={{ color: colors.textOnPrimary, fontWeight: '800' }}>{moderationSaving ? 'Guardando...' : moderationAction === 'mute' ? 'Aplicar silencio' : 'Aplicar suspension'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => submitModeration('clear_mute')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover }}>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar silencio</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => submitModeration('clear_ban')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover }}>
-                  <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar suspension</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={{ flexDirection: isDesktop ? 'row' : 'column', gap: 10 }}>
+                  <TouchableOpacity onPress={() => submitModeration()} disabled={moderationSaving} style={{ flex: 1, minWidth: isDesktop ? 180 : undefined, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center' }}>
+                    <Text style={{ color: colors.textOnPrimary, fontWeight: '800' }}>{moderationSaving ? 'Guardando...' : moderationAction === 'mute' ? 'Aplicar silencio' : 'Aplicar suspension'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => submitModeration('clear_mute')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover, alignItems: 'center' }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar silencio</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => submitModeration('clear_ban')} disabled={moderationSaving} style={{ paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12, backgroundColor: colors.surfaceHover, alignItems: 'center' }}>
+                    <Text style={{ color: colors.textPrimary, fontWeight: '700' }}>Quitar suspension</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </TouchableWithoutFeedback>
         </View>
