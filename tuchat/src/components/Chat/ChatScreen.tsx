@@ -58,18 +58,18 @@ import { buildMentionsPayload, messageMentionsCurrentUser } from '../../utils/me
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DEFAULT_INPUT_EMOJIS = [
-  String.fromCodePoint(0x1F600), // ðŸ˜€
-  String.fromCodePoint(0x1F602), // ðŸ˜‚
-  String.fromCodePoint(0x1F60D), // ðŸ˜
-  String.fromCodePoint(0x1F44D), // ðŸ‘
-  String.fromCodePoint(0x1F64F), // ðŸ™
-  String.fromCodePoint(0x1F389), // ðŸŽ‰
-  String.fromCodePoint(0x1F525), // ðŸ”¥
-  '\u2764\uFE0F',                // â¤ï¸
-  String.fromCodePoint(0x2705),  // âœ…
-  String.fromCodePoint(0x1F914), // ðŸ¤”
-  String.fromCodePoint(0x1F44F), // ðŸ‘
-  String.fromCodePoint(0x1F60E), // ðŸ˜Ž
+  String.fromCodePoint(0x1F600),
+  String.fromCodePoint(0x1F602),
+  String.fromCodePoint(0x1F60D),
+  String.fromCodePoint(0x1F44D),
+  String.fromCodePoint(0x1F64F), 
+  String.fromCodePoint(0x1F389), 
+  String.fromCodePoint(0x1F525), 
+  '\u2764\uFE0F',                
+  String.fromCodePoint(0x2705),  
+  String.fromCodePoint(0x1F914), 
+  String.fromCodePoint(0x1F44F), 
+  String.fromCodePoint(0x1F60E), 
 ];
 
 const PRESENCE_META: Record<string, { label: string; color: string }> = {
@@ -168,7 +168,6 @@ const getClientStorage = () => {
   };
 };
 
-// â”€â”€â”€ FILE HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const getFileIcon = (fileName: string, mimeType?: string): { icon: string; color: string; label: string } => {
@@ -1474,14 +1473,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       // For simplicity, let's just trigger pickDocument which allows all files including images
       pickDocument();
       // OR offer choice:
-      // const choice = window.confirm("Â¿Enviar imagen/video? (Cancelar para documento)");
+      // const choice = window.confirm("¿Enviar imagen/video? (Cancelar para documento)");
       // if (choice) pickMedia(); else pickDocument();
     } else {
       Alert.alert(
         "Enviar adjunto",
-        "Â¿QuÃ© deseas enviar?",
+        "¿Qué deseas enviar?",
         [
-          { text: "GalerÃ­a (Fotos/Videos)", onPress: pickMedia },
+          { text: "Galerí­a (Fotos/Videos)", onPress: pickMedia },
           { text: "Documento (PDF, etc.)", onPress: pickDocument },
           { text: "Cancelar", style: "cancel" }
         ]
@@ -1936,7 +1935,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowInfo(true)}>
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>{nombre}</Text>
-          <Text style={styles.headerSubtitle}>{miembros.length} participantes â€¢ {onlineCount} conectados</Text>
+          <Text style={styles.headerSubtitle}>{miembros.length} participantes · {onlineCount} conectados</Text>
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
@@ -2369,7 +2368,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                     </TouchableOpacity>
                   )}
 
-                  {/* VÃ­deo */}
+                  {/* Vi­deo */}
                   {item.image && isVideo && (
                     <TouchableOpacity onPress={() => setSelectedVideo(item.image)}>
                       <View style={styles.videoContainer}>
@@ -2380,7 +2379,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                           shouldPlay={false}
                         />
                         <View style={styles.videoPlayButton}>
-                          <Text style={styles.videoPlayText}>â–¶ VÃ­deo</Text>
+                          <Text style={styles.videoPlayText}>Vi­deo</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -2518,7 +2517,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                         style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.14)' : colors.surfaceHover }}
                       >
                         <Text style={{ color: isMe ? 'rgba(255,255,255,0.9)' : colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
-                          Checker: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0} Â· Info
+                          Checker: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0} · Info
                         </Text>
                       </TouchableOpacity>
                       {expandedCheckerInfoId === item.msg_id && (() => {
