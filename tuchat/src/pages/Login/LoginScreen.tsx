@@ -293,7 +293,7 @@ export default function LoginScreen() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Contrasena</Text>
+                  <Text style={styles.inputLabel}>Contraseña</Text>
                   <Animated.View style={{ transform: [{ scale: inputScalePass }] }}>
                     <View style={[
                       styles.inputContainer,
