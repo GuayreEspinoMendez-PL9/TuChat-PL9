@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, Switch,
     Platform, StyleSheet, Alert
@@ -110,7 +110,7 @@ export const SettingsScreen = () => {
             if (!token) return;
             const res = await axios.get(`${API_URL}/auth/notif-preference`, { headers: { Authorization: `Bearer ${token}` } });
             if (res.data.ok) setNotifs(res.data.notificaciones_activas);
-        } catch (e) { /* silenciar si el endpoint no existe aún */ }
+        } catch (e) {  }
     };
 
     const toggleNotifs = async (value: boolean) => {
@@ -158,7 +158,7 @@ export const SettingsScreen = () => {
                                 ? `Se eliminaron ${count} mensajes antiguos`
                                 : "No había mensajes con más de 20 días de antigüedad");
                         } catch (e) {
-                            Alert.alert("Error", "No se pudo limpiar la caché");
+                            Alert.alert("Error", "No se pudo limpiar la cache");
                         }
                     }
                 },
@@ -221,7 +221,7 @@ export const SettingsScreen = () => {
                 <SectionHint color={colors.textMuted}>Herramientas para limpiar contenido local y mantener la app ligera.</SectionHint>
                 <SettingRow colors={colors} icon={<TrashIcon />} title="Borrar mensajes antiguos" subtitle="Elimina mensajes con más de 20 días" onPress={handleClearCache} danger />
 
-                <SectionTitle color={colors.textMuted}>Información</SectionTitle>
+                <SectionTitle color={colors.textMuted}>Informacion</SectionTitle>
                 <SectionHint color={colors.textMuted}>Datos basicos de la app y accesos para revisar soporte o version instalada.</SectionHint>
                 <SettingRow colors={colors} icon={<InfoIcon color={colors.primary} />} title="Acerca de TuChat" subtitle="Versión 1.0.0" onPress={() => router.push({ pathname: '/settings-info' as any, params: { type: 'about' } } as any)} />
                 <View style={{ height: 40 }} />
@@ -254,3 +254,5 @@ const st = StyleSheet.create({
 });
 
 export default SettingsScreen;
+
+

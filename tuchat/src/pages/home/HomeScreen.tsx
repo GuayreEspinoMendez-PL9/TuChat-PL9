@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+﻿import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, ActivityIndicator, RefreshControl,
   TouchableOpacity, Platform, StyleSheet, useWindowDimensions,
@@ -44,7 +44,7 @@ const DotsVerticalIcon = () => (
   </Svg>
 );
 
-// Iconos del menú
+// Iconos del menÃº
 const ProfileIcon = ({ color = "#475569" }: { color?: string }) => (
   <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={color} style={{ width: 20, height: 20 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
@@ -444,7 +444,7 @@ export const HomeScreen = () => {
       }
       router.replace('/login' as any);
     } catch (e) {
-      console.error("Error al cerrar sesión:", e);
+      console.error("Error al cerrar sesion:", e);
     }
   };
 
@@ -572,7 +572,7 @@ export const HomeScreen = () => {
   const isSearchMode = panelMode === 'search';
   const isImportantMode = panelMode === 'important';
 
-  // ============ MENÚ DESPLEGABLE ============
+  // ============ MENÃš DESPLEGABLE ============
   const dropdownMenu = (
     <Modal
       visible={menuVisible}
@@ -591,7 +591,7 @@ export const HomeScreen = () => {
 
           <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('settings')}>
             <SettingsIcon color={colors.textSecondary} />
-            <Text style={[s.menuItemText, { color: colors.textPrimary }]}>Configuración</Text>
+            <Text style={[s.menuItemText, { color: colors.textPrimary }]}>Configuracion</Text>
           </TouchableOpacity>
 
           <View style={[s.menuDivider, { backgroundColor: colors.borderLight }]} />
@@ -615,7 +615,7 @@ export const HomeScreen = () => {
 
           <TouchableOpacity style={s.menuItem} onPress={() => handleMenuOption('logout')}>
             <LogoutIcon />
-            <Text style={[s.menuItemText, s.menuItemTextDanger]}>Cerrar sesión</Text>
+            <Text style={[s.menuItemText, s.menuItemTextDanger]}>Cerrar sesion</Text>
           </TouchableOpacity>
         </View>
       </Pressable>
@@ -624,7 +624,7 @@ export const HomeScreen = () => {
 
   const chatListContent = (
     <View style={[s.chatListContainer, isDesktop && s.chatListContainerDesktop, { backgroundColor: colors.surface }]}>
-      {/* Header con logo + título + menú 3 puntos */}
+      {/* Header con logo + tÃ­tulo + menÃº 3 puntos */}
       <View style={[s.header, isDesktop && s.headerDesktop, { backgroundColor: colors.primary }]}>
         <View style={s.headerLeft}>
           <TuChatLogoImage size={30} />
@@ -744,7 +744,7 @@ export const HomeScreen = () => {
                 {activeTab === 'grupos' ? 'No tienes grupos' : `Sin chats con ${userType === 'ALUMNO' ? 'profesores' : 'alumnos'}`}
               </Text>
               <Text style={s.emptyText}>
-                {activeTab === 'grupos' ? 'Aparecerán cuando te asignen a clases' : 'Los chats privados aparecerán aquí'}
+                {activeTab === 'grupos' ? 'Apareceran cuando te asignen a clases' : 'Los chats privados apareceran aqui'}
               </Text>
             </View>
           }
@@ -836,7 +836,7 @@ export const HomeScreen = () => {
       )}
 
 
-      {/* Menú desplegable */}
+      {/* MenÃº desplegable */}
       {dropdownMenu}
     </View>
   );
@@ -844,8 +844,8 @@ export const HomeScreen = () => {
   const EmptyChatPanel = () => (
     <View style={[s.emptyChatPanel, { backgroundColor: colors.background }]}>
       <TuChatLogoColor size={80} />
-      <Text style={[s.emptyChatTitle, { color: colors.textPrimary }]}>TuChat para Educación</Text>
-      <Text style={[s.emptyChatSubtitle, { color: colors.textSecondary }]}>Selecciona una conversación para ver los mensajes</Text>
+      <Text style={[s.emptyChatTitle, { color: colors.textPrimary }]}>TuChat para Educacion</Text>
+      <Text style={[s.emptyChatSubtitle, { color: colors.textSecondary }]}>Selecciona una conversacion para ver los mensajes</Text>
     </View>
   );
 
@@ -922,7 +922,7 @@ const s = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
   },
-  // Menú desplegable
+  // MenÃº desplegable
   menuOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1016,3 +1016,5 @@ const s = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '600', marginBottom: 8, textAlign: 'center' },
   emptyText: { fontSize: 14, textAlign: 'center' },
 });
+
+

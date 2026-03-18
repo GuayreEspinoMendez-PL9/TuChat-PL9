@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Platform,
   ActivityIndicator,
-  Alert,
   ScrollView,
   Image,
   Animated,
@@ -18,11 +17,9 @@ import { router } from "expo-router";
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
-import { useNavigation } from '@react-navigation/native';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
-// Iconos SVG
 const UserIcon = ({ focused }: { focused: boolean }) => (
   <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={focused ? "#2563EB" : "#94a3b8"} style={{ width: 20, height: 20 }}>
     <Path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
@@ -55,8 +52,9 @@ export default function LoginScreen() {
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [dimensions, setDimensions] = useState(Dimensions.get("window"));
+  const [fieldErrors, setFieldErrors] = useState<{ identificador?: string; password?: string }>({});
+  const [loginError, setLoginError] = useState<string | null>(null);
 
-  // Animaciones
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const logoScale = useRef(new Animated.Value(0.9)).current;
@@ -70,7 +68,6 @@ export default function LoginScreen() {
       setDimensions(window);
     });
 
-    // Animaciones de entrada 
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -98,15 +95,15 @@ export default function LoginScreen() {
   const isMobile = dimensions.width < 768;
 
   const handleLogin = async () => {
-    console.log("BOTÓN PULSADO");
     Keyboard.dismiss();
 
-    if (!identificador || !password) {
-      Alert.alert("Campos requeridos", "Por favor, introduce tu CIAL/DNI y contraseña");
-      return;
-    }
+    const errors: { identificador?: string; password?: string } = {};
+    if (!identificador.trim()) errors.identificador = "Introduce tu CIAL o DNI.";
+    if (!password.trim()) errors.password = "Introduce tu contrasena.";
+    setFieldErrors(errors);
+    setLoginError(null);
+    if (Object.keys(errors).length > 0) return;
 
-    // Animación sutil del botón
     Animated.sequence([
       Animated.timing(buttonScale, {
         toValue: 0.97,
@@ -124,12 +121,11 @@ export default function LoginScreen() {
       setLoading(true);
       const { data } = await axios.post(`${API_URL}/auth/login`, {
         identificador: identificador.trim().toUpperCase(),
-        password: password
+        password,
       });
 
       if (data.ok) {
-        // Guardar token y datos de usuario
-        if (Platform.OS === 'web') {
+        if (Platform.OS === "web") {
           localStorage.setItem("token", data.token);
           localStorage.setItem("usuario", JSON.stringify(data.usuario));
         } else {
@@ -137,17 +133,23 @@ export default function LoginScreen() {
           await SecureStore.setItemAsync("usuario", JSON.stringify(data.usuario));
         }
 
-        // REDIRECCIÓN SEGÚN ROL
         if (data.usuario.id_rol === 7) {
-          console.log("[Login] Usuario ADMIN detectado → /admin");
           setTimeout(() => router.replace("/admin" as any), 100);
         } else {
-          console.log("[Login] Usuario normal → /");
           setTimeout(() => router.replace("/" as any), 100);
         }
       }
     } catch (err: any) {
-      Alert.alert("Error de autenticación", "Las credenciales ingresadas son incorrectas");
+      const status = err?.response?.status;
+      if (!err?.response) {
+        setLoginError("No pudimos conectarnos. Revisa tu conexion e intentalo de nuevo.");
+      } else if (status === 401 || status === 403) {
+        setLoginError("Las credenciales no coinciden. Revisa CIAL/DNI y contrasena.");
+      } else if (status >= 500) {
+        setLoginError("El servidor esta teniendo problemas. Intentalo en unos minutos.");
+      } else {
+        setLoginError(err?.response?.data?.msg || "No pudimos iniciar sesion. Vuelve a intentarlo.");
+      }
     } finally {
       setLoading(false);
     }
@@ -172,11 +174,8 @@ export default function LoginScreen() {
   };
 
   const getContainerStyle = () => {
-    if (isDesktop) {
-      return [styles.formContainer, styles.formContainerDesktop];
-    } else if (isTablet) {
-      return [styles.formContainer, styles.formContainerTablet];
-    }
+    if (isDesktop) return [styles.formContainer, styles.formContainerDesktop];
+    if (isTablet) return [styles.formContainer, styles.formContainerTablet];
     return styles.formContainer;
   };
 
@@ -188,12 +187,10 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Diseño profesional de gobierno */}
       <View style={styles.headerBar}>
         <View style={styles.headerBarStripe} />
       </View>
 
-      {/* Fondo con patrón y degradado para todas las pantallas */}
       <View style={styles.mobileBackground}>
         <View style={styles.gradientOverlay} />
       </View>
@@ -221,14 +218,11 @@ export default function LoginScreen() {
             isDesktop && styles.contentWrapperDesktop,
             isTablet && styles.contentWrapperTablet
           ]}>
-            {/* Logo institucional con fondo para móvil */}
             <Animated.View
               style={[
                 styles.logoContainer,
                 isMobile && styles.logoContainerMobile,
-                {
-                  transform: [{ scale: logoScale }]
-                }
+                { transform: [{ scale: logoScale }] }
               ]}
             >
               <View style={[styles.logoWrapper, isMobile && styles.logoWrapperMobile]}>
@@ -240,7 +234,6 @@ export default function LoginScreen() {
               </View>
             </Animated.View>
 
-            {/* Título institucional */}
             <View style={styles.headerContainer}>
               <Text style={[
                 styles.title,
@@ -254,70 +247,77 @@ export default function LoginScreen() {
                 isDesktop && styles.subtitleDesktop,
                 isTablet && styles.subtitleTablet
               ]}>
-                Sistema de Comunicación Institucional
+                Sistema de Comunicacion Institucional
               </Text>
             </View>
 
-            {/* Formulario */}
             <View style={getContainerStyle()}>
               <View style={styles.formCard}>
-                <Text style={styles.formTitle}>Iniciar Sesión</Text>
+                <Text style={styles.formTitle}>Iniciar sesion</Text>
+                {loginError ? (
+                  <View style={styles.formErrorBanner}>
+                    <Text style={styles.formErrorText}>{loginError}</Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.inputGroup}>
                   <Text style={styles.inputLabel}>CIAL/DNI</Text>
-                  <Animated.View
-                    style={{
-                      transform: [{ scale: inputScaleUser }]
-                    }}
-                  >
+                  <Animated.View style={{ transform: [{ scale: inputScaleUser }] }}>
                     <View style={[
                       styles.inputContainer,
-                      focusedInput === 'user' && styles.inputContainerFocused
+                      focusedInput === "user" && styles.inputContainerFocused,
+                      fieldErrors.identificador && styles.inputContainerError
                     ]}>
                       <View style={styles.inputIcon}>
-                        <UserIcon focused={focusedInput === 'user'} />
+                        <UserIcon focused={focusedInput === "user"} />
                       </View>
                       <TextInput
                         placeholder="Ingrese su CIAL o DNI"
                         placeholderTextColor="#94a3b8"
                         value={identificador}
-                        onChangeText={setIdentificador}
+                        onChangeText={(value) => {
+                          setIdentificador(value);
+                          if (fieldErrors.identificador) setFieldErrors((prev) => ({ ...prev, identificador: undefined }));
+                          if (loginError) setLoginError(null);
+                        }}
                         style={styles.input}
                         autoCapitalize="none"
                         returnKeyType="next"
                         onSubmitEditing={() => passwordInputRef.current?.focus()}
-                        onFocus={() => handleInputFocus('user', inputScaleUser)}
+                        onFocus={() => handleInputFocus("user", inputScaleUser)}
                         onBlur={() => handleInputBlur(inputScaleUser)}
                       />
                     </View>
+                    {fieldErrors.identificador ? <Text style={styles.inlineErrorText}>{fieldErrors.identificador}</Text> : null}
                   </Animated.View>
                 </View>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Contraseña</Text>
-                  <Animated.View
-                    style={{
-                      transform: [{ scale: inputScalePass }]
-                    }}
-                  >
+                  <Text style={styles.inputLabel}>Contrasena</Text>
+                  <Animated.View style={{ transform: [{ scale: inputScalePass }] }}>
                     <View style={[
                       styles.inputContainer,
-                      focusedInput === 'password' && styles.inputContainerFocused
+                      focusedInput === "password" && styles.inputContainerFocused,
+                      fieldErrors.password && styles.inputContainerError
                     ]}>
                       <View style={styles.inputIcon}>
-                        <LockIcon focused={focusedInput === 'password'} />
+                        <LockIcon focused={focusedInput === "password"} />
                       </View>
                       <TextInput
                         ref={passwordInputRef}
-                        placeholder="Ingrese su contraseña"
+                        placeholder="Ingrese su contrasena"
                         placeholderTextColor="#94a3b8"
                         value={password}
-                        onChangeText={setPassword}
+                        onChangeText={(value) => {
+                          setPassword(value);
+                          if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                          if (loginError) setLoginError(null);
+                        }}
                         secureTextEntry={!showPassword}
                         style={[styles.input, { paddingRight: 50 }]}
                         returnKeyType="go"
                         onSubmitEditing={handleLogin}
-                        onFocus={() => handleInputFocus('password', inputScalePass)}
+                        onFocus={() => handleInputFocus("password", inputScalePass)}
                         onBlur={() => handleInputBlur(inputScalePass)}
                       />
                       <TouchableOpacity
@@ -328,6 +328,7 @@ export default function LoginScreen() {
                         {showPassword ? <EyeIcon /> : <EyeSlashIcon />}
                       </TouchableOpacity>
                     </View>
+                    {fieldErrors.password ? <Text style={styles.inlineErrorText}>{fieldErrors.password}</Text> : null}
                   </Animated.View>
                 </View>
 
@@ -346,22 +347,21 @@ export default function LoginScreen() {
                         </Text>
                       </View>
                     ) : (
-                      <Text style={styles.buttonText}>Acceder al Sistema</Text>
+                      <Text style={styles.buttonText}>Acceder al sistema</Text>
                     )}
                   </TouchableOpacity>
                 </Animated.View>
               </View>
 
-              {/* Footer institucional */}
               <View style={styles.footer}>
                 <View style={styles.footerBadge}>
-                  <Text style={styles.footerBadgeText}>Conexión Segura</Text>
+                  <Text style={styles.footerBadgeText}>Conexion segura</Text>
                 </View>
                 <Text style={styles.footerText}>
-                  Ministerio de Educación
+                  Ministerio de Educacion
                 </Text>
                 <Text style={styles.footerSubtext}>
-                  Sistema seguro de comunicación institucional
+                  Sistema seguro de comunicacion institucional
                 </Text>
               </View>
             </View>
@@ -369,7 +369,6 @@ export default function LoginScreen() {
         </ScrollView>
       </Animated.View>
 
-      {/* Elementos decorativos de fondo para tablet */}
       {isTablet && (
         <>
           <View style={styles.tabletDecoration1} />
@@ -379,3 +378,4 @@ export default function LoginScreen() {
     </View>
   );
 }
+

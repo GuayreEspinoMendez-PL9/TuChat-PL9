@@ -300,6 +300,9 @@ export const styles = StyleSheet.create({
       }
     }),
   },
+  inputContainerError: {
+    borderColor: "#DC2626",
+  },
 
   inputIcon: {
     paddingLeft: 15,
@@ -331,6 +334,28 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     width: 40,
     height: '100%',
+  },
+  inlineErrorText: {
+    marginTop: 6,
+    marginLeft: 4,
+    color: "#DC2626",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  formErrorBanner: {
+    marginBottom: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FEF2F2",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  formErrorText: {
+    color: "#B91C1C",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
   },
   
   button: {

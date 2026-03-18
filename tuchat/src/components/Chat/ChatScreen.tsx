@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, FlatList, TextInput, TouchableOpacity, Text,
   KeyboardAvoidingView, Platform, Image, ActivityIndicator,
@@ -58,18 +58,18 @@ import { buildMentionsPayload, messageMentionsCurrentUser } from '../../utils/me
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DEFAULT_INPUT_EMOJIS = [
-  String.fromCodePoint(0x1F600), // 😀
-  String.fromCodePoint(0x1F602), // 😂
-  String.fromCodePoint(0x1F60D), // 😍
-  String.fromCodePoint(0x1F44D), // 👍
-  String.fromCodePoint(0x1F64F), // 🙏
-  String.fromCodePoint(0x1F389), // 🎉
-  String.fromCodePoint(0x1F525), // 🔥
-  '\u2764\uFE0F',                // ❤️
-  String.fromCodePoint(0x2705),  // ✅
-  String.fromCodePoint(0x1F914), // 🤔
-  String.fromCodePoint(0x1F44F), // 👏
-  String.fromCodePoint(0x1F60E), // 😎
+  String.fromCodePoint(0x1F600), // ðŸ˜€
+  String.fromCodePoint(0x1F602), // ðŸ˜‚
+  String.fromCodePoint(0x1F60D), // ðŸ˜
+  String.fromCodePoint(0x1F44D), // ðŸ‘
+  String.fromCodePoint(0x1F64F), // ðŸ™
+  String.fromCodePoint(0x1F389), // ðŸŽ‰
+  String.fromCodePoint(0x1F525), // ðŸ”¥
+  '\u2764\uFE0F',                // â¤ï¸
+  String.fromCodePoint(0x2705),  // âœ…
+  String.fromCodePoint(0x1F914), // ðŸ¤”
+  String.fromCodePoint(0x1F44F), // ðŸ‘
+  String.fromCodePoint(0x1F60E), // ðŸ˜Ž
 ];
 
 const PRESENCE_META: Record<string, { label: string; color: string }> = {
@@ -168,7 +168,7 @@ const getClientStorage = () => {
   };
 };
 
-// ─── FILE HELPERS ────────────────────────────────────────
+// â”€â”€â”€ FILE HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const getFileIcon = (fileName: string, mimeType?: string): { icon: string; color: string; label: string } => {
@@ -335,7 +335,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [myUserId, setMyUserId] = useState("");
-  const myUserIdRef = useRef(""); // Ref to always have current value in socket closures
+  const myUserIdRef = useRef(""); 
   const [myUserName, setMyUserName] = useState("Usuario");
   const [readReceiptsEnabled, setReadReceiptsEnabled] = useState(true);
   const [esProfesor, setEsProfesor] = useState(esProfesorProp);
@@ -358,9 +358,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [eventTitle, setEventTitle] = useState('');
   const [eventDescription, setEventDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
+  const [eventFormError, setEventFormError] = useState<string | null>(null);
+  const [eventFieldErrors, setEventFieldErrors] = useState<Record<number, string>>({});
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState(['', '']);
   const [pollExpiry, setPollExpiry] = useState('');
+  const [pollFormError, setPollFormError] = useState<string | null>(null);
+  const [pollFieldErrors, setPollFieldErrors] = useState<Record<number, string>>({});
   const [typingUserName, setTypingUserName] = useState<string | null>(null);
   const [selectedThreadTopic, setSelectedThreadTopic] = useState<string>('General');
   const [teacherMessageType, setTeacherMessageType] = useState<string | null>(null);
@@ -393,7 +397,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const messageAckTimeoutsRef = useRef<Record<string, any>>({});
   const autoRetriedOnConnectRef = useRef(false);
 
-  // States for Reactions
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null); // For touch/click
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
@@ -603,11 +606,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             userData.esProfesor === true;
 
           setEsProfesor(esProfessorUsuario);
-          console.log("👨‍🏫 ChatScreen detectó Rol:", {
-            tipo: userData.tipo,
-            id_rol: userData.id_rol,
-            resultado: esProfessorUsuario
-          });
         }
 
           const response = await axios.get(`${API_URL}/academico/miembros/${id}`, {
@@ -631,7 +629,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               });
             }
           } catch (e) {
-            console.log("âš ï¸ No se pudieron cargar detalles de miembros:", e);
+            console.log("No se pudieron cargar detalles de miembros:", e);
           }
 
           // Fetch chat settings to get delegates (safe - won't break if endpoint unavailable)
@@ -650,7 +648,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               });
             }
           } catch (e) {
-            console.log("⚠️ No se pudieron cargar los delegados:", e);
+            console.log("No se pudieron cargar los delegados:", e);
           }
           try {
             const [presenceData, eventsData, pollsData, pinsData] = await Promise.all([
@@ -803,7 +801,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       }
     };
 
-    // Evento explícito del servidor confirmando que recibió el mensaje
+    // Evento explÃ­cito del servidor confirmando que recibiÃ³ el mensaje
     const handleMsgSent = ({ msg_id }: { msg_id: string }) => {
       applyMessagePatch(msg_id, { status: 'sent' });
     };
@@ -842,7 +840,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
 
     const handleIncomingPin = (pinData: any) => {
-      console.log('📌 Pin recibido:', pinData);
+      console.log('Pin recibido:', pinData);
       const newPin = {
         id: pinData.id || `pin_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         roomId: pinData.roomId || id,
@@ -864,7 +862,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
 
     const handleUnpin = (data: any) => {
-      console.log('📌 Unpin recibido:', data);
+      console.log('Unpin recibido:', data);
       setPinnedMessages(prev => prev.filter(p => p.msgId !== data.messageId));
     };
 
@@ -1114,21 +1112,39 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     }
   };
-
+  const parseInlineApiError = (error: any, fallback: string) => {
+    const status = error?.response?.status;
+    if (!error?.response) {
+      return 'No hay conexion con el servidor. Revisa tu red e intentalo de nuevo.';
+    }
+    if (status >= 500) {
+      return 'El servidor no esta disponible ahora mismo. Intentalo en unos minutos.';
+    }
+    return error?.response?.data?.msg || fallback;
+  };
   const createEvent = async () => {
+    setEventFormError(null);
+    setEventFieldErrors({});
+
     if (!canManageExtras) {
-      Alert.alert('Sin permisos', 'Solo profesorado o delegados pueden crear eventos.');
+      setEventFormError('Solo profesorado o delegados pueden crear eventos.');
       return;
     }
-    if (!eventTitle.trim() || !eventDate.trim()) {
-      Alert.alert('Faltan datos', 'Indica al menos un título y una fecha válida.');
+
+    const errors: Record<number, string> = {};
+    if (!eventTitle.trim()) errors[0] = 'Anade un titulo para el evento.';
+    if (!eventDate.trim()) errors[2] = 'Selecciona fecha y hora.';
+    if (Object.keys(errors).length > 0) {
+      setEventFieldErrors(errors);
+      setEventFormError('Revisa los campos marcados antes de continuar.');
       return;
     }
 
     try {
       const parsedEventDate = new Date(eventDate);
       if (Number.isNaN(parsedEventDate.getTime())) {
-        Alert.alert('Fecha invÃ¡lida', 'Selecciona una fecha y hora vÃ¡lidas para el evento.');
+        setEventFieldErrors({ 2: 'Fecha y hora invalida.' });
+        setEventFormError('Selecciona una fecha y hora valida para el evento.');
         return;
       }
 
@@ -1140,35 +1156,46 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         kind: 'academico',
       });
 
-	      if (event) {
-	        if (typeof saveRoomEventLocal === 'function') saveRoomEventLocal({ ...event, roomId: id, roomName: nombre });
-	        setEvents(prev => [...prev, event].sort((a, b) => a.startsAt - b.startsAt));
+      if (event) {
+        if (typeof saveRoomEventLocal === 'function') saveRoomEventLocal({ ...event, roomId: id, roomName: nombre });
+        setEvents(prev => [...prev, event].sort((a, b) => a.startsAt - b.startsAt));
         setShowEventModal(false);
         setShowExtrasPanel('events');
         setEventTitle('');
         setEventDescription('');
         setEventDate('');
+        setEventFormError(null);
+        setEventFieldErrors({});
       }
     } catch (e) {
-      Alert.alert('Error', 'No se pudo crear el evento.');
+      setEventFormError(parseInlineApiError(e, 'No se pudo crear el evento.'));
     }
   };
 
   const createPoll = async () => {
+    setPollFormError(null);
+    setPollFieldErrors({});
+
     if (!canManageExtras) {
-      Alert.alert('Sin permisos', 'Solo profesorado o delegados pueden crear encuestas.');
+      setPollFormError('Solo profesorado o delegados pueden crear encuestas.');
       return;
     }
+
     const cleanOptions = pollOptions.map(option => option.trim()).filter(Boolean);
-    if (!pollQuestion.trim() || cleanOptions.length < 2) {
-      Alert.alert('Faltan datos', 'La encuesta necesita una pregunta y al menos dos opciones.');
+    const errors: Record<number, string> = {};
+    if (!pollQuestion.trim()) errors[0] = 'Anade la pregunta de la encuesta.';
+    if (cleanOptions.length < 2) errors[2] = 'Incluye al menos dos opciones.';
+    if (Object.keys(errors).length > 0) {
+      setPollFieldErrors(errors);
+      setPollFormError('La encuesta necesita una pregunta y al menos dos opciones.');
       return;
     }
 
     try {
       const parsedPollExpiry = pollExpiry.trim() ? new Date(pollExpiry) : null;
       if (parsedPollExpiry && Number.isNaN(parsedPollExpiry.getTime())) {
-        Alert.alert('Fecha invÃ¡lida', 'Selecciona una fecha y hora vÃ¡lidas para el cierre de la encuesta.');
+        setPollFieldErrors({ 1: 'Fecha de cierre invalida.' });
+        setPollFormError('Selecciona una fecha y hora valida para el cierre de la encuesta.');
         return;
       }
 
@@ -1179,17 +1206,19 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         expiresAt: parsedPollExpiry ? parsedPollExpiry.toISOString() : null,
       });
 
-	      if (poll) {
-	        if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...poll, roomId: id, roomName: nombre });
-	        setPolls(prev => [poll, ...prev]);
+      if (poll) {
+        if (typeof saveRoomPollLocal === 'function') saveRoomPollLocal({ ...poll, roomId: id, roomName: nombre });
+        setPolls(prev => [poll, ...prev]);
         setShowPollModal(false);
         setShowExtrasPanel('polls');
         setPollQuestion('');
         setPollOptions(['', '']);
         setPollExpiry('');
+        setPollFormError(null);
+        setPollFieldErrors({});
       }
     } catch (e) {
-      Alert.alert('Error', 'No se pudo crear la encuesta.');
+      setPollFormError(parseInlineApiError(e, 'No se pudo crear la encuesta.'));
     }
   };
 
@@ -1341,7 +1370,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       } : null
     };
 
-    // Añadir mensaje localmente primero
+    // AÃ±adir mensaje localmente primero
     setMessages(prev => [...prev, msg]);
     if (typeof saveMessageLocal === 'function') saveMessageLocal(msg);
     setInput("");
@@ -1394,9 +1423,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         const { uri, name, mimeType, size } = result.assets[0];
         const mediaType = inferMediaType(name, mimeType);
 
-        // Validar tamaño
+        // Validar tamaÃ±o
         if (size && size > MAX_FILE_SIZE) {
-          Alert.alert('Archivo muy grande', `El límite es 10 MB. Tu archivo pesa ${formatFileSize(size)}.`);
+          Alert.alert('Archivo muy grande', `El lÃ­mite es 10 MB. Tu archivo pesa ${formatFileSize(size)}.`);
           return;
         }
 
@@ -1445,14 +1474,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       // For simplicity, let's just trigger pickDocument which allows all files including images
       pickDocument();
       // OR offer choice:
-      // const choice = window.confirm("¿Enviar imagen/video? (Cancelar para documento)");
+      // const choice = window.confirm("Â¿Enviar imagen/video? (Cancelar para documento)");
       // if (choice) pickMedia(); else pickDocument();
     } else {
       Alert.alert(
         "Enviar adjunto",
-        "¿Qué deseas enviar?",
+        "Â¿QuÃ© deseas enviar?",
         [
-          { text: "Galería (Fotos/Videos)", onPress: pickMedia },
+          { text: "GalerÃ­a (Fotos/Videos)", onPress: pickMedia },
           { text: "Documento (PDF, etc.)", onPress: pickDocument },
           { text: "Cancelar", style: "cancel" }
         ]
@@ -1864,7 +1893,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
   const getUserDisplayName = (userId: string) => {
     const normalizedUserId = String(userId);
-    if (normalizedUserId === String(myUserId)) return myUserName || 'Tú';
+    if (normalizedUserId === String(myUserId)) return myUserName || 'TÃº';
     const detailed = memberDetails.find((member) => String(member.id) === normalizedUserId);
     if (detailed?.nombre) return detailed.nombre;
     const fromPresence = presenceByUser[normalizedUserId];
@@ -1907,7 +1936,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
         <TouchableOpacity style={styles.headerInfo} onPress={() => setShowInfo(true)}>
           <Text style={[styles.headerTitle, { color: colors.textPrimary }]} numberOfLines={1}>{nombre}</Text>
-          <Text style={styles.headerSubtitle}>{miembros.length} participantes • {onlineCount} conectados</Text>
+          <Text style={styles.headerSubtitle}>{miembros.length} participantes â€¢ {onlineCount} conectados</Text>
         </TouchableOpacity>
 
         <View style={styles.headerActions}>
@@ -2051,7 +2080,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         {showExtrasPanel === 'events' && (
           <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Próximos eventos</Text>
+              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Proximos eventos</Text>
               {canManageExtras && (
                 <TouchableOpacity onPress={() => setShowEventModal(true)}>
                   <Text style={{ color: colors.primary, fontWeight: '700' }}>Nuevo</Text>
@@ -2059,7 +2088,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               )}
             </View>
             {upcomingEvents.length === 0 ? (
-              <Text style={{ color: colors.textMuted }}>Todavía no hay eventos programados.</Text>
+              <Text style={{ color: colors.textMuted }}>Todavia no hay eventos programados.</Text>
             ) : upcomingEvents.map((event) => (
               <View key={event.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -2082,7 +2111,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         {showExtrasPanel === 'polls' && (
           <View style={{ backgroundColor: colors.surface, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: colors.border }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Encuestas rápidas</Text>
+              <Text style={{ color: colors.textPrimary, fontWeight: '700', fontSize: 15 }}>Encuestas rapidas</Text>
               {canManageExtras && (
                 <TouchableOpacity onPress={() => setShowPollModal(true)}>
                   <Text style={{ color: colors.primary, fontWeight: '700' }}>Nueva</Text>
@@ -2090,7 +2119,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               )}
             </View>
             {visiblePolls.length === 0 ? (
-              <Text style={{ color: colors.textMuted }}>Todavía no hay encuestas activas.</Text>
+              <Text style={{ color: colors.textMuted }}>Todavia no hay encuestas activas.</Text>
             ) : visiblePolls.map((poll) => (
               <View key={poll.id} style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.borderLight }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
@@ -2230,7 +2259,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         CellRendererComponent={CellRenderer} // Inject custom z-index logic
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Aún no hay mensajes.{'\n'}¡Sé el primero en escribir!</Text>
+            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Aun no hay mensajes.{'\n'}Se el primero en escribir!</Text>
           </View>
         }
         renderItem={({ item, index }) => {
@@ -2297,7 +2326,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                 >
                   {mentionsMe && (
                     <View style={{ alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.primaryBg, marginBottom: 8 }}>
-                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Mención para ti</Text>
+                      <Text style={{ color: colors.primary, fontSize: 11, fontWeight: '700' }}>Mencion para ti</Text>
                     </View>
                   )}
 
@@ -2340,7 +2369,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                     </TouchableOpacity>
                   )}
 
-                  {/* Vídeo */}
+                  {/* VÃ­deo */}
                   {item.image && isVideo && (
                     <TouchableOpacity onPress={() => setSelectedVideo(item.image)}>
                       <View style={styles.videoContainer}>
@@ -2351,7 +2380,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                           shouldPlay={false}
                         />
                         <View style={styles.videoPlayButton}>
-                          <Text style={styles.videoPlayText}>▶ Vídeo</Text>
+                          <Text style={styles.videoPlayText}>â–¶ VÃ­deo</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -2384,7 +2413,6 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                             URL.revokeObjectURL(url);
                           } catch (e) { console.error('Error downloading file:', e); }
                         } else {
-                          // Native: save to file system and open
                           try {
                             const b64Data = item.image.split(',')[1];
                             const fileUri = ((FileSystem as any).cacheDirectory || '') + (item.fileName || 'archivo');
@@ -2490,7 +2518,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
                         style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: isMe ? 'rgba(255,255,255,0.14)' : colors.surfaceHover }}
                       >
                         <Text style={{ color: isMe ? 'rgba(255,255,255,0.9)' : colors.textSecondary, fontSize: 11, fontWeight: '700' }}>
-                          Checker: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0} · Info
+                          Checker: {(item.ackReaders || []).length}/{miembros.length || memberDetails.length || 0} Â· Info
                         </Text>
                       </TouchableOpacity>
                       {expandedCheckerInfoId === item.msg_id && (() => {
@@ -2748,7 +2776,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           paddingBottom: 8,
         }}>
           <Text style={{ color: colors.textMuted, fontStyle: 'italic', fontSize: 12 }}>
-            {typingUserName} está escribiendo...
+            {typingUserName} esta escribiendo...
           </Text>
         </View>
       )}
@@ -3158,7 +3186,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           }}
           onPin={(data) => {
             const now = Date.now();
-            // NO añadimos localmente, el servidor lo devolverá via chat:receive_pin
+            // NO aÃ±adimos localmente, el servidor lo devolverÃ¡ via chat:receive_pin
             socket?.emit('chat:pin_message', {
               roomId: id,
               messageId: data.messageId,
@@ -3169,7 +3197,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               senderName: myUserName,
               text: messageToPin?.text || messageToPin?.contenido || 'Archivo adjunto',
             });
-            Alert.alert('📌 Mensaje fijado', `Fijado como "${data.category}" por ${data.durationLabel}.`);
+            Alert.alert('ðŸ“Œ Mensaje fijado', `Fijado como "${data.category}" por ${data.durationLabel}.`);
             setPinModalVisible(false);
             setMessageToPin(null);
           }}
@@ -3178,23 +3206,29 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           visible={showEventModal}
           title="Nuevo evento"
           fields={[
-            { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
-            { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
-            { value: eventDate, onChangeText: setEventDate, placeholder: 'Fecha y hora del evento', type: 'datetime' },
+            { value: eventTitle, onChangeText: (value: string) => { setEventTitle(value); setEventFormError(null); setEventFieldErrors(prev => ({ ...prev, 0: '' })); }, placeholder: 'Examen de Matemáticas' },
+            { value: eventDescription, onChangeText: (value: string) => { setEventDescription(value); setEventFormError(null); }, placeholder: 'Descripción opcional' },
+            { value: eventDate, onChangeText: (value: string) => { setEventDate(value); setEventFormError(null); setEventFieldErrors(prev => ({ ...prev, 2: '' })); }, placeholder: 'Fecha y hora del evento', type: 'datetime' },
           ]}
           confirmLabel="Crear evento"
-          onClose={() => setShowEventModal(false)}
+          onClose={() => { setShowEventModal(false); setEventFormError(null); setEventFieldErrors({}); }}
           onConfirm={createEvent}
+          fieldErrors={eventFieldErrors}
+          inlineError={eventFormError}
         />
         <QuickFormModal
           visible={showPollModal}
           title="Nueva encuesta"
           fields={[
-            { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
-            { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional', type: 'datetime' },
+            { value: pollQuestion, onChangeText: (value: string) => { setPollQuestion(value); setPollFormError(null); setPollFieldErrors(prev => ({ ...prev, 0: '' })); }, placeholder: '¿Movemos la tutoría al viernes?' },
+            { value: pollExpiry, onChangeText: (value: string) => { setPollExpiry(value); setPollFormError(null); setPollFieldErrors(prev => ({ ...prev, 1: '' })); }, placeholder: 'Cierre opcional', type: 'datetime' },
             ...pollOptions.map((option, index) => ({
               value: option,
-              onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
+              onChangeText: (value: string) => {
+                setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item));
+                setPollFormError(null);
+                setPollFieldErrors(prev => ({ ...prev, [2 + index]: '' }));
+              },
               placeholder: `Opción ${index + 1}`,
               removable: pollOptions.length > 2,
               onRemove: () => setPollOptions(prev => prev.filter((_, idx) => idx !== index)),
@@ -3202,11 +3236,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           ]}
           footerAction={{
             label: 'Añadir opción',
-            onPress: () => setPollOptions(prev => [...prev, '']),
+            onPress: () => {
+              setPollOptions(prev => [...prev, '']);
+              setPollFormError(null);
+            },
           }}
           confirmLabel="Crear encuesta"
-          onClose={() => setShowPollModal(false)}
+          onClose={() => { setShowPollModal(false); setPollFormError(null); setPollFieldErrors({}); }}
           onConfirm={createPoll}
+          fieldErrors={pollFieldErrors}
+          inlineError={pollFormError}
         />
 
       </>
@@ -3248,7 +3287,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         }}
         onPin={(data) => {
           const now = Date.now();
-          // NO añadimos localmente, el servidor lo devolverá via chat:receive_pin
+          // NO aÃ±adimos localmente, el servidor lo devolverÃ¡ via chat:receive_pin
           socket?.emit('chat:pin_message', {
             roomId: id,
             messageId: data.messageId,
@@ -3259,45 +3298,56 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             senderName: myUserName,
             text: messageToPin?.text || messageToPin?.contenido || 'Archivo adjunto',
           });
-          Alert.alert('📌 Mensaje fijado', `Fijado como "${data.category}" por ${data.durationLabel}.`);
+          Alert.alert('ðŸ“Œ Mensaje fijado', `Fijado como "${data.category}" por ${data.durationLabel}.`);
           setPinModalVisible(false);
           setMessageToPin(null);
         }}
       />
       <QuickFormModal
-        visible={showEventModal}
-        title="Nuevo evento"
-        fields={[
-          { value: eventTitle, onChangeText: setEventTitle, placeholder: 'Examen de Matemáticas' },
-          { value: eventDescription, onChangeText: setEventDescription, placeholder: 'Descripción opcional' },
-          { value: eventDate, onChangeText: setEventDate, placeholder: 'Fecha y hora del evento', type: 'datetime' },
-        ]}
-        confirmLabel="Crear evento"
-        onClose={() => setShowEventModal(false)}
-        onConfirm={createEvent}
-      />
+          visible={showEventModal}
+          title="Nuevo evento"
+          fields={[
+            { value: eventTitle, onChangeText: (value: string) => { setEventTitle(value); setEventFormError(null); setEventFieldErrors(prev => ({ ...prev, 0: '' })); }, placeholder: 'Examen de Matemáticas' },
+            { value: eventDescription, onChangeText: (value: string) => { setEventDescription(value); setEventFormError(null); }, placeholder: 'Descripción opcional' },
+            { value: eventDate, onChangeText: (value: string) => { setEventDate(value); setEventFormError(null); setEventFieldErrors(prev => ({ ...prev, 2: '' })); }, placeholder: 'Fecha y hora del evento', type: 'datetime' },
+          ]}
+          confirmLabel="Crear evento"
+          onClose={() => { setShowEventModal(false); setEventFormError(null); setEventFieldErrors({}); }}
+          onConfirm={createEvent}
+          fieldErrors={eventFieldErrors}
+          inlineError={eventFormError}
+        />
       <QuickFormModal
-        visible={showPollModal}
-        title="Nueva encuesta"
-        fields={[
-          { value: pollQuestion, onChangeText: setPollQuestion, placeholder: '¿Movemos la tutoría al viernes?' },
-          { value: pollExpiry, onChangeText: setPollExpiry, placeholder: 'Cierre opcional', type: 'datetime' },
-          ...pollOptions.map((option, index) => ({
-            value: option,
-            onChangeText: (value: string) => setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item)),
-            placeholder: `Opción ${index + 1}`,
-            removable: pollOptions.length > 2,
-            onRemove: () => setPollOptions(prev => prev.filter((_, idx) => idx !== index)),
-          })),
-        ]}
-        footerAction={{
-          label: 'Añadir opción',
-          onPress: () => setPollOptions(prev => [...prev, '']),
-        }}
-        confirmLabel="Crear encuesta"
-        onClose={() => setShowPollModal(false)}
-        onConfirm={createPoll}
-      />
+          visible={showPollModal}
+          title="Nueva encuesta"
+          fields={[
+            { value: pollQuestion, onChangeText: (value: string) => { setPollQuestion(value); setPollFormError(null); setPollFieldErrors(prev => ({ ...prev, 0: '' })); }, placeholder: '¿Movemos la tutoría al viernes?' },
+            { value: pollExpiry, onChangeText: (value: string) => { setPollExpiry(value); setPollFormError(null); setPollFieldErrors(prev => ({ ...prev, 1: '' })); }, placeholder: 'Cierre opcional', type: 'datetime' },
+            ...pollOptions.map((option, index) => ({
+              value: option,
+              onChangeText: (value: string) => {
+                setPollOptions(prev => prev.map((item, idx) => idx === index ? value : item));
+                setPollFormError(null);
+                setPollFieldErrors(prev => ({ ...prev, [2 + index]: '' }));
+              },
+              placeholder: `Opción ${index + 1}`,
+              removable: pollOptions.length > 2,
+              onRemove: () => setPollOptions(prev => prev.filter((_, idx) => idx !== index)),
+            })),
+          ]}
+          footerAction={{
+            label: 'Añadir opción',
+            onPress: () => {
+              setPollOptions(prev => [...prev, '']);
+              setPollFormError(null);
+            },
+          }}
+          confirmLabel="Crear encuesta"
+          onClose={() => { setShowPollModal(false); setPollFormError(null); setPollFieldErrors({}); }}
+          onConfirm={createPoll}
+          fieldErrors={pollFieldErrors}
+          inlineError={pollFormError}
+        />
     </KeyboardAvoidingView>
   );
 };
@@ -3307,6 +3357,8 @@ const QuickFormModal = ({
   visible,
   title,
   fields,
+  fieldErrors,
+  inlineError,
   onClose,
   onConfirm,
   confirmLabel,
@@ -3315,6 +3367,8 @@ const QuickFormModal = ({
   visible: boolean;
   title: string;
   fields: Array<{ value: string; onChangeText: (value: string) => void; placeholder: string; type?: 'text' | 'datetime'; removable?: boolean; onRemove?: () => void }>;
+  fieldErrors?: Record<number, string>;
+  inlineError?: string | null;
   onClose: () => void;
   onConfirm: () => void;
   confirmLabel: string;
@@ -3364,6 +3418,11 @@ const QuickFormModal = ({
       <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: 20 }}>
         <View style={{ backgroundColor: colors.surface, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: colors.border }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 14 }}>{title}</Text>
+          {inlineError ? (
+            <View style={{ borderWidth: 1, borderColor: colors.danger, backgroundColor: colors.dangerBg, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12 }}>
+              <Text style={{ color: colors.danger, fontSize: 13, lineHeight: 18, fontWeight: '600' }}>{inlineError}</Text>
+            </View>
+          ) : null}
           {fields.map((field, index) => (
             <View key={`${field.placeholder}-${index}`} style={{ marginBottom: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -3444,6 +3503,11 @@ const QuickFormModal = ({
                   />
                 </View>
               )}
+              {fieldErrors?.[index] ? (
+                <Text style={{ marginTop: 6, marginLeft: 2, color: colors.danger, fontSize: 12, fontWeight: '600' }}>
+                  {fieldErrors[index]}
+                </Text>
+              ) : null}
             </View>
           ))}
           {footerAction && (
@@ -3615,4 +3679,7 @@ const VideoViewerModal = ({ visible, uri, onClose }: { visible: boolean; uri: st
     </Modal>
   );
 };
+
+
+
 
