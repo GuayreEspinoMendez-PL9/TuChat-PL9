@@ -99,7 +99,7 @@ export default function LoginScreen() {
 
     const errors: { identificador?: string; password?: string } = {};
     if (!identificador.trim()) errors.identificador = "Introduce tu CIAL o DNI.";
-    if (!password.trim()) errors.password = "Introduce tu contrasena.";
+    if (!password.trim()) errors.password = "Introduce tu contraseña.";
     setFieldErrors(errors);
     setLoginError(null);
     if (Object.keys(errors).length > 0) return;
@@ -144,7 +144,7 @@ export default function LoginScreen() {
       if (!err?.response) {
         setLoginError("No pudimos conectarnos. Revisa tu conexion e intentalo de nuevo.");
       } else if (status === 401 || status === 403) {
-        setLoginError("Las credenciales no coinciden. Revisa CIAL/DNI y contrasena.");
+        setLoginError("Las credenciales no coinciden. Revisa CIAL/DNI y contraseña.");
       } else if (status >= 500) {
         setLoginError("El servidor esta teniendo problemas. Intentalo en unos minutos.");
       } else {
@@ -305,7 +305,7 @@ export default function LoginScreen() {
                       </View>
                       <TextInput
                         ref={passwordInputRef}
-                        placeholder="Ingrese su contrasena"
+                        placeholder="Ingrese su contraseña"
                         placeholderTextColor="#94a3b8"
                         value={password}
                         onChangeText={(value) => {
