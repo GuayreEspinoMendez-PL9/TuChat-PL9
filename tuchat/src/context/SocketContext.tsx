@@ -6,8 +6,10 @@ import { saveMessageLocal, getAllUnreadCounts, updateMessageLocal } from '../db/
 import { decodeJwt } from '../utils/auth';
 import { syncMessages } from '../services/syncService';
 import {
+  areBrowserNotificationsEnabled,
   initBrowserNotifications,
   showBrowserMessageNotification,
+  syncBrowserNotificationsPreference,
 } from '../services/browserNotifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
@@ -101,7 +103,13 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
           console.log('Socket conectado globalmente:', newSocket?.id);
           setIsConnected(true);
           if (Platform.OS === 'web') {
-            initBrowserNotifications();
+            syncBrowserNotificationsPreference(token)
+              .then((enabled) => {
+                if (enabled) initBrowserNotifications();
+              })
+              .catch((error) => {
+                console.error('Error sincronizando preferencia web:', error);
+              });
           } else {
             syncMessages(String(userId), token).catch((error) => {
               console.error('Error sincronizando mensajes pendientes:', error);
@@ -135,7 +143,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
           if (!isMe && !isActiveRoom) {
             refreshUnreadCounts();
-            if (Platform.OS === 'web') {
+            if (Platform.OS === 'web' && areBrowserNotificationsEnabled()) {
               let preview = msg.text || msg.contenido || 'Nuevo mensaje';
 
               if (msg.targetPanel === 'polls' || msg.itemType === 'poll') {
@@ -194,7 +202,13 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     initSocket();
     if (Platform.OS === 'web') {
-      initBrowserNotifications();
+      syncBrowserNotificationsPreference(typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null)
+        .then((enabled) => {
+          if (enabled) initBrowserNotifications();
+        })
+        .catch((error) => {
+          console.error('Error cargando preferencia web al iniciar:', error);
+        });
     }
 
     return () => {

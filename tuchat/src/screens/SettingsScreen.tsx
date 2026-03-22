@@ -8,6 +8,7 @@ import { router } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import axios from 'axios';
 import { useTheme } from '../context/ThemeContext';
+import { setBrowserNotificationsEnabled } from '../services/browserNotifications.service';
 import { ThemeSelector } from '../components/ThemeSelector';
 import { clearOldMessages } from '../db/database';
 import { QRSyncScreen } from './QrSyncScreen';
@@ -109,18 +110,23 @@ export const SettingsScreen = () => {
             const token = Platform.OS === 'web' ? localStorage.getItem('token') : await SecureStore.getItemAsync('token');
             if (!token) return;
             const res = await axios.get(`${API_URL}/auth/notif-preference`, { headers: { Authorization: `Bearer ${token}` } });
-            if (res.data.ok) setNotifs(res.data.notificaciones_activas);
+            if (res.data.ok) {
+                setNotifs(res.data.notificaciones_activas);
+                if (Platform.OS === 'web') setBrowserNotificationsEnabled(res.data.notificaciones_activas);
+            }
         } catch (e) {  }
     };
 
     const toggleNotifs = async (value: boolean) => {
         setNotifs(value);
+        if (Platform.OS === 'web') setBrowserNotificationsEnabled(value);
         try {
             const token = Platform.OS === 'web' ? localStorage.getItem('token') : await SecureStore.getItemAsync('token');
             if (!token) return;
             await axios.put(`${API_URL}/auth/notif-preference`, { notificaciones_activas: value }, { headers: { Authorization: `Bearer ${token}` } });
         } catch (e) {
             setNotifs(!value); // revertir si falla
+            if (Platform.OS === 'web') setBrowserNotificationsEnabled(!value);
         }
     };
 

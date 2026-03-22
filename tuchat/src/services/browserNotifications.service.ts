@@ -1,8 +1,12 @@
 import { Platform } from 'react-native';
+import axios from 'axios';
 import Push from 'push.js';
 
 let permissionRequested = false;
 const PENDING_NOTIFICATION_ROOM_KEY = 'tuchat_pending_notification_room';
+const BROWSER_NOTIFICATIONS_ENABLED_KEY = 'tuchat_browser_notifications_enabled';
+const API_URL = "https://tuchat-pl9.onrender.com";
+let browserNotificationsEnabled = true;
 
 export type BrowserNotificationTarget = {
   roomId: string;
@@ -16,6 +20,47 @@ const persistNotificationTarget = (payload: BrowserNotificationTarget) => {
     window.sessionStorage.setItem(PENDING_NOTIFICATION_ROOM_KEY, JSON.stringify(payload));
   } catch (error) {
     console.error('Error guardando destino de notificacion:', error);
+  }
+};
+
+const persistBrowserNotificationsEnabled = (enabled: boolean) => {
+  browserNotificationsEnabled = enabled;
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(BROWSER_NOTIFICATIONS_ENABLED_KEY, JSON.stringify(enabled));
+  } catch (error) {
+    console.error('Error guardando preferencia de notificaciones web:', error);
+  }
+};
+
+export const setBrowserNotificationsEnabled = (enabled: boolean) => {
+  persistBrowserNotificationsEnabled(Boolean(enabled));
+};
+
+export const areBrowserNotificationsEnabled = () => {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return true;
+  try {
+    const raw = window.localStorage.getItem(BROWSER_NOTIFICATIONS_ENABLED_KEY);
+    if (raw == null) return browserNotificationsEnabled;
+    browserNotificationsEnabled = JSON.parse(raw) !== false;
+    return browserNotificationsEnabled;
+  } catch {
+    return browserNotificationsEnabled;
+  }
+};
+
+export const syncBrowserNotificationsPreference = async (token?: string | null) => {
+  if (Platform.OS !== 'web' || !token) return areBrowserNotificationsEnabled();
+  try {
+    const res = await axios.get(`${API_URL}/auth/notif-preference`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const enabled = res.data?.ok ? res.data.notificaciones_activas !== false : true;
+    persistBrowserNotificationsEnabled(enabled);
+    return enabled;
+  } catch (error) {
+    console.error('Error sincronizando preferencia de notificaciones web:', error);
+    return areBrowserNotificationsEnabled();
   }
 };
 
@@ -52,6 +97,7 @@ export const clearPendingNotificationTarget = () => {
 
 export const initBrowserNotifications = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  if (!areBrowserNotificationsEnabled()) return;
   if (permissionRequested) return;
   permissionRequested = true;
 
@@ -78,6 +124,7 @@ export const showBrowserMessageNotification = ({
   targetPanel?: 'events' | 'polls' | 'mentions' | 'info';
 }) => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  if (!areBrowserNotificationsEnabled()) return;
 
   try {
     const resolvedTitle = roomName ? `${title} - ${roomName}` : title;
