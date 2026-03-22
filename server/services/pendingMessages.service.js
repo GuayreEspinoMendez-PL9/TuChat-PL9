@@ -35,4 +35,28 @@ export const clearPendingMessages = async (redis, userId, device) => {
   await redis.del(key);
 };
 
+const rewritePendingQueue = async (redis, key, messages) => {
+  await redis.del(key);
+  if (!messages.length) return;
+  await redis.rpush(key, ...messages.map((item) => JSON.stringify(item)));
+  await redis.expire(key, 604800);
+};
+
+export const clearPendingMessagesByRoom = async (redis, userId, device, roomId) => {
+  if (!redis || !userId || !roomId) return;
+  const key = getQueueKey(userId, normalizeDevice(device));
+  const pendingMessages = await listPendingMessages(redis, userId, device);
+  const survivors = pendingMessages.filter((message) => String(message?.roomId || '') !== String(roomId));
+  await rewritePendingQueue(redis, key, survivors);
+};
+
+export const clearPendingMessagesByIds = async (redis, userId, device, msgIds = []) => {
+  if (!redis || !userId || !Array.isArray(msgIds) || msgIds.length === 0) return;
+  const key = getQueueKey(userId, normalizeDevice(device));
+  const targetIds = new Set(msgIds.map((item) => String(item)));
+  const pendingMessages = await listPendingMessages(redis, userId, device);
+  const survivors = pendingMessages.filter((message) => !targetIds.has(String(message?.msg_id || '')));
+  await rewritePendingQueue(redis, key, survivors);
+};
+
 export const getPendingDevice = normalizeDevice;

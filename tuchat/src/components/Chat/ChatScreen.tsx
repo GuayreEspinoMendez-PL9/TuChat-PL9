@@ -553,8 +553,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       setChatSetupReady(false);
       try {
         let currentUserId = '';
-        const localMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
-        setMessages(localMessages);
+        let currentMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : [];
+        setMessages(currentMessages);
         setInput(typeof getDraftLocal === 'function' ? getDraftLocal(id) : '');
         if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
         refreshUnreadCounts();
@@ -590,6 +590,38 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           currentUserId = String(uid || '');
           setMyUserId(uid);
           myUserIdRef.current = uid; // Keep ref in sync
+
+          try {
+            const device = Platform.OS === 'web' ? 'web' : 'mobile';
+            const pendingResponse = await axios.get(`${API_URL}/mensajes/pendientes/${currentUserId}?device=${device}&roomId=${encodeURIComponent(String(id))}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+
+            const pendingMessages = Array.isArray(pendingResponse.data?.mensajes) ? pendingResponse.data.mensajes : [];
+            if (pendingMessages.length > 0) {
+              pendingMessages.forEach((pendingMessage: any) => {
+                if (typeof saveMessageLocal === 'function') {
+                  saveMessageLocal({
+                    ...pendingMessage,
+                    isMe: String(pendingMessage?.senderId || '') === currentUserId,
+                    read: String(pendingMessage?.senderId || '') === currentUserId,
+                  });
+                }
+              });
+              currentMessages = typeof getMessagesByRoom === 'function' ? getMessagesByRoom(id) : pendingMessages;
+              setMessages(currentMessages);
+
+              await axios.post(`${API_URL}/mensajes/ack`, {
+                userId: currentUserId,
+                device,
+                roomId: String(id),
+              }, {
+                headers: { Authorization: `Bearer ${token}` }
+              });
+            }
+          } catch (e) {
+            console.log("No se pudieron cargar pendientes de Redis para este chat:", e);
+          }
 
           const userDataStr = Platform.OS === 'web'
             ? localStorage.getItem('usuario')
@@ -692,14 +724,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         }
         if (socket) {
           socket.emit("join_room", id);
-          emitReadReceiptsForMessages(localMessages, currentUserId);
+          emitReadReceiptsForMessages(currentMessages, currentUserId);
         }
 
-        if (token && localMessages.length > 0) {
+        if (token && currentMessages.length > 0) {
           try {
             const statusResponse = await axios.post(`${API_URL}/mensajes/estados`, {
               roomId: id,
-              msgIds: localMessages.map((message: any) => String(message.msg_id)).filter(Boolean),
+              msgIds: currentMessages.map((message: any) => String(message.msg_id)).filter(Boolean),
             }, {
               headers: { Authorization: `Bearer ${token}` }
             });
