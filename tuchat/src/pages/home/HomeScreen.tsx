@@ -13,6 +13,10 @@ import { useSocket } from '../../context/SocketContext';
 import { dismissImportantItem, getImportantMessages, markMessagesAsRead, getMessagesByRoom, searchMessagesAdvanced } from '../../db/database';
 import { ChatScreen } from '../../components/Chat/ChatScreen';
 import { useTheme } from '../../context/ThemeContext';
+import {
+  clearPendingNotificationTarget,
+  consumePendingNotificationTarget,
+} from '../../services/browserNotifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DESKTOP_BREAKPOINT = 768;
@@ -353,6 +357,69 @@ export const HomeScreen = () => {
   useEffect(() => {
     refreshImportantItems();
   }, [refreshImportantItems, unreadCounts]);
+
+  const openRoomFromNotification = useCallback((payload: { roomId: string; msgId?: string; targetPanel?: 'events' | 'polls' | 'mentions' | 'info' }) => {
+    const normalizedRoomId = String(payload?.roomId || '');
+    if (!normalizedRoomId) return false;
+
+    const matched = [...chats, ...privateChats].find((chat) => String(chat.id_chat) === normalizedRoomId);
+    const nextChat = matched || {
+      id_chat: normalizedRoomId,
+      nombre: normalizedRoomId,
+      tipo: 'grupo',
+    };
+
+    if (typeof markMessagesAsRead === 'function') markMessagesAsRead(normalizedRoomId);
+    refreshUnreadCounts();
+
+    if (isDesktop) {
+      setSelectedChat({
+        ...nextChat,
+        targetMsgId: payload.msgId,
+        targetPanel: payload.targetPanel,
+        navigationKey: `notification:${normalizedRoomId}:${payload.msgId || payload.targetPanel || 'chat'}:${Date.now()}`,
+      });
+    } else {
+      router.push({
+        pathname: "/chat",
+        params: {
+          id: normalizedRoomId,
+          nombre: nextChat.nombre || normalizedRoomId,
+          tipo: nextChat.tipo || 'grupo',
+          targetMsgId: payload.msgId,
+          targetPanel: payload.targetPanel,
+        }
+      });
+    }
+
+    return true;
+  }, [chats, privateChats, isDesktop, refreshUnreadCounts]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || loading) return;
+
+    const pending = consumePendingNotificationTarget();
+    if (pending?.roomId) {
+      openRoomFromNotification(pending);
+    }
+
+    const handleNotificationOpenRoom = (event: Event) => {
+      const customEvent = event as CustomEvent<{ roomId?: string; msgId?: string; targetPanel?: 'events' | 'polls' | 'mentions' | 'info' }>;
+      const roomId = customEvent.detail?.roomId;
+      if (!roomId) return;
+      clearPendingNotificationTarget();
+      openRoomFromNotification({
+        roomId,
+        msgId: customEvent.detail?.msgId,
+        targetPanel: customEvent.detail?.targetPanel,
+      });
+    };
+
+    window.addEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+    return () => {
+      window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+    };
+  }, [loading, openRoomFromNotification]);
 
   useEffect(() => {
     const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));

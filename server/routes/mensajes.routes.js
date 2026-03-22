@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { getRedis } from "../redis.js";
 import { listMessageStatusesByIdsDb } from "../services/messageStatus.persistence.js";
+import {
+  clearPendingMessages,
+  getPendingDevice,
+  listPendingMessages,
+} from "../services/pendingMessages.service.js";
 
 const router = Router();
 
@@ -9,10 +14,8 @@ router.get("/pendientes/:userId", async (req, res) => {
   try {
     const redis = getRedis();
     const { userId } = req.params;
-    const key = `pendientes:usuario:${userId}`;
-
-    const rawMessages = await redis.lrange(key, 0, -1);
-    const mensajes = rawMessages.map(m => JSON.parse(m));
+    const device = getPendingDevice(req.query.device);
+    const mensajes = await listPendingMessages(redis, userId, device);
 
     res.json({ ok: true, mensajes });
   } catch (e) {
@@ -24,9 +27,10 @@ router.get("/pendientes/:userId", async (req, res) => {
 router.post("/ack", async (req, res) => {
   try {
     const redis = getRedis();
-    const { userId } = req.body;
-    await redis.del(`pendientes:usuario:${userId}`);
-    res.json({ ok: true });
+    const { userId, device } = req.body;
+    const targetDevice = getPendingDevice(device);
+    await clearPendingMessages(redis, userId, targetDevice);
+    res.json({ ok: true, device: targetDevice });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

@@ -7,7 +7,7 @@ const API_URL = "https://tuchat-pl9.onrender.com";
 export const syncMessages = async (userId: string, token: string) => {
   try {
     // 1. T3: Descargar pendientes de Redis
-    const response = await axios.get(`${API_URL}/mensajes/pendientes/${userId}`, {
+    const response = await axios.get(`${API_URL}/mensajes/pendientes/${userId}?device=mobile`, {
       headers: { Authorization: `Bearer ${token}` }
     });
 
@@ -18,7 +18,7 @@ export const syncMessages = async (userId: string, token: string) => {
       });
 
       // 3. T3: Confirmar al servidor (ACK) para que limpie Redis
-      await axios.post(`${API_URL}/mensajes/ack`, { userId }, {
+      await axios.post(`${API_URL}/mensajes/ack`, { userId, device: 'mobile' }, {
         headers: { Authorization: `Bearer ${token}` }
       });
 

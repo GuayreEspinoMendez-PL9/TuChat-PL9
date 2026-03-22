@@ -4,7 +4,6 @@ import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { SocketProvider } from "../src/context/SocketContext";
 import { ThemeProvider } from "../src/context/ThemeContext";
-
 import { decodeJwt } from "../src/utils/auth";
 
 const ADMIN_ROL_ID = 7;
@@ -95,6 +94,24 @@ export default function Layout() {
     }
 
   }, [ready, hasToken, isAdmin, segments]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+
+    const handleNotificationOpenRoom = () => {
+      if (!hasToken) return;
+      const currentSegments = segments as string[];
+      const onHome = currentSegments.length === 0 || currentSegments[0] === '(tabs)' || currentSegments[0] === 'index';
+      if (!onHome) {
+        router.replace('/' as any);
+      }
+    };
+
+    window.addEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+    return () => {
+      window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+    };
+  }, [hasToken, segments]);
 
   if (!ready) return null;
 

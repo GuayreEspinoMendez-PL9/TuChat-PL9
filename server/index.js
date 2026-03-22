@@ -21,6 +21,11 @@ import { enviarNotificacionPush } from "./services/push.service.js";
 import { setUserPresence } from "./services/collab.store.js";
 import { createPinDb, initCollabTables, removePinDb } from "./services/collab.persistence.js";
 import {
+  clearPendingMessages,
+  enqueuePendingMessage,
+  listPendingMessages,
+} from "./services/pendingMessages.service.js";
+import {
   createMessageStatusDb,
   getMessageStatusDb,
   initMessageStatusTable,
@@ -249,6 +254,7 @@ const syncTrackingFromStatus = async (msgId) => {
 
 io.on("connection", async (socket) => {
   const userId = socket.handshake.query.userId;
+  const deviceType = String(socket.handshake.query.deviceType || "mobile").toLowerCase();
   let connectedRooms = [];
 
   if (userId) {
@@ -305,18 +311,15 @@ io.on("connection", async (socket) => {
       console.error("❌ Error Auto-Join:", e.message);
     }
 
-    // VACIAR REDIS: Recuperar lo enviado mientras estaba offline
+    // Recuperar pendientes web. Los del movil se sincronizan via API + ACK explicito.
     try {
       const redis = getRedis();
-      if (redis && redis.status === 'ready') {
-        const key = `pendientes:usuario:${userId}`;
-        const pendingMessages = await redis.lrange(key, 0, -1);
-
+      if (deviceType === "web" && redis && redis.status === 'ready') {
+        const pendingMessages = await listPendingMessages(redis, userId, "web");
         if (pendingMessages.length > 0) {
           console.log(`📦 Entregando ${pendingMessages.length} mensajes offline`);
-          pendingMessages.forEach(msgStr => {
+          pendingMessages.forEach(obj => {
             try {
-              const obj = JSON.parse(msgStr);
               if (obj.type === 'reaction') {
                 socket.emit("chat:reaction", obj);
               } else {
@@ -324,7 +327,7 @@ io.on("connection", async (socket) => {
               }
             } catch { }
           });
-          await redis.del(key);
+          await clearPendingMessages(redis, userId, "web");
         }
       }
     } catch (e) {
@@ -340,18 +343,6 @@ io.on("connection", async (socket) => {
       connectedRooms.push(String(roomId));
     }
     console.log(`👤 Unión manual: ${socket.id} -> ${roomId}`);
-      const redis = getRedis();
-    if (userId && redis?.status === 'ready') {
-        const key = `pendientes:usuario:${userId}`;
-        const pendingMessages = await redis.lrange(key, 0, -1);
-        const roomMessages = pendingMessages
-            .map(msg => JSON.parse(msg))
-            .filter(msg => msg.roomId === roomId);
-
-        for (const msg of roomMessages) {
-            socket.emit("chat:receive", msg);
-        }
-    }
 
     await cargarAjustesSala(roomId);
   });
@@ -446,9 +437,7 @@ io.on("connection", async (socket) => {
 
             // 2. Guardar en Redis como backup (Buzón)
             if (redis?.status === 'ready') {
-              const key = `pendientes:usuario:${uId}`;
-              await redis.rpush(key, JSON.stringify(message));
-              await redis.expire(key, 604800); // 7 días
+              await enqueuePendingMessage(redis, uId, message);
             }
 
             // 3. Notificación Push
@@ -561,8 +550,14 @@ io.on("connection", async (socket) => {
         });
       }
 
+      const redis = getRedis();
       otherRecipients.forEach(uId => {
           io.to(`user:${uId}`).emit("chat:receive", message);
+          if (redis?.status === 'ready') {
+            enqueuePendingMessage(redis, uId, message).catch((error) => {
+              console.error("❌ Error guardando adjunto en Redis:", error.message);
+            });
+          }
           const mentionTargets = payload.mentions?.targetUserIds || [];
           const mentionLabels = payload.mentions?.tokens || [];
           const hasMention = mentionTargets.includes(uId) || mentionLabels.some((label) => ["todos", "delegados", "profesor"].includes(label));
@@ -596,9 +591,7 @@ io.on("connection", async (socket) => {
             // Only send to personal channel (for users not in the room/offline)
             // socket.to(roomId) already covered users inside the room
             if (redis?.status === 'ready') {
-              const key = `pendientes:usuario:${uId}`;
-              await redis.rpush(key, JSON.stringify(reactionObj));
-              await redis.expire(key, 604800);
+              await enqueuePendingMessage(redis, uId, reactionObj);
             }
           }
         }

@@ -4,6 +4,11 @@ import { io, Socket } from 'socket.io-client';
 import * as SecureStore from 'expo-secure-store';
 import { saveMessageLocal, getAllUnreadCounts, updateMessageLocal } from '../db/database';
 import { decodeJwt } from '../utils/auth';
+import { syncMessages } from '../services/syncService';
+import {
+  initBrowserNotifications,
+  showBrowserMessageNotification,
+} from '../services/browserNotifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -85,7 +90,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
         newSocket = io(API_URL, {
           autoConnect: true,
-          query: { userId },
+          query: { userId, deviceType: Platform.OS === 'web' ? 'web' : 'mobile' },
           transports: ['websocket'],
           upgrade: false,
           reconnection: true,
@@ -95,6 +100,13 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         newSocket.on('connect', () => {
           console.log('Socket conectado globalmente:', newSocket?.id);
           setIsConnected(true);
+          if (Platform.OS === 'web') {
+            initBrowserNotifications();
+          } else {
+            syncMessages(String(userId), token).catch((error) => {
+              console.error('Error sincronizando mensajes pendientes:', error);
+            });
+          }
         });
 
         newSocket.on('disconnect', () => {
@@ -123,6 +135,34 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
           if (!isMe && !isActiveRoom) {
             refreshUnreadCounts();
+            if (Platform.OS === 'web') {
+              let preview = msg.text || msg.contenido || 'Nuevo mensaje';
+
+              if (msg.targetPanel === 'polls' || msg.itemType === 'poll') {
+                preview = `Nueva encuesta: ${msg.question || msg.text || 'Revisa la encuesta'}`;
+              } else if (msg.targetPanel === 'events' || msg.itemType === 'event') {
+                preview = `Nuevo evento: ${msg.title || msg.text || 'Revisa el evento'}`;
+              } else if (msg.image || msg.fileName || msg.mediaType === 'file') {
+                preview = msg.fileName
+                  ? `Adjunto: ${msg.fileName}`
+                  : 'Adjunto recibido';
+              } else if (msg.mediaType === 'image') {
+                preview = 'Imagen recibida';
+              } else if (msg.mediaType === 'video') {
+                preview = 'Video recibido';
+              } else if (msg.requiresAck) {
+                preview = `Mensaje importante: ${msg.text || msg.contenido || 'Revisa este mensaje'}`;
+              }
+
+              showBrowserMessageNotification({
+                title: msg.senderName || 'Nuevo mensaje',
+                body: preview,
+                roomId: msg.roomId,
+                msgId: msg.msg_id,
+                roomName: msg.roomName,
+                targetPanel: msg.targetPanel,
+              });
+            }
           }
         });
 
@@ -153,6 +193,9 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     initSocket();
+    if (Platform.OS === 'web') {
+      initBrowserNotifications();
+    }
 
     return () => {
       destroyed = true;
