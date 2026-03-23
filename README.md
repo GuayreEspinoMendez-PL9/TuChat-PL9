@@ -264,3 +264,137 @@ El proyecto ya dispone de una base funcional de comunicacion academica en tiempo
 - centro de archivos
 - bandeja de importantes
 - soporte de eventos, encuestas y pines
+
+```
+copia
+├─ docker-compose.yml
+├─ Dockerfile
+├─ README.md
+├─ server
+│  ├─ academico
+│  │  ├─ academico.controller.js
+│  │  └─ admin.controller.js
+│  ├─ app.js
+│  ├─ auth
+│  │  ├─ admin.middleware.js
+│  │  ├─ auth.controller.js
+│  │  ├─ auth.middleware.js
+│  │  └─ auth.service.js
+│  ├─ db
+│  │  └─ db.js
+│  ├─ index.js
+│  ├─ package-lock.json
+│  ├─ package.json
+│  ├─ redis.js
+│  ├─ routes
+│  │  ├─ academico.routes.js
+│  │  ├─ admin.routes.js
+│  │  ├─ auth.routes.js
+│  │  ├─ chat.routes.js
+│  │  └─ mensajes.routes.js
+│  └─ services
+│     ├─ collab.persistence.js
+│     ├─ collab.store.js
+│     ├─ messageStatus.persistence.js
+│     ├─ pendingMessages.service.js
+│     └─ push.service.js
+└─ tuchat
+   ├─ app
+   │  ├─ (tabs)
+   │  │  ├─ index.tsx
+   │  │  ├─ two.tsx
+   │  │  └─ _layout.tsx
+   │  ├─ +html.tsx
+   │  ├─ +not-found.tsx
+   │  ├─ admin.tsx
+   │  ├─ chat-info.tsx
+   │  ├─ chat.tsx
+   │  ├─ faq.tsx
+   │  ├─ index.tsx
+   │  ├─ llamada.tsx
+   │  ├─ login.tsx
+   │  ├─ modal.tsx
+   │  ├─ profile.tsx
+   │  ├─ settings-info.tsx
+   │  ├─ settings.tsx
+   │  └─ _layout.tsx
+   ├─ app.json
+   ├─ assets
+   │  ├─ fonts
+   │  │  └─ SpaceMono-Regular.ttf
+   │  └─ images
+   │     ├─ adaptive-icon.png
+   │     ├─ favicon.png
+   │     ├─ icon.png
+   │     ├─ logo.png
+   │     └─ splash-icon.png
+   ├─ components
+   │  ├─ EditScreenInfo.tsx
+   │  ├─ ExternalLink.tsx
+   │  ├─ StyledText.tsx
+   │  ├─ Themed.tsx
+   │  ├─ useClientOnlyValue.ts
+   │  ├─ useClientOnlyValue.web.ts
+   │  ├─ useColorScheme.ts
+   │  ├─ useColorScheme.web.ts
+   │  └─ __tests__
+   │     └─ StyledText-test.js
+   ├─ constants
+   │  └─ Colors.ts
+   ├─ expo-env.d.ts
+   ├─ package-lock.json
+   ├─ package.json
+   ├─ src
+   │  ├─ components
+   │  │  ├─ Chat
+   │  │  │  ├─ chat.styles.ts
+   │  │  │  ├─ ChatInfoScreen.tsx
+   │  │  │  ├─ ChatScreen.tsx
+   │  │  │  ├─ MentionDropdown.tsx
+   │  │  │  ├─ PinComponents.tsx
+   │  │  │  └─ ReactionPicker.tsx
+   │  │  ├─ ChatItem.tsx
+   │  │  └─ ThemeSelector.tsx
+   │  ├─ context
+   │  │  ├─ SocketContext.tsx
+   │  │  └─ ThemeContext.tsx
+   │  ├─ db
+   │  │  ├─ database.ts
+   │  │  ├─ database.web.ts
+   │  │  └─ messageModel.ts
+   │  ├─ pages
+   │  │  ├─ Admin
+   │  │  │  ├─ AdminScreen.tsx
+   │  │  │  ├─ admin_styles.ts
+   │  │  │  └─ WizardClase.tsx
+   │  │  ├─ Call
+   │  │  │  ├─ Call.icons.tsx
+   │  │  │  ├─ Call.styles.ts
+   │  │  │  ├─ Call.tsx
+   │  │  │  ├─ Call.types.ts
+   │  │  │  └─ index.ts
+   │  │  ├─ home
+   │  │  │  ├─ home.styles.ts
+   │  │  │  └─ HomeScreen.tsx
+   │  │  └─ Login
+   │  │     ├─ Login.styles.ts
+   │  │     └─ LoginScreen.tsx
+   │  ├─ screens
+   │  │  ├─ FAQScreen.tsx
+   │  │  ├─ ProfileScreen.tsx
+   │  │  ├─ QrSyncScreen.tsx
+   │  │  ├─ SettingsInfoScreen.tsx
+   │  │  └─ SettingsScreen.tsx
+   │  ├─ services
+   │  │  ├─ browserNotifications.service.ts
+   │  │  ├─ chatExtras.service.ts
+   │  │  ├─ notifications.service.ts
+   │  │  └─ syncService.ts
+   │  ├─ types
+   │  │  └─ pushjs.d.ts
+   │  └─ utils
+   │     ├─ auth.ts
+   │     └─ mentions.ts
+   └─ tsconfig.json
+
+```
