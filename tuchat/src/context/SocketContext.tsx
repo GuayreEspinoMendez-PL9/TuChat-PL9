@@ -92,7 +92,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
         newSocket = io(API_URL, {
           autoConnect: true,
-          query: { userId, deviceType: Platform.OS === 'web' ? 'web' : 'mobile' },
+          auth: { token },
+          query: { deviceType: Platform.OS === 'web' ? 'web' : 'mobile' },
           transports: ['websocket'],
           upgrade: false,
           reconnection: true,
@@ -120,6 +121,10 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
         newSocket.on('disconnect', () => {
           console.log('Socket desconectado');
           setIsConnected(false);
+        });
+
+        newSocket.on('connect_error', (error) => {
+          console.error('Error autenticando socket:', error?.message || error);
         });
 
         newSocket.on('chat:receive', (msg) => {

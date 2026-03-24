@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, Platform, ScrollView, Alert } from 'react-native';
 import { io } from 'socket.io-client';
+import * as SecureStore from 'expo-secure-store';
 import { styles } from './Call.styles';
 import type { CallScreenProps } from './Call.types';
 import { MicIcon, VideoIcon, ScreenShareIcon } from './Call.icons';
@@ -8,6 +9,11 @@ import { MicIcon, VideoIcon, ScreenShareIcon } from './Call.icons';
 const WebRTC = Platform.OS !== 'web' ? require('react-native-webrtc') : null;
 const API_URL = "https://tuchat-pl9.onrender.com";
 const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+const getAuthToken = async () => {
+  if (Platform.OS === 'web') return localStorage.getItem('token');
+  return SecureStore.getItemAsync('token');
+};
 
 export const CallScreen: React.FC<CallScreenProps> = ({
   roomId,
@@ -226,16 +232,25 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
     console.log(`🔌 Creando socket para CallScreen con userId: ${userId}`);
 
-    socket.current = io(API_URL, {
-      query: { userId },
-      timeout: 10000,
-      reconnection: true,
-      reconnectionAttempts: 3,
-      reconnectionDelay: 1000,
-      transports: ['websocket']
-    });
+    const init = async () => {
+      const token = await getAuthToken();
+      if (!token) {
+        setStatus("Sesión expirada");
+        Alert.alert("Error", "No se encontró un token de sesión válido", [
+          { text: "OK", onPress: () => onEndCall?.() }
+        ]);
+        return;
+      }
 
-      const init = async () => {
+      socket.current = io(API_URL, {
+        auth: { token },
+        timeout: 10000,
+        reconnection: true,
+        reconnectionAttempts: 3,
+        reconnectionDelay: 1000,
+        transports: ['websocket']
+      });
+
       const stream = await requestPermissions();
 
       if (stream) {

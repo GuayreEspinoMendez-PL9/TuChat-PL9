@@ -4,6 +4,7 @@ import http from "http";
 import { Server } from "socket.io";
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import jwt from "jsonwebtoken";
 
 // fetch está disponible de forma nativa en Node 18+
 // Si usas Node 16 o anterior, instala node-fetch: npm install node-fetch
@@ -135,6 +136,43 @@ const io = new Server(server, {
   },
 });
 
+const getSocketToken = (socket) => {
+  const authToken = socket.handshake.auth?.token;
+  if (typeof authToken === "string" && authToken.trim()) return authToken.trim();
+
+  const queryToken = socket.handshake.query?.token;
+  if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim();
+
+  const authorizationHeader = socket.handshake.headers?.authorization;
+  if (typeof authorizationHeader === "string" && authorizationHeader.startsWith("Bearer ")) {
+    return authorizationHeader.slice(7).trim();
+  }
+
+  return null;
+};
+
+io.use((socket, next) => {
+  try {
+    const token = getSocketToken(socket);
+    if (!token) {
+      return next(new Error("AUTH_REQUIRED"));
+    }
+
+    const secret = process.env.JWT_SECRET || 'clave_secreta_temporal';
+    const payload = jwt.verify(token, secret);
+
+    if (!payload?.sub) {
+      return next(new Error("INVALID_TOKEN_PAYLOAD"));
+    }
+
+    socket.userId = String(payload.sub);
+    socket.authUser = payload;
+    next();
+  } catch (error) {
+    next(new Error(error.name === "TokenExpiredError" ? "TOKEN_EXPIRED" : "INVALID_TOKEN"));
+  }
+});
+
 app.set('io', io);
 
 let ajustesSalas = {};
@@ -253,7 +291,7 @@ const syncTrackingFromStatus = async (msgId) => {
 };
 
 io.on("connection", async (socket) => {
-  const userId = socket.handshake.query.userId;
+  const userId = socket.userId;
   const deviceType = String(socket.handshake.query.deviceType || "mobile").toLowerCase();
   let connectedRooms = [];
 
@@ -360,7 +398,8 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("chat:send", async (payload, ackFn) => {
-    const { roomId, senderId, recipients, esProfesor, contenido, nombreEmisor, imageUri } = payload;
+    const senderId = userId;
+    const { roomId, recipients, esProfesor, contenido, nombreEmisor, imageUri } = payload;
 
     if (!ajustesSalas[roomId]) {
       await cargarAjustesSala(roomId);
@@ -379,6 +418,7 @@ io.on("connection", async (socket) => {
 
     const message = buildIndexedMessage({
       ...payload,
+      senderId,
       contenido: contenido || payload.text, // Aseguramos que tenga algo
       timestamp: Date.now(),
       read: false
@@ -496,7 +536,8 @@ io.on("connection", async (socket) => {
 
   socket.on("chat:send_media", async (payload, ackFn) => {
     // 1. Extraemos los datos (payload trae el campo 'image' con el base64)
-    const { roomId, senderId, recipients, image, nombreEmisor } = payload;
+    const senderId = userId;
+    const { roomId, recipients, image, nombreEmisor } = payload;
 
     if (!ajustesSalas[roomId]) {
       await cargarAjustesSala(roomId);
@@ -509,6 +550,7 @@ io.on("connection", async (socket) => {
 
     const message = buildIndexedMessage({
       ...payload,
+      senderId,
       timestamp: Date.now(),
       read: false
     });
@@ -575,7 +617,8 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("chat:reaction", async (payload) => {
-    const { roomId, msgId, reaction, recipients, senderId } = payload;
+    const senderId = userId;
+    const { roomId, msgId, reaction, recipients } = payload;
 
     // 1. Broadcast to room EXCLUDING the sender (they already updated optimistically)
     socket.to(roomId).emit("chat:reaction", { msgId, reaction });
@@ -656,12 +699,12 @@ io.on("connection", async (socket) => {
       });
   });
 
-  socket.on("chat:strong_read", ({ msg_id, roomId, userId: readerId, userName }) => {
-    if (!msg_id || !roomId || !readerId) return;
+  socket.on("chat:strong_read", ({ msg_id, roomId, userName }) => {
+    if (!msg_id || !roomId || !userId) return;
     io.to(roomId).emit("chat:update_strong_read", {
       msg_id,
       reader: {
-        userId: readerId,
+        userId,
         userName: userName || 'Usuario',
         readAt: Date.now(),
       }
@@ -707,17 +750,19 @@ io.on("connection", async (socket) => {
   // ==================================
 
   // Unirse a una sala de videollamada
-  socket.on("meet:join", ({ roomId, userId, type }) => {
+  socket.on("meet:join", ({ roomId, userId: claimedUserId, type }) => {
+    const meetUserId = userId;
     // LOG DETALLADO PARA DEBUGGING
     console.log(`📞 MEET:JOIN recibido:`, {
       roomId,
-      userId,
+      userId: meetUserId,
+      claimedUserId,
       type,
       roomIdType: typeof roomId,
-      userIdType: typeof userId,
+      userIdType: typeof meetUserId,
       socketId: socket.id,
       isRoomIdValid: roomId && roomId !== 'null' && roomId !== 'undefined',
-      isUserIdValid: userId && userId !== 'null' && userId !== 'undefined'
+      isUserIdValid: meetUserId && meetUserId !== 'null' && meetUserId !== 'undefined'
     });
 
     // VALIDACIÓN DE DATOS
@@ -727,7 +772,7 @@ io.on("connection", async (socket) => {
       return;
     }
 
-    if (!userId || userId === 'null' || userId === 'undefined' || userId.trim() === '') {
+    if (!meetUserId || meetUserId === 'null' || meetUserId === 'undefined' || meetUserId.trim() === '') {
       console.error("❌ userId inválido en meet:join");
       socket.emit("meet:error", { msg: "ID de usuario inválido" });
       return;
@@ -742,33 +787,33 @@ io.on("connection", async (socket) => {
     if (!room.screenSharers) room.screenSharers = new Map();
 
     // Evitar duplicados
-    if (room.participants.has(userId)) {
-      console.log(`⚠️ Usuario ${userId} ya está en la sala, actualizando socketId`);
-      room.participants.set(userId, socket.id);
+    if (room.participants.has(meetUserId)) {
+      console.log(`⚠️ Usuario ${meetUserId} ya está en la sala, actualizando socketId`);
+      room.participants.set(meetUserId, socket.id);
     } else {
-      room.participants.set(userId, socket.id);
-      console.log(`➕ Usuario ${userId} añadido a la sala ${roomId}`);
+      room.participants.set(meetUserId, socket.id);
+      console.log(`➕ Usuario ${meetUserId} añadido a la sala ${roomId}`);
     }
 
     socket.join(`meet:${roomId}`);
     console.log(`🚪 Socket ${socket.id} unido a meet:${roomId}`);
 
     const others = Array.from(room.participants.entries())
-      .filter(([uid]) => uid !== userId)
+      .filter(([uid]) => uid !== meetUserId)
       .map(([uid, sid]) => ({ userId: uid, socketId: sid }));
 
-    console.log(`👥 Enviando lista de ${others.length} participantes existentes a ${userId}`);
+    console.log(`👥 Enviando lista de ${others.length} participantes existentes a ${meetUserId}`);
     socket.emit("meet:participants", {
       participants: others,
       callId: room.callId,
       screenSharers: Array.from(room.screenSharers.entries()).map(([socketId, sharerUserId]) => ({ socketId, userId: sharerUserId }))
     });
 
-    console.log(`📢 Notificando a ${others.length} usuarios sobre nuevo participante ${userId}`);
-    socket.to(`meet:${roomId}`).emit("meet:user-joined", { userId, socketId: socket.id });
+    console.log(`📢 Notificando a ${others.length} usuarios sobre nuevo participante ${meetUserId}`);
+    socket.to(`meet:${roomId}`).emit("meet:user-joined", { userId: meetUserId, socketId: socket.id });
   });
 
-  socket.on("meet:screen-share-state", ({ roomId, userId, isSharing }) => {
+  socket.on("meet:screen-share-state", ({ roomId, isSharing }) => {
     const room = meetRooms.get(roomId);
     if (!room) return;
     if (!room.screenSharers) room.screenSharers = new Map();
@@ -806,8 +851,8 @@ io.on("connection", async (socket) => {
     }
   });
 
-  socket.on("meet:leave", ({ roomId, userId }) => {
-    console.log(`👋 meet:leave recibido de ${userId} en sala ${roomId}`);
+  socket.on("meet:leave", ({ roomId, userId: claimedUserId }) => {
+    console.log(`👋 meet:leave recibido de ${userId} en sala ${roomId}`, { claimedUserId });
     leaveMeetRoom(roomId, userId, socket.id);
   });
 
@@ -818,7 +863,7 @@ io.on("connection", async (socket) => {
   const qrSyncSessions = io._qrSyncSessions || (io._qrSyncSessions = new Map());
 
   // 1. Web solicita un token QR para mostrar
-  socket.on("sync:request_qr", ({ userId }) => {
+  socket.on("sync:request_qr", () => {
     const token = crypto.randomBytes(16).toString('hex');
     qrSyncSessions.set(token, { 
       webSocketId: socket.id, 
@@ -835,13 +880,14 @@ io.on("connection", async (socket) => {
   });
 
   // 2. Móvil escanea QR y envía el token para emparejar
-  socket.on("sync:pair", ({ token, userId }) => {
+  socket.on("sync:pair", ({ token, userId: claimedUserId }) => {
     const session = qrSyncSessions.get(token);
     if (!session) {
       socket.emit("sync:error", { msg: "Código QR expirado o inválido" });
       return;
     }
     if (session.userId !== userId) {
+      console.warn(`[QR Sync] Intento de emparejado cruzado`, { expectedUserId: session.userId, claimedUserId, socketUserId: userId });
       socket.emit("sync:error", { msg: "El QR pertenece a otro usuario" });
       return;
     }
