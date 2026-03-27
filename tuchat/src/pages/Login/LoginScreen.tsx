@@ -19,6 +19,8 @@ import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
 
 const API_URL = "https://tuchat-pl9.onrender.com";
+const HOVER_GRID_COLUMNS = 10;
+const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
 
 const UserIcon = ({ focused }: { focused: boolean }) => (
   <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={focused ? "#2563EB" : "#94a3b8"} style={{ width: 20, height: 20 }}>
@@ -45,6 +47,94 @@ const EyeSlashIcon = () => (
   </Svg>
 );
 
+const buildTileShadow = () => {
+  const parts: string[] = [];
+  const gap = 48;
+  const coef = -4.5;
+
+  for (let i = 1; i <= 4; i += 1) {
+    parts.push(`${i * gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`${i * -gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`0 ${i * gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`0 ${i * -gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+
+    for (let j = 1; j <= 4; j += 1) {
+      const spread = i * j * 1.5 * coef;
+      parts.push(`${i * gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * -gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * -gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+    }
+  }
+
+  return parts.join(", ");
+};
+
+const TILE_SHADOW = buildTileShadow();
+
+function WebHoverBackground() {
+  const [activeTile, setActiveTile] = useState<number | null>(null);
+
+  const layerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    overflow: "hidden",
+    background: "linear-gradient(180deg, #A9C9FF 0%, #D7DFFF 52%, #EAF4FF 100%)",
+  };
+
+  const gridStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    display: "grid",
+    gridTemplateColumns: "repeat(10, 1fr)",
+    gridTemplateRows: "repeat(10, 1fr)",
+  };
+
+  const tileStyle: React.CSSProperties = {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  };
+
+  const dotStyle: React.CSSProperties = {
+    width: "5px",
+    height: "5px",
+    borderRadius: "999px",
+    background: "#A9C9FF",
+    transition: "all 500ms linear",
+    pointerEvents: "none",
+  };
+
+  const activeDotStyle: React.CSSProperties = {
+    width: "48px",
+    height: "48px",
+    transition: "all 70ms linear",
+    boxShadow: TILE_SHADOW,
+  };
+
+  return (
+    <div style={layerStyle}>
+      <div style={gridStyle}>
+        {HOVER_GRID_TILES.map((tile) => (
+          <a
+            key={tile}
+            href="#"
+            aria-hidden="true"
+            onClick={(event) => event.preventDefault()}
+            onMouseEnter={() => setActiveTile(tile)}
+            onMouseLeave={() => setActiveTile((current) => (current === tile ? null : current))}
+            style={tileStyle}
+          >
+            <span style={activeTile === tile ? { ...dotStyle, ...activeDotStyle } : dotStyle} />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
@@ -54,7 +144,6 @@ export default function LoginScreen() {
   const [dimensions, setDimensions] = useState(Dimensions.get("window"));
   const [fieldErrors, setFieldErrors] = useState<{ identificador?: string; password?: string }>({});
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -188,14 +277,6 @@ export default function LoginScreen() {
     return styles.logo;
   };
 
-  const webGlowStyle = Platform.OS === "web" && hoverPoint
-    ? ({
-        backgroundImage: `
-          radial-gradient(circle 180px at ${hoverPoint.x}px ${hoverPoint.y}px, rgba(169, 201, 255, 0.55) 0%, rgba(169, 201, 255, 0.3) 30%, rgba(169, 201, 255, 0.12) 48%, transparent 70%)
-        `,
-      } as any)
-    : null;
-
   return (
     <View style={styles.container}>
       <View style={styles.headerBar}>
@@ -203,20 +284,7 @@ export default function LoginScreen() {
       </View>
 
       {Platform.OS === "web" ? (
-        <View
-          style={styles.webEffectBackground}
-          {...({
-            onMouseMove: (event: any) => {
-              const { locationX, locationY } = event.nativeEvent;
-              setHoverPoint({ x: locationX, y: locationY });
-            },
-            onMouseLeave: () => setHoverPoint(null),
-          } as any)}
-        >
-          <View style={styles.gradientOverlay} />
-          <View style={styles.webEffectPattern} />
-          <View pointerEvents="none" style={[styles.webEffectGlow, webGlowStyle]} />
-        </View>
+        <WebHoverBackground />
       ) : (
         <View style={styles.mobileBackground}>
           <View style={styles.gradientOverlay} />
