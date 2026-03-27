@@ -169,7 +169,7 @@ export const styles = StyleSheet.create({
     }),
   },
 
-  webEffectGrid: {
+  webEffectPattern: {
     position: 'absolute',
     top: 0,
     right: 0,
@@ -177,46 +177,24 @@ export const styles = StyleSheet.create({
     left: 0,
     ...Platform.select({
       web: {
-        display: 'grid',
-        gridTemplateColumns: 'repeat(10, 1fr)',
-        gridTemplateRows: 'repeat(10, 1fr)',
+        backgroundImage: 'radial-gradient(rgba(148, 163, 184, 0.24) 1px, transparent 1px)',
+        backgroundSize: '42px 42px',
+        backgroundPosition: 'center center',
       } as any,
     }),
   },
 
-  webEffectTile: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
+  webEffectGlow: {
+    position: 'absolute',
+    top: -180,
+    right: -180,
+    bottom: -180,
+    left: -180,
+    opacity: 1,
     ...Platform.select({
       web: {
-        cursor: 'default',
-      } as any,
-    }),
-  },
-
-  webEffectDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: '#A9C9FF',
-    opacity: 0.92,
-    ...Platform.select({
-      web: {
-        pointerEvents: 'none',
-        transitionDuration: '500ms',
-        transitionProperty: 'all',
-        transitionTimingFunction: 'linear',
-      } as any,
-    }),
-  },
-
-  webEffectDotActive: {
-    width: 48,
-    height: 48,
-    ...Platform.select({
-      web: {
-        transitionDuration: '70ms',
+        transition: 'background-image 90ms linear',
+        willChange: 'background-image',
       } as any,
     }),
   },

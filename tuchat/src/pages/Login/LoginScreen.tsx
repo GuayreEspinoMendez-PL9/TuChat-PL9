@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Pressable,
   Platform,
   ActivityIndicator,
   ScrollView,
@@ -46,34 +45,6 @@ const EyeSlashIcon = () => (
   </Svg>
 );
 
-const HOVER_GRID_COLUMNS = 10;
-const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
-
-const buildDotShadow = () => {
-  const parts: string[] = [];
-  const gap = 48;
-  const coef = -4.5;
-
-  for (let i = 1; i <= 4; i += 1) {
-    parts.push(`${i * gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
-    parts.push(`${i * -gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
-    parts.push(`0 ${i * gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
-    parts.push(`0 ${i * -gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
-
-    for (let j = 1; j <= 4; j += 1) {
-      const spread = i * j * 1.5 * coef;
-      parts.push(`${i * gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
-      parts.push(`${i * gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
-      parts.push(`${i * -gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
-      parts.push(`${i * -gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
-    }
-  }
-
-  return parts.join(", ");
-};
-
-const DOT_HOVER_SHADOW = buildDotShadow();
-
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
@@ -83,7 +54,7 @@ export default function LoginScreen() {
   const [dimensions, setDimensions] = useState(Dimensions.get("window"));
   const [fieldErrors, setFieldErrors] = useState<{ identificador?: string; password?: string }>({});
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [hoveredTile, setHoveredTile] = useState<number | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -217,6 +188,14 @@ export default function LoginScreen() {
     return styles.logo;
   };
 
+  const webGlowStyle = Platform.OS === "web" && hoverPoint
+    ? ({
+        backgroundImage: `
+          radial-gradient(circle 180px at ${hoverPoint.x}px ${hoverPoint.y}px, rgba(169, 201, 255, 0.55) 0%, rgba(169, 201, 255, 0.3) 30%, rgba(169, 201, 255, 0.12) 48%, transparent 70%)
+        `,
+      } as any)
+    : null;
+
   return (
     <View style={styles.container}>
       <View style={styles.headerBar}>
@@ -224,32 +203,19 @@ export default function LoginScreen() {
       </View>
 
       {Platform.OS === "web" ? (
-        <View style={styles.webEffectBackground}>
+        <View
+          style={styles.webEffectBackground}
+          {...({
+            onMouseMove: (event: any) => {
+              const { locationX, locationY } = event.nativeEvent;
+              setHoverPoint({ x: locationX, y: locationY });
+            },
+            onMouseLeave: () => setHoverPoint(null),
+          } as any)}
+        >
           <View style={styles.gradientOverlay} />
-          <View style={styles.webEffectGrid}>
-            {HOVER_GRID_TILES.map((tile) => {
-              const active = hoveredTile === tile;
-
-              return (
-                <Pressable
-                  key={tile}
-                  onHoverIn={() => setHoveredTile(tile)}
-                  onHoverOut={() => {
-                    setHoveredTile((current) => (current === tile ? null : current));
-                  }}
-                  style={styles.webEffectTile}
-                >
-                  <View
-                    style={[
-                      styles.webEffectDot,
-                      active && styles.webEffectDotActive,
-                      active ? ({ boxShadow: DOT_HOVER_SHADOW } as any) : null,
-                    ]}
-                  />
-                </Pressable>
-              );
-            })}
-          </View>
+          <View style={styles.webEffectPattern} />
+          <View pointerEvents="none" style={[styles.webEffectGlow, webGlowStyle]} />
         </View>
       ) : (
         <View style={styles.mobileBackground}>
