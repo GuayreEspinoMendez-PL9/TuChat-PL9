@@ -91,6 +91,10 @@ export const styles = StyleSheet.create({
     flex: 1,
     zIndex: 1,
   },
+
+  scrollContainerWeb: {
+    pointerEvents: 'box-none',
+  },
   
   scrollContent: {
     flexGrow: 1,
@@ -115,6 +119,11 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 480,
     alignSelf: 'center',
+  },
+
+  contentWrapperWeb: {
+    pointerEvents: 'auto',
+    zIndex: 2,
   },
 
   contentWrapperTablet: {

@@ -258,8 +258,10 @@ export default function LoginScreen() {
       )}
 
       <Animated.View
+        pointerEvents={Platform.OS === "web" ? "box-none" : "auto"}
         style={[
           styles.scrollContainer,
+          Platform.OS === "web" && styles.scrollContainerWeb,
           {
             opacity: fadeAnim,
             transform: [{ translateY: slideAnim }]
@@ -267,6 +269,7 @@ export default function LoginScreen() {
         ]}
       >
         <ScrollView
+          pointerEvents={Platform.OS === "web" ? "box-none" : "auto"}
           contentContainerStyle={[
             styles.scrollContent,
             isDesktop && styles.scrollContentDesktop,
@@ -277,6 +280,7 @@ export default function LoginScreen() {
         >
           <View style={[
             styles.contentWrapper,
+            Platform.OS === "web" && styles.contentWrapperWeb,
             isDesktop && styles.contentWrapperDesktop,
             isTablet && styles.contentWrapperTablet
           ]}>
