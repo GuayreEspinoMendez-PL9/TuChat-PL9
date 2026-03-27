@@ -41,7 +41,7 @@ export const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     ...Platform.select({
       web: {
-        background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 50%, #BFDBFE 100%)',
+        background: 'radial-gradient(circle at top left, rgba(191, 219, 254, 0.95) 0%, rgba(239, 246, 255, 0.92) 35%, rgba(219, 234, 254, 0.9) 65%, rgba(224, 242, 254, 0.95) 100%)',
       } as any,
       ios: {
         backgroundColor: '#EFF6FF',
@@ -118,6 +118,8 @@ export const styles = StyleSheet.create({
   logoContainer: {
     marginBottom: 24,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 210,
   },
 
   logoContainerMobile: {
@@ -125,11 +127,31 @@ export const styles = StyleSheet.create({
   },
 
   logoWrapper: {
-    padding: 0,
+    padding: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.18)',
+    zIndex: 2,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#2563EB",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.14,
+        shadowRadius: 24,
+      },
+      android: {
+        elevation: 8,
+      },
+      web: {
+        boxShadow: "0px 16px 48px rgba(37, 99, 235, 0.14)",
+        backdropFilter: "blur(6px)",
+      }
+    }),
   },
 
   logoWrapperMobile: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
     borderRadius: 24,
     padding: 24,
     ...Platform.select({
@@ -299,6 +321,58 @@ export const styles = StyleSheet.create({
         boxShadow: "0px 4px 16px rgba(37, 99, 235, 0.25)",
       }
     }),
+  },
+
+  logoEffectFrame: {
+    position: 'absolute',
+    width: 260,
+    height: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  logoEffectFrameMobile: {
+    width: 220,
+    height: 220,
+  },
+
+  logoEffectGrid: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
+  logoEffectDot: {
+    width: '11.11%',
+    height: '11.11%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.14)',
+    borderRadius: 999,
+  },
+
+  logoEffectDotAccent: {
+    backgroundColor: 'rgba(14, 165, 233, 0.18)',
+  },
+
+  logoAura: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 999,
+    backgroundColor: 'rgba(59, 130, 246, 0.12)',
+  },
+
+  logoAuraMobile: {
+    width: 145,
+    height: 145,
   },
   inputContainerError: {
     borderColor: "#DC2626",

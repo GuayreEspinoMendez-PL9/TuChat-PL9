@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, FlatList, ActivityIndicator, RefreshControl,
-  TouchableOpacity, Platform, StyleSheet, useWindowDimensions,
+  TouchableOpacity, Platform, StyleSheet, useWindowDimensions, Animated, Easing,
   Modal, Pressable, Image, TextInput
 } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -20,6 +20,7 @@ import {
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DESKTOP_BREAKPOINT = 768;
+const EMPTY_HOME_WORDS = ['clases', 'ideas', 'avisos'];
 
 // ============ ICONOS SVG ============
 
@@ -110,6 +111,80 @@ const MessageStatus = ({ status }: { status: 'sent' | 'delivered' | 'read' }) =>
       <Path d="M11.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-2.405-2.272a.463.463 0 0 0-.32-.143.462.462 0 0 0-.312.106l-.311.296a.455.455 0 0 0-.14.337c0 .136.047.25.14.337l2.996 2.996a.497.497 0 0 0 .501.14.493.493 0 0 0 .39-.28l6.846-8.932a.485.485 0 0 0-.063-.577l-.417-.32Z" fill={color} />
       <Path d="M15.071.653a.457.457 0 0 0-.304-.102.493.493 0 0 0-.381.178l-6.19 7.636-1.405-1.328-.696.9 2.076 2.076a.497.497 0 0 0 .501.14.493.493 0 0 0 .39-.28l6.846-8.932a.485.485 0 0 0-.063-.577l-.417-.32Z" fill={color} />
     </Svg>
+  );
+};
+
+const EducationFlipHero = ({ colors }: { colors: any }) => {
+  const translateY = React.useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(translateY, {
+          toValue: -72,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1700),
+        Animated.timing(translateY, {
+          toValue: -144,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1700),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.delay(1700),
+      ])
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, [translateY]);
+
+  return (
+    <View style={s.emptyHeroWrap}>
+      <View style={[s.emptyHeroBadge, { backgroundColor: colors.primaryBg, borderColor: colors.border }]}>
+        <Text style={[s.emptyHeroBadgeText, { color: colors.primary }]}>Espacio listo para aprender</Text>
+      </View>
+
+      <Text style={[s.emptyHeroLead, { color: colors.textSecondary }]}>TuChat acompaña tus</Text>
+
+      <View style={[s.emptyFlipViewport, { borderColor: colors.borderLight, backgroundColor: colors.surface }]}>
+        <Animated.View style={{ transform: [{ translateY }] }}>
+          {EMPTY_HOME_WORDS.map((word) => (
+            <View key={word} style={s.emptyFlipRow}>
+              <Text style={[s.emptyFlipWord, { color: colors.textPrimary }]}>{word}</Text>
+            </View>
+          ))}
+        </Animated.View>
+      </View>
+
+      <Text style={[s.emptyHeroTitle, { color: colors.textPrimary }]}>
+        Abre una conversacion y sigue el ritmo de tu aula
+      </Text>
+      <Text style={[s.emptyHeroText, { color: colors.textSecondary }]}>
+        Consulta mensajes, comparte material y mantente al dia con tu centro desde un solo lugar.
+      </Text>
+
+      <View style={s.emptyHeroTags}>
+        <View style={[s.emptyHeroTag, { backgroundColor: colors.surfaceHover, borderColor: colors.border }]}>
+          <Text style={[s.emptyHeroTagText, { color: colors.textSecondary }]}>Mensajes directos</Text>
+        </View>
+        <View style={[s.emptyHeroTag, { backgroundColor: colors.surfaceHover, borderColor: colors.border }]}>
+          <Text style={[s.emptyHeroTagText, { color: colors.textSecondary }]}>Grupos de clase</Text>
+        </View>
+        <View style={[s.emptyHeroTag, { backgroundColor: colors.surfaceHover, borderColor: colors.border }]}>
+          <Text style={[s.emptyHeroTagText, { color: colors.textSecondary }]}>Avisos importantes</Text>
+        </View>
+      </View>
+    </View>
   );
 };
 
@@ -910,9 +985,10 @@ export const HomeScreen = () => {
 
   const EmptyChatPanel = () => (
     <View style={[s.emptyChatPanel, { backgroundColor: colors.background }]}>
-      <TuChatLogoColor size={80} />
-      <Text style={[s.emptyChatTitle, { color: colors.textPrimary }]}>TuChat para Educacion</Text>
-      <Text style={[s.emptyChatSubtitle, { color: colors.textSecondary }]}>Selecciona una conversacion para ver los mensajes</Text>
+      <View style={[s.emptyChatOrb, { backgroundColor: colors.primaryBg }]}>
+        <TuChatLogoColor size={88} />
+      </View>
+      <EducationFlipHero colors={colors} />
     </View>
   );
 
@@ -963,9 +1039,20 @@ const s = StyleSheet.create({
   searchPanelTitle: { fontSize: 16, fontWeight: '700' },
   searchPanelSubtitle: { fontSize: 13, marginTop: 4, lineHeight: 18 },
 
-  emptyChatPanel: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyChatTitle: { fontSize: 26, fontWeight: '300', marginTop: 20, marginBottom: 10 },
-  emptyChatSubtitle: { fontSize: 14, textAlign: 'center', maxWidth: 350 },
+  emptyChatPanel: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  emptyChatOrb: { width: 150, height: 150, borderRadius: 75, alignItems: 'center', justifyContent: 'center', marginBottom: 28 },
+  emptyHeroWrap: { alignItems: 'center', maxWidth: 560 },
+  emptyHeroBadge: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 16 },
+  emptyHeroBadgeText: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3, textTransform: 'uppercase' },
+  emptyHeroLead: { fontSize: 18, fontWeight: '600', marginBottom: 10 },
+  emptyFlipViewport: { height: 72, overflow: 'hidden', borderWidth: 1, borderRadius: 20, marginBottom: 18, paddingHorizontal: 24 },
+  emptyFlipRow: { height: 72, justifyContent: 'center', alignItems: 'center' },
+  emptyFlipWord: { fontSize: 40, fontWeight: '800', letterSpacing: -1.1 },
+  emptyHeroTitle: { fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 36, marginBottom: 10 },
+  emptyHeroText: { fontSize: 15, textAlign: 'center', lineHeight: 24, maxWidth: 520 },
+  emptyHeroTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 22 },
+  emptyHeroTag: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  emptyHeroTagText: { fontSize: 13, fontWeight: '600' },
 
   // Header
   header: {

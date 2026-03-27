@@ -10,7 +10,8 @@ import {
   Image,
   Animated,
   Keyboard,
-  Dimensions
+  Dimensions,
+  Easing
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
@@ -45,6 +46,9 @@ const EyeSlashIcon = () => (
   </Svg>
 );
 
+const DOT_GRID_COLUMNS = 9;
+const DOT_GRID_TILES = Array.from({ length: DOT_GRID_COLUMNS * DOT_GRID_COLUMNS }, (_, index) => index);
+
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
@@ -62,6 +66,7 @@ export default function LoginScreen() {
   const inputScaleUser = useRef(new Animated.Value(1)).current;
   const inputScalePass = useRef(new Animated.Value(1)).current;
   const passwordInputRef = useRef<TextInput>(null);
+  const dotAnimations = useRef(DOT_GRID_TILES.map(() => new Animated.Value(0.28))).current;
 
   useEffect(() => {
     const subscription = Dimensions.addEventListener("change", ({ window }) => {
@@ -87,7 +92,37 @@ export default function LoginScreen() {
       }),
     ]).start();
 
-    return () => subscription?.remove();
+    const dotLoops = dotAnimations.map((dotAnim, index) => {
+      const row = Math.floor(index / DOT_GRID_COLUMNS);
+      const col = index % DOT_GRID_COLUMNS;
+      const waveDelay = row * 70 + col * 55;
+
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(waveDelay),
+          Animated.timing(dotAnim, {
+            toValue: 1,
+            duration: 850,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(dotAnim, {
+            toValue: 0.28,
+            duration: 1500,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.delay(240),
+        ])
+      );
+    });
+
+    dotLoops.forEach((loop) => loop.start());
+
+    return () => {
+      subscription?.remove();
+      dotLoops.forEach((loop) => loop.stop());
+    };
   }, []);
 
   const isDesktop = dimensions.width >= 1024;
@@ -225,6 +260,39 @@ export default function LoginScreen() {
                 { transform: [{ scale: logoScale }] }
               ]}
             >
+              <View style={[styles.logoEffectFrame, isMobile && styles.logoEffectFrameMobile]}>
+                <View pointerEvents="none" style={styles.logoEffectGrid}>
+                  {DOT_GRID_TILES.map((tile, index) => {
+                    const scale = dotAnimations[index].interpolate({
+                      inputRange: [0.28, 1],
+                      outputRange: [1, 5.2],
+                    });
+
+                    const opacity = dotAnimations[index].interpolate({
+                      inputRange: [0.28, 1],
+                      outputRange: [0.16, 0.55],
+                    });
+
+                    const isAccentDot = index % 5 === 0;
+
+                    return (
+                      <Animated.View
+                        key={tile}
+                        style={[
+                          styles.logoEffectDot,
+                          isAccentDot && styles.logoEffectDotAccent,
+                          {
+                            opacity,
+                            transform: [{ scale }],
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+                <View style={[styles.logoAura, isMobile && styles.logoAuraMobile]} />
+              </View>
+
               <View style={[styles.logoWrapper, isMobile && styles.logoWrapperMobile]}>
                 <Image
                   source={require("../../../assets/images/logo.png")}
@@ -378,4 +446,3 @@ export default function LoginScreen() {
     </View>
   );
 }
-
