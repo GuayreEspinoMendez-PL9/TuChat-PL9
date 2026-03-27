@@ -32,6 +32,16 @@ export const styles = StyleSheet.create({
     zIndex: 0,
   },
 
+  webEffectBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    overflow: 'hidden',
+    zIndex: 0,
+  },
+
   gradientOverlay: {
     position: 'absolute',
     top: 0,
@@ -41,7 +51,7 @@ export const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     ...Platform.select({
       web: {
-        background: 'radial-gradient(circle at top left, rgba(191, 219, 254, 0.95) 0%, rgba(239, 246, 255, 0.92) 35%, rgba(219, 234, 254, 0.9) 65%, rgba(224, 242, 254, 0.95) 100%)',
+        background: 'linear-gradient(180deg, #A9C9FF 0%, #D7DFFF 52%, #EAF4FF 100%)',
       } as any,
       ios: {
         backgroundColor: '#EFF6FF',
@@ -119,7 +129,7 @@ export const styles = StyleSheet.create({
     marginBottom: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 210,
+    minHeight: 180,
   },
 
   logoContainerMobile: {
@@ -144,9 +154,62 @@ export const styles = StyleSheet.create({
         elevation: 8,
       },
       web: {
-        boxShadow: "0px 16px 48px rgba(37, 99, 235, 0.14)",
-        backdropFilter: "blur(6px)",
+        boxShadow: "0px 20px 60px rgba(15, 23, 42, 0.12)",
+        backdropFilter: "blur(10px)",
       }
+    }),
+  },
+
+  webEffectGrid: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    ...Platform.select({
+      web: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(10, 1fr)',
+        gridTemplateRows: 'repeat(10, 1fr)',
+      } as any,
+    }),
+  },
+
+  webEffectTile: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    ...Platform.select({
+      web: {
+        cursor: 'default',
+      } as any,
+    }),
+  },
+
+  webEffectDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#A9C9FF',
+    opacity: 0.92,
+    ...Platform.select({
+      web: {
+        pointerEvents: 'none',
+        transitionDuration: '500ms',
+        transitionProperty: 'all',
+        transitionTimingFunction: 'linear',
+      } as any,
+    }),
+  },
+
+  webEffectDotActive: {
+    width: 48,
+    height: 48,
+    ...Platform.select({
+      web: {
+        transitionDuration: '70ms',
+      } as any,
     }),
   },
 
@@ -239,11 +302,11 @@ export const styles = StyleSheet.create({
   },
 
   formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.86)',
+    borderRadius: 24,
     padding: 32,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: 'rgba(255, 255, 255, 0.65)',
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -255,7 +318,8 @@ export const styles = StyleSheet.create({
         elevation: 6,
       },
       web: {
-        boxShadow: "0px 4px 24px rgba(0, 0, 0, 0.08)",
+        boxShadow: "0px 30px 90px rgba(15, 23, 42, 0.16)",
+        backdropFilter: "blur(16px)",
       }
     }),
   },
@@ -323,57 +387,6 @@ export const styles = StyleSheet.create({
     }),
   },
 
-  logoEffectFrame: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  logoEffectFrameMobile: {
-    width: 220,
-    height: 220,
-  },
-
-  logoEffectGrid: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-
-  logoEffectDot: {
-    width: '11.11%',
-    height: '11.11%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(59, 130, 246, 0.14)',
-    borderRadius: 999,
-  },
-
-  logoEffectDotAccent: {
-    backgroundColor: 'rgba(14, 165, 233, 0.18)',
-  },
-
-  logoAura: {
-    position: 'absolute',
-    width: 170,
-    height: 170,
-    borderRadius: 999,
-    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-  },
-
-  logoAuraMobile: {
-    width: 145,
-    height: 145,
-  },
   inputContainerError: {
     borderColor: "#DC2626",
   },

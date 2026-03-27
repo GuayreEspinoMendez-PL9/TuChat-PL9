@@ -4,14 +4,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   Platform,
   ActivityIndicator,
   ScrollView,
   Image,
   Animated,
   Keyboard,
-  Dimensions,
-  Easing
+  Dimensions
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { router } from "expo-router";
@@ -46,8 +46,33 @@ const EyeSlashIcon = () => (
   </Svg>
 );
 
-const DOT_GRID_COLUMNS = 9;
-const DOT_GRID_TILES = Array.from({ length: DOT_GRID_COLUMNS * DOT_GRID_COLUMNS }, (_, index) => index);
+const HOVER_GRID_COLUMNS = 10;
+const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
+
+const buildDotShadow = () => {
+  const parts: string[] = [];
+  const gap = 48;
+  const coef = -4.5;
+
+  for (let i = 1; i <= 4; i += 1) {
+    parts.push(`${i * gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`${i * -gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`0 ${i * gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+    parts.push(`0 ${i * -gap}px 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
+
+    for (let j = 1; j <= 4; j += 1) {
+      const spread = i * j * 1.5 * coef;
+      parts.push(`${i * gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * -gap}px ${j * gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+      parts.push(`${i * -gap}px ${j * -gap}px 0 ${spread}px rgba(169, 201, 255, 0.9)`);
+    }
+  }
+
+  return parts.join(", ");
+};
+
+const DOT_HOVER_SHADOW = buildDotShadow();
 
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
@@ -58,6 +83,7 @@ export default function LoginScreen() {
   const [dimensions, setDimensions] = useState(Dimensions.get("window"));
   const [fieldErrors, setFieldErrors] = useState<{ identificador?: string; password?: string }>({});
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [hoveredTile, setHoveredTile] = useState<number | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -66,7 +92,6 @@ export default function LoginScreen() {
   const inputScaleUser = useRef(new Animated.Value(1)).current;
   const inputScalePass = useRef(new Animated.Value(1)).current;
   const passwordInputRef = useRef<TextInput>(null);
-  const dotAnimations = useRef(DOT_GRID_TILES.map(() => new Animated.Value(0.28))).current;
 
   useEffect(() => {
     const subscription = Dimensions.addEventListener("change", ({ window }) => {
@@ -92,36 +117,8 @@ export default function LoginScreen() {
       }),
     ]).start();
 
-    const dotLoops = dotAnimations.map((dotAnim, index) => {
-      const row = Math.floor(index / DOT_GRID_COLUMNS);
-      const col = index % DOT_GRID_COLUMNS;
-      const waveDelay = row * 70 + col * 55;
-
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(waveDelay),
-          Animated.timing(dotAnim, {
-            toValue: 1,
-            duration: 850,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(dotAnim, {
-            toValue: 0.28,
-            duration: 1500,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.delay(240),
-        ])
-      );
-    });
-
-    dotLoops.forEach((loop) => loop.start());
-
     return () => {
       subscription?.remove();
-      dotLoops.forEach((loop) => loop.stop());
     };
   }, []);
 
@@ -226,9 +223,39 @@ export default function LoginScreen() {
         <View style={styles.headerBarStripe} />
       </View>
 
-      <View style={styles.mobileBackground}>
-        <View style={styles.gradientOverlay} />
-      </View>
+      {Platform.OS === "web" ? (
+        <View style={styles.webEffectBackground}>
+          <View style={styles.gradientOverlay} />
+          <View style={styles.webEffectGrid}>
+            {HOVER_GRID_TILES.map((tile) => {
+              const active = hoveredTile === tile;
+
+              return (
+                <Pressable
+                  key={tile}
+                  onHoverIn={() => setHoveredTile(tile)}
+                  onHoverOut={() => {
+                    setHoveredTile((current) => (current === tile ? null : current));
+                  }}
+                  style={styles.webEffectTile}
+                >
+                  <View
+                    style={[
+                      styles.webEffectDot,
+                      active && styles.webEffectDotActive,
+                      active ? ({ boxShadow: DOT_HOVER_SHADOW } as any) : null,
+                    ]}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.mobileBackground}>
+          <View style={styles.gradientOverlay} />
+        </View>
+      )}
 
       <Animated.View
         style={[
@@ -260,39 +287,6 @@ export default function LoginScreen() {
                 { transform: [{ scale: logoScale }] }
               ]}
             >
-              <View style={[styles.logoEffectFrame, isMobile && styles.logoEffectFrameMobile]}>
-                <View pointerEvents="none" style={styles.logoEffectGrid}>
-                  {DOT_GRID_TILES.map((tile, index) => {
-                    const scale = dotAnimations[index].interpolate({
-                      inputRange: [0.28, 1],
-                      outputRange: [1, 5.2],
-                    });
-
-                    const opacity = dotAnimations[index].interpolate({
-                      inputRange: [0.28, 1],
-                      outputRange: [0.16, 0.55],
-                    });
-
-                    const isAccentDot = index % 5 === 0;
-
-                    return (
-                      <Animated.View
-                        key={tile}
-                        style={[
-                          styles.logoEffectDot,
-                          isAccentDot && styles.logoEffectDotAccent,
-                          {
-                            opacity,
-                            transform: [{ scale }],
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-                </View>
-                <View style={[styles.logoAura, isMobile && styles.logoAuraMobile]} />
-              </View>
-
               <View style={[styles.logoWrapper, isMobile && styles.logoWrapperMobile]}>
                 <Image
                   source={require("../../../assets/images/logo.png")}
