@@ -74,12 +74,51 @@ const TILE_SHADOW = buildTileShadow();
 
 function WebHoverBackground() {
   const [activeTile, setActiveTile] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const insideX = event.clientX >= rect.left && event.clientX <= rect.right;
+      const insideY = event.clientY >= rect.top && event.clientY <= rect.bottom;
+
+      if (!insideX || !insideY) {
+        setActiveTile(null);
+        return;
+      }
+
+      const relativeX = event.clientX - rect.left;
+      const relativeY = event.clientY - rect.top;
+      const tileWidth = rect.width / HOVER_GRID_COLUMNS;
+      const tileHeight = rect.height / HOVER_GRID_COLUMNS;
+      const column = Math.min(HOVER_GRID_COLUMNS - 1, Math.max(0, Math.floor(relativeX / tileWidth)));
+      const row = Math.min(HOVER_GRID_COLUMNS - 1, Math.max(0, Math.floor(relativeY / tileHeight)));
+
+      setActiveTile(row * HOVER_GRID_COLUMNS + column);
+    };
+
+    const handleMouseLeaveWindow = () => {
+      setActiveTile(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseleave", handleMouseLeaveWindow);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseleave", handleMouseLeaveWindow);
+    };
+  }, []);
 
   const layerStyle: React.CSSProperties = {
     position: "absolute",
     inset: 0,
     overflow: "hidden",
     background: "linear-gradient(180deg, #A9C9FF 0%, #D7DFFF 52%, #EAF4FF 100%)",
+    pointerEvents: "none",
   };
 
   const gridStyle: React.CSSProperties = {
@@ -99,10 +138,12 @@ function WebHoverBackground() {
   };
 
   const dotStyle: React.CSSProperties = {
+    display: "block",
     width: "5px",
     height: "5px",
     borderRadius: "999px",
     background: "#A9C9FF",
+    opacity: 0.95,
     transition: "all 500ms linear",
     pointerEvents: "none",
   };
@@ -110,25 +151,18 @@ function WebHoverBackground() {
   const activeDotStyle: React.CSSProperties = {
     width: "48px",
     height: "48px",
+    opacity: 1,
     transition: "all 70ms linear",
     boxShadow: TILE_SHADOW,
   };
 
   return (
-    <div style={layerStyle}>
+    <div ref={containerRef} style={layerStyle}>
       <div style={gridStyle}>
         {HOVER_GRID_TILES.map((tile) => (
-          <a
-            key={tile}
-            href="#"
-            aria-hidden="true"
-            onClick={(event) => event.preventDefault()}
-            onMouseEnter={() => setActiveTile(tile)}
-            onMouseLeave={() => setActiveTile((current) => (current === tile ? null : current))}
-            style={tileStyle}
-          >
-            <span style={activeTile === tile ? { ...dotStyle, ...activeDotStyle } : dotStyle} />
-          </a>
+          <div key={tile} style={tileStyle}>
+            <div style={activeTile === tile ? { ...dotStyle, ...activeDotStyle } : dotStyle} />
+          </div>
         ))}
       </div>
     </div>
