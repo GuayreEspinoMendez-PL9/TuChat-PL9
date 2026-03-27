@@ -19,7 +19,7 @@ import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
 
 const API_URL = "https://tuchat-pl9.onrender.com";
-const HOVER_GRID_COLUMNS = 18;
+const HOVER_GRID_COLUMNS = 14;
 const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
 
 const UserIcon = ({ focused }: { focused: boolean }) => (
@@ -49,8 +49,8 @@ const EyeSlashIcon = () => (
 
 const buildTileShadow = () => {
   const parts: string[] = [];
-  const gap = 26;
-  const coef = -3.2;
+  const gap = 36;
+  const coef = -4.5;
 
   for (let i = 1; i <= 4; i += 1) {
     parts.push(`${i * gap}px 0 0 ${i * coef}px rgba(169, 201, 255, 0.95)`);
@@ -125,8 +125,8 @@ function WebHoverBackground() {
     position: "absolute",
     inset: 0,
     display: "grid",
-    gridTemplateColumns: "repeat(10, 1fr)",
-    gridTemplateRows: "repeat(10, 1fr)",
+    gridTemplateColumns: `repeat(${HOVER_GRID_COLUMNS}, 1fr)`,
+    gridTemplateRows: `repeat(${HOVER_GRID_COLUMNS}, 1fr)`,
   };
 
   const tileStyle: React.CSSProperties = {
@@ -139,8 +139,8 @@ function WebHoverBackground() {
 
   const dotStyle: React.CSSProperties = {
     display: "block",
-    width: "4px",
-    height: "4px",
+    width: "5px",
+    height: "5px",
     borderRadius: "999px",
     background: "#A9C9FF",
     opacity: 0.95,
@@ -149,8 +149,8 @@ function WebHoverBackground() {
   };
 
   const activeDotStyle: React.CSSProperties = {
-    width: "28px",
-    height: "28px",
+    width: "48px",
+    height: "48px",
     opacity: 1,
     transition: "all 70ms linear",
     boxShadow: TILE_SHADOW,
