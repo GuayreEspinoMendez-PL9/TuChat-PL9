@@ -188,7 +188,6 @@ export const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
     ...Platform.select({
       web: {
         cursor: 'default',
