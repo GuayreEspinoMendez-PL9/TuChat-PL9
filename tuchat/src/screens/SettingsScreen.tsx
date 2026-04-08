@@ -112,6 +112,7 @@ export const SettingsScreen = () => {
             const res = await axios.get(`${API_URL}/auth/notif-preference`, { headers: { Authorization: `Bearer ${token}` } });
             if (res.data.ok) {
                 setNotifs(res.data.notificaciones_activas);
+                setSound(res.data.sonidos_activos ?? true);
                 if (Platform.OS === 'web') setBrowserNotificationsEnabled(res.data.notificaciones_activas);
             }
         } catch (e) {  }
@@ -127,6 +128,17 @@ export const SettingsScreen = () => {
         } catch (e) {
             setNotifs(!value); // revertir si falla
             if (Platform.OS === 'web') setBrowserNotificationsEnabled(!value);
+        }
+    };
+
+    const toggleSound = async (value: boolean) => {
+        setSound(value);
+        try {
+            const token = Platform.OS === 'web' ? localStorage.getItem('token') : await SecureStore.getItemAsync('token');
+            if (!token) return;
+            await axios.put(`${API_URL}/auth/notif-preference`, { sonidos_activos: value }, { headers: { Authorization: `Bearer ${token}` } });
+        } catch (e) {
+            setSound(!value);
         }
     };
 
@@ -204,7 +216,7 @@ export const SettingsScreen = () => {
                 <SettingRow colors={colors} icon={<BellIcon color={colors.primary} />} title="Recibir Notificaciones" subtitle="Gestiona tus alertas de chat y actividad."
                     right={<Switch value={notifs} onValueChange={toggleNotifs} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={notifs ? colors.switchThumbOn : colors.switchThumbOff} />} />
                 <SettingRow colors={colors} icon={<SoundIcon color={colors.primary} />} title="Sonidos" subtitle="Reproduce sonido al recibir mensajes."
-                    right={<Switch value={sound} onValueChange={setSound} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={sound ? colors.switchThumbOn : colors.switchThumbOff} />} />
+                    right={<Switch value={sound} onValueChange={toggleSound} trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }} thumbColor={sound ? colors.switchThumbOn : colors.switchThumbOff} />} />
 
                 <SectionTitle color={colors.textMuted}>Privacidad</SectionTitle>
                 <SectionHint color={colors.textMuted}>Estas opciones cambian lo que otros pueden saber sobre tu actividad dentro del chat.</SectionHint>

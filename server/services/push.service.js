@@ -3,21 +3,30 @@ import { appDb } from "../db/db.js";
 
 const expo = new Expo();
 
-export const enviarNotificacionPush = async (idUsuarioApp, mensaje, idChat) => {
+export const enviarNotificacionPush = async (idUsuarioApp, payload, idChat) => {
   try {
-    // 1. Comprobar si el usuario tiene notificaciones activas
+    const notification = typeof payload === "string"
+      ? { title: "TUCHAT", body: payload }
+      : {
+          title: payload?.title || "TUCHAT",
+          body: payload?.body || "Nuevo mensaje",
+        };
+
     const { rows: prefRows } = await appDb.query(
-      `SELECT notificaciones_activas FROM seguridad.usuarios_app WHERE id_usuario_app = $1`,
+      `SELECT notificaciones_activas, sonidos_activos
+       FROM seguridad.usuarios_app
+       WHERE id_usuario_app = $1`,
       [idUsuarioApp]
     );
 
-    // Si desactivó notificaciones, no enviar
-    if (prefRows.length > 0 && prefRows[0].notificaciones_activas === false) {
+    const notifEnabled = prefRows.length > 0 ? prefRows[0].notificaciones_activas !== false : true;
+    const soundEnabled = prefRows.length > 0 ? prefRows[0].sonidos_activos !== false : true;
+
+    if (!notifEnabled) {
       console.log(`[Push] Notificaciones desactivadas para usuario ${idUsuarioApp}`);
       return;
     }
 
-    // 2. Obtener tokens push (con schema correcto)
     const { rows: tokenRows } = await appDb.query(
       `SELECT token FROM seguridad.tokens_push WHERE id_usuario_app = $1`,
       [idUsuarioApp]
@@ -29,9 +38,8 @@ export const enviarNotificacionPush = async (idUsuarioApp, mensaje, idChat) => {
       return;
     }
 
-    // 3. Construir mensajes
-    let messages = [];
-    for (let pushToken of tokens) {
+    const messages = [];
+    for (const pushToken of tokens) {
       if (!Expo.isExpoPushToken(pushToken)) {
         console.warn(`[Push] Token invalido para usuario ${idUsuarioApp}: ${pushToken}`);
         continue;
@@ -39,9 +47,9 @@ export const enviarNotificacionPush = async (idUsuarioApp, mensaje, idChat) => {
 
       messages.push({
         to: pushToken,
-        sound: 'default',
-        title: 'TUCHAT',
-        body: mensaje,
+        ...(soundEnabled ? { sound: 'default' } : {}),
+        title: notification.title,
+        body: notification.body,
         priority: 'high',
         channelId: 'default',
         data: { chatId: idChat },
@@ -53,9 +61,8 @@ export const enviarNotificacionPush = async (idUsuarioApp, mensaje, idChat) => {
       return;
     }
 
-    // 4. Enviar en chunks
-    let chunks = expo.chunkPushNotifications(messages);
-    for (let chunk of chunks) {
+    const chunks = expo.chunkPushNotifications(messages);
+    for (const chunk of chunks) {
       const tickets = await expo.sendPushNotificationsAsync(chunk);
       console.log(`[Push] Enviadas ${chunk.length} notificaciones a usuario ${idUsuarioApp}`, tickets);
     }

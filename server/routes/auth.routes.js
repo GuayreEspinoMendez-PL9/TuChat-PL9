@@ -12,6 +12,14 @@ const ensurePrivacyPreferenceColumn = async () => {
     try {
         await appDb.query(
             `ALTER TABLE seguridad.usuarios_app
+             ADD COLUMN sonidos_activos BOOLEAN NOT NULL DEFAULT TRUE`
+        );
+    } catch (error) {
+        // ignore if it already exists
+    }
+    try {
+        await appDb.query(
+            `ALTER TABLE seguridad.usuarios_app
              ADD COLUMN confirmaciones_lectura_activas BOOLEAN NOT NULL DEFAULT TRUE`
         );
     } catch (error) {
@@ -30,12 +38,15 @@ router.get('/notif-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();
         const { rows } = await appDb.query(
-            `SELECT notificaciones_activas FROM seguridad.usuarios_app WHERE id_usuario_app = $1`,
+            `SELECT notificaciones_activas, sonidos_activos
+             FROM seguridad.usuarios_app
+             WHERE id_usuario_app = $1`,
             [req.currentUser.id_usuario_app]
         );
         res.json({
             ok: true,
-            notificaciones_activas: rows[0]?.notificaciones_activas ?? true
+            notificaciones_activas: rows[0]?.notificaciones_activas ?? true,
+            sonidos_activos: rows[0]?.sonidos_activos ?? true,
         });
     } catch (error) {
         console.error("Error obteniendo preferencia:", error);
@@ -47,10 +58,17 @@ router.get('/notif-preference', requireAuth, async (req, res) => {
 router.put('/notif-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();
-        const { notificaciones_activas } = req.body;
+        const { notificaciones_activas, sonidos_activos } = req.body;
         await appDb.query(
-            `UPDATE seguridad.usuarios_app SET notificaciones_activas = $1 WHERE id_usuario_app = $2`,
-            [notificaciones_activas, req.currentUser.id_usuario_app]
+            `UPDATE seguridad.usuarios_app
+             SET notificaciones_activas = COALESCE($1, notificaciones_activas),
+                 sonidos_activos = COALESCE($2, sonidos_activos)
+             WHERE id_usuario_app = $3`,
+            [
+                typeof notificaciones_activas === 'boolean' ? notificaciones_activas : null,
+                typeof sonidos_activos === 'boolean' ? sonidos_activos : null,
+                req.currentUser.id_usuario_app
+            ]
         );
         res.json({ ok: true });
     } catch (error) {

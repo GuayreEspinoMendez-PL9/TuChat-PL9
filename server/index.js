@@ -217,9 +217,9 @@ const schedulePushFallback = ({
   msgId,
   roomId,
   recipientId,
-  text,
+  notification,
 }) => {
-  if (!msgId || !roomId || !recipientId || !text) return;
+  if (!msgId || !roomId || !recipientId || !notification?.body) return;
 
   setTimeout(async () => {
     try {
@@ -234,7 +234,7 @@ const schedulePushFallback = ({
       }
 
       console.log(`[PushFallback] Enviando push a ${recipientId} para ${msgId}`);
-      await enviarNotificacionPush(recipientId, text, roomId);
+      await enviarNotificacionPush(recipientId, notification, roomId);
     } catch (error) {
       console.error(`[PushFallback] Error evaluando ${msgId} para ${recipientId}:`, error.message);
     }
@@ -521,7 +521,11 @@ io.on("connection", async (socket) => {
               msgId,
               roomId,
               recipientId: uId,
-              text: textoNotif,
+              notification: { title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+                ? String(message.roomName || '').trim()
+                : (nombreEmisor || message.senderName || 'Usuario'), body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+                ? `${nombreEmisor || message.senderName || 'Usuario'}: ${hasDirectMention || hasRoleMention ? `Te menciono: ${contenido || 'Nuevo mensaje'}` : `${contenido || 'Nuevo mensaje'}`}`
+                : `${hasDirectMention || hasRoleMention ? `Te menciono: ${contenido || 'Nuevo mensaje'}` : `${contenido || 'Nuevo mensaje'}`}` },
             });
         }
 
@@ -644,7 +648,11 @@ io.on("connection", async (socket) => {
             msgId,
             roomId,
             recipientId: uId,
-            text: notifText,
+            notification: { title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+              ? String(message.roomName || '').trim()
+              : (nombreEmisor || message.senderName || 'Usuario'), body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+              ? `${nombreEmisor || message.senderName || 'Usuario'}: ${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}`
+              : `${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}` },
           });
       });
 
