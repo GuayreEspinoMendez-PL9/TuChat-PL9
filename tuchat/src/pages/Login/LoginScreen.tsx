@@ -1,10 +1,9 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+﻿﻿import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  Pressable,
   Platform,
   ActivityIndicator,
   ScrollView,
@@ -20,6 +19,8 @@ import * as SecureStore from "expo-secure-store";
 import { styles } from "./Login.styles";
 
 const API_URL = "https://tuchat-pl9.onrender.com";
+const HOVER_GRID_COLUMNS = 14;
+const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
 
 const UserIcon = ({ focused }: { focused: boolean }) => (
   <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={focused ? "#2563EB" : "#94a3b8"} style={{ width: 20, height: 20 }}>
@@ -46,12 +47,9 @@ const EyeSlashIcon = () => (
   </Svg>
 );
 
-const HOVER_GRID_COLUMNS = 10;
-const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
-
-const buildDotShadow = () => {
+const buildTileShadow = () => {
   const parts: string[] = [];
-  const gap = 50;
+  const gap = 49;
   const coef = -4.5;
 
   for (let i = 1; i <= 4; i += 1) {
@@ -72,7 +70,104 @@ const buildDotShadow = () => {
   return parts.join(", ");
 };
 
-const DOT_HOVER_SHADOW = buildDotShadow();
+const TILE_SHADOW = buildTileShadow();
+
+function WebHoverBackground() {
+  const [activeTile, setActiveTile] = useState<number | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const insideX = event.clientX >= rect.left && event.clientX <= rect.right;
+      const insideY = event.clientY >= rect.top && event.clientY <= rect.bottom;
+
+      if (!insideX || !insideY) {
+        setActiveTile(null);
+        return;
+      }
+
+      const relativeX = event.clientX - rect.left;
+      const relativeY = event.clientY - rect.top;
+      const tileWidth = rect.width / HOVER_GRID_COLUMNS;
+      const tileHeight = rect.height / HOVER_GRID_COLUMNS;
+      const column = Math.min(HOVER_GRID_COLUMNS - 1, Math.max(0, Math.floor(relativeX / tileWidth)));
+      const row = Math.min(HOVER_GRID_COLUMNS - 1, Math.max(0, Math.floor(relativeY / tileHeight)));
+
+      setActiveTile(row * HOVER_GRID_COLUMNS + column);
+    };
+
+    const handleMouseLeaveWindow = () => {
+      setActiveTile(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseleave", handleMouseLeaveWindow);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseleave", handleMouseLeaveWindow);
+    };
+  }, []);
+
+  const layerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    overflow: "hidden",
+    background: "linear-gradient(180deg, #A9C9FF 0%, #D7DFFF 52%, #EAF4FF 100%)",
+    pointerEvents: "none",
+  };
+
+  const gridStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    display: "grid",
+    gridTemplateColumns: `repeat(${HOVER_GRID_COLUMNS}, 1fr)`,
+    gridTemplateRows: `repeat(${HOVER_GRID_COLUMNS}, 1fr)`,
+  };
+
+  const tileStyle: React.CSSProperties = {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  };
+
+  const dotStyle: React.CSSProperties = {
+    display: "block",
+    width: "5px",
+    height: "5px",
+    borderRadius: "999px",
+    background: "#A9C9FF",
+    opacity: 0.95,
+    transition: "all 500ms linear",
+    pointerEvents: "none",
+  };
+
+  const activeDotStyle: React.CSSProperties = {
+    width: "48px",
+    height: "48px",
+    opacity: 1,
+    transition: "all 70ms linear",
+    boxShadow: TILE_SHADOW,
+  };
+
+  return (
+    <div ref={containerRef} style={layerStyle}>
+      <div style={gridStyle}>
+        {HOVER_GRID_TILES.map((tile) => (
+          <div key={tile} style={tileStyle}>
+            <div style={activeTile === tile ? { ...dotStyle, ...activeDotStyle } : dotStyle} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
@@ -83,7 +178,6 @@ export default function LoginScreen() {
   const [dimensions, setDimensions] = useState(Dimensions.get("window"));
   const [fieldErrors, setFieldErrors] = useState<{ identificador?: string; password?: string }>({});
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [hoveredTile, setHoveredTile] = useState<number | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -224,33 +318,7 @@ export default function LoginScreen() {
       </View>
 
       {Platform.OS === "web" ? (
-        <View style={styles.webEffectBackground}>
-          <View style={styles.gradientOverlay} />
-          <View style={styles.webEffectGrid}>
-            {HOVER_GRID_TILES.map((tile) => {
-              const active = hoveredTile === tile;
-
-              return (
-                <Pressable
-                  key={tile}
-                  onHoverIn={() => setHoveredTile(tile)}
-                  onHoverOut={() => {
-                    setHoveredTile((current) => (current === tile ? null : current));
-                  }}
-                  style={styles.webEffectTile}
-                >
-                  <View
-                    style={[
-                      styles.webEffectDot,
-                      active && styles.webEffectDotActive,
-                      active ? ({ boxShadow: DOT_HOVER_SHADOW } as any) : null,
-                    ]}
-                  />
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
+        <WebHoverBackground />
       ) : (
         <View style={styles.mobileBackground}>
           <View style={styles.gradientOverlay} />
