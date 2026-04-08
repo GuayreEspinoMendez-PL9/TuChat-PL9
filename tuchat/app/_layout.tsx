@@ -6,7 +6,7 @@ import { SocketProvider } from "../src/context/SocketContext";
 import { ThemeProvider } from "../src/context/ThemeContext";
 import { decodeJwt } from "../src/utils/auth";
 import { initDB } from "../src/db/database";
-import { configureNotifications, registerForPushNotificationsAsync } from "../src/services/notifications.service";
+import { configureNotifications, initMobileNotificationRouting, registerForPushNotificationsAsync } from "../src/services/notifications.service";
 
 const ADMIN_ROL_ID = 7;
 
@@ -120,6 +120,22 @@ export default function Layout() {
       window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
     };
   }, [hasToken, segments]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let cleanup: (() => void) | undefined;
+    initMobileNotificationRouting((target) => {
+      if (!hasToken) return;
+      router.replace('/' as any);
+    }).then((dispose) => {
+      cleanup = dispose;
+    }).catch((error) => {
+      console.error('Error inicializando apertura desde notificaciones moviles:', error);
+    });
+
+    return () => cleanup?.();
+  }, [hasToken]);
 
   useEffect(() => {
     if (!ready || !hasToken || Platform.OS === 'web') return;

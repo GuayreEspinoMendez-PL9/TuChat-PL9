@@ -8,6 +8,37 @@ import * as SecureStore from 'expo-secure-store';
 const API_URL = "https://tuchat-pl9.onrender.com";
 let notificationsConfigured = false;
 let lastRegisteredToken: string | null = null;
+let pendingNotificationTarget: {
+  roomId: string;
+  msgId?: string;
+  targetPanel?: 'events' | 'polls' | 'mentions' | 'info';
+} | null = null;
+
+const normalizeNotificationTarget = (input: any) => {
+  const roomId = input?.roomId || input?.chatId;
+  if (!roomId) return null;
+  const targetPanel = ['events', 'polls', 'mentions', 'info'].includes(input?.targetPanel)
+    ? input.targetPanel
+    : undefined;
+  return {
+    roomId: String(roomId),
+    msgId: input?.msgId ? String(input.msgId) : undefined,
+    targetPanel,
+  };
+};
+
+export const setPendingNotificationTarget = (input: any) => {
+  const normalized = normalizeNotificationTarget(input);
+  if (!normalized) return null;
+  pendingNotificationTarget = normalized;
+  return normalized;
+};
+
+export const consumePendingNotificationTargetMobile = () => {
+  const next = pendingNotificationTarget;
+  pendingNotificationTarget = null;
+  return next;
+};
 
 export function configureNotifications() {
   if (notificationsConfigured || Platform.OS === 'web') return;
@@ -23,6 +54,24 @@ export function configureNotifications() {
   });
 
   notificationsConfigured = true;
+}
+
+export async function initMobileNotificationRouting(onTarget?: (target: { roomId: string; msgId?: string; targetPanel?: 'events' | 'polls' | 'mentions' | 'info' }) => void) {
+  if (Platform.OS === 'web') return () => {};
+
+  const lastResponse = await Notifications.getLastNotificationResponseAsync();
+  const lastTarget = normalizeNotificationTarget(lastResponse?.notification?.request?.content?.data);
+  if (lastTarget) {
+    pendingNotificationTarget = lastTarget;
+    onTarget?.(lastTarget);
+  }
+
+  const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const target = setPendingNotificationTarget(response.notification.request.content.data);
+    if (target) onTarget?.(target);
+  });
+
+  return () => subscription.remove();
 }
 
 export async function presentIncomingMessageNotification({

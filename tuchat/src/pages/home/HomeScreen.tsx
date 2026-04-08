@@ -17,6 +17,7 @@ import {
   clearPendingNotificationTarget,
   consumePendingNotificationTarget,
 } from '../../services/browserNotifications.service';
+import { consumePendingNotificationTargetMobile } from '../../services/notifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 const DESKTOP_BREAKPOINT = 768;
@@ -471,29 +472,36 @@ export const HomeScreen = () => {
   }, [chats, privateChats, isDesktop, refreshUnreadCounts]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || loading) return;
+    if (loading) return;
 
-    const pending = consumePendingNotificationTarget();
-    if (pending?.roomId) {
-      openRoomFromNotification(pending);
+    if (Platform.OS === 'web') {
+      const pending = consumePendingNotificationTarget();
+      if (pending?.roomId) {
+        openRoomFromNotification(pending);
+      }
+
+      const handleNotificationOpenRoom = (event: Event) => {
+        const customEvent = event as CustomEvent<{ roomId?: string; msgId?: string; targetPanel?: 'events' | 'polls' | 'mentions' | 'info' }>;
+        const roomId = customEvent.detail?.roomId;
+        if (!roomId) return;
+        clearPendingNotificationTarget();
+        openRoomFromNotification({
+          roomId,
+          msgId: customEvent.detail?.msgId,
+          targetPanel: customEvent.detail?.targetPanel,
+        });
+      };
+
+      window.addEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+      return () => {
+        window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
+      };
     }
 
-    const handleNotificationOpenRoom = (event: Event) => {
-      const customEvent = event as CustomEvent<{ roomId?: string; msgId?: string; targetPanel?: 'events' | 'polls' | 'mentions' | 'info' }>;
-      const roomId = customEvent.detail?.roomId;
-      if (!roomId) return;
-      clearPendingNotificationTarget();
-      openRoomFromNotification({
-        roomId,
-        msgId: customEvent.detail?.msgId,
-        targetPanel: customEvent.detail?.targetPanel,
-      });
-    };
-
-    window.addEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
-    return () => {
-      window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
-    };
+    const pendingMobile = consumePendingNotificationTargetMobile();
+    if (pendingMobile?.roomId) {
+      openRoomFromNotification(pendingMobile);
+    }
   }, [loading, openRoomFromNotification]);
 
   useEffect(() => {
