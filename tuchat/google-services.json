@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "512301934794",
+    "project_id": "tuchat-11900",
+    "storage_bucket": "tuchat-11900.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:512301934794:android:4f467ae355568195dc6c33",
+        "android_client_info": {
+          "package_name": "com.guayre8.tuchat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALEEoBSFg6mWyNEFjGmGVKY70sN6IKevI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
