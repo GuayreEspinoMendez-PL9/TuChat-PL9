@@ -26,3 +26,6 @@ Thumbs.db
 
 # Docker volumes / local
 mysql_data/
+
+tuchat/google-services.json
+*firebase-adminsdk*.json

@@ -15,6 +15,7 @@ import {
 // ─────────────────────────────────────────────────────
 
 let db: any = null;
+let dbReady = false;
 
 if (Platform.OS !== 'web') {
   try {
@@ -28,7 +29,7 @@ if (Platform.OS !== 'web') {
 export { db };
 
 export const initDB = () => {
-  if (!db) return;
+  if (!db || dbReady) return;
   db.execSync(`
     CREATE TABLE IF NOT EXISTS mensajes_locales (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,7 +123,12 @@ export const initDB = () => {
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN metadataIndex TEXT'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN requiresAck INTEGER DEFAULT 0'); } catch (e) { }
   try { db.execSync('ALTER TABLE mensajes_locales ADD COLUMN ackReaders TEXT'); } catch (e) { }
+  dbReady = true;
 };
+
+if (db) {
+  initDB();
+}
 
 export const saveMessageLocal = (msg: any) => {
   if (!db) return;

@@ -11,11 +11,35 @@ const API_URL = "https://tuchat-pl9.onrender.com";
 
 // Configuración ICE por defecto (solo STUN, funciona en misma red)
 // Se sobreescribe con TURN al conectar (necesario para móvil 4G ↔ escritorio)
+const DEFAULT_ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun.relay.metered.ca:80' },
+  {
+    urls: 'turn:standard.relay.metered.ca:80',
+    username: '83eebabf8b4cce9d5dbcb649',
+    credential: '2D7JvfkOQtBdYW3R',
+  },
+  {
+    urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
+    username: '83eebabf8b4cce9d5dbcb649',
+    credential: '2D7JvfkOQtBdYW3R',
+  },
+  {
+    urls: 'turn:standard.relay.metered.ca:443',
+    username: '83eebabf8b4cce9d5dbcb649',
+    credential: '2D7JvfkOQtBdYW3R',
+  },
+  {
+    urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
+    username: '83eebabf8b4cce9d5dbcb649',
+    credential: '2D7JvfkOQtBdYW3R',
+  },
+];
+
 let iceConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]
+  iceServers: DEFAULT_ICE_SERVERS,
+  iceCandidatePoolSize: 10,
 };
 
 // Cargar configuración ICE con servidores TURN desde el servidor
@@ -24,7 +48,12 @@ const loadIceConfig = async () => {
     const res = await fetch(`${API_URL}/meet/ice-config`);
     const data = await res.json();
     if (data.iceServers) {
-      iceConfiguration = { iceServers: data.iceServers };
+      iceConfiguration = {
+        iceServers: Array.isArray(data.iceServers) && data.iceServers.length
+          ? data.iceServers
+          : DEFAULT_ICE_SERVERS,
+        iceCandidatePoolSize: 10,
+      };
       console.log('✅ ICE config cargada con TURN:', data.iceServers.length, 'servidores');
     }
   } catch (e) {

@@ -21,6 +21,7 @@
       }
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -33,7 +34,8 @@
         "MODIFY_AUDIO_SETTINGS",
         "BLUETOOTH",
         "ACCESS_NETWORK_STATE"
-      ]
+      ],
+      "package": "com.guayre8.tuchat"
     },
     "web": {
       "bundler": "metro",
@@ -42,6 +44,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       "expo-secure-store",
       "expo-sqlite",
       "@react-native-community/datetimepicker"

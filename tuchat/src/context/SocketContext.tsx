@@ -11,6 +11,7 @@ import {
   showBrowserMessageNotification,
   syncBrowserNotificationsPreference,
 } from '../services/browserNotifications.service';
+import { presentIncomingMessageNotification } from '../services/notifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -175,6 +176,32 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
                 roomName: msg.roomName,
                 targetPanel: msg.targetPanel,
               });
+            } else if (Platform.OS !== 'web') {
+              let preview = msg.text || msg.contenido || 'Nuevo mensaje';
+
+              if (msg.targetPanel === 'polls' || msg.itemType === 'poll') {
+                preview = `Nueva encuesta: ${msg.question || msg.text || 'Revisa la encuesta'}`;
+              } else if (msg.targetPanel === 'events' || msg.itemType === 'event') {
+                preview = `Nuevo evento: ${msg.title || msg.text || 'Revisa el evento'}`;
+              } else if (msg.image || msg.fileName || msg.mediaType === 'file') {
+                preview = msg.fileName
+                  ? `Adjunto: ${msg.fileName}`
+                  : 'Adjunto recibido';
+              } else if (msg.mediaType === 'image') {
+                preview = 'Imagen recibida';
+              } else if (msg.mediaType === 'video') {
+                preview = 'Video recibido';
+              } else if (msg.requiresAck) {
+                preview = `Mensaje importante: ${msg.text || msg.contenido || 'Revisa este mensaje'}`;
+              }
+
+              presentIncomingMessageNotification({
+                title: msg.senderName || 'Nuevo mensaje',
+                body: preview,
+                chatId: msg.roomId ? String(msg.roomId) : null,
+              }).catch((error) => {
+                console.error('Error mostrando notificacion local movil:', error);
+              });
             }
           }
         });
@@ -231,7 +258,30 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
         console.log('App volvio al primer plano');
         refreshUnreadCounts();
-        if (socket && !socket.connected) socket.connect();
+
+        const resumeSession = async () => {
+          try {
+            const token = Platform.OS === 'web'
+              ? localStorage.getItem('token')
+              : await SecureStore.getItemAsync('token');
+
+            const decoded = token ? decodeJwt(token) : null;
+            const userId = decoded?.sub;
+
+            if (socket && !socket.connected) {
+              socket.connect();
+            }
+
+            if (Platform.OS !== 'web' && token && userId) {
+              await syncMessages(String(userId), token);
+              refreshUnreadCounts();
+            }
+          } catch (error) {
+            console.error('Error reanudando sesion al volver al primer plano:', error);
+          }
+        };
+
+        resumeSession();
       }
       appState.current = nextAppState;
     });

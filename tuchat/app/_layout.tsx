@@ -5,6 +5,8 @@ import * as SecureStore from "expo-secure-store";
 import { SocketProvider } from "../src/context/SocketContext";
 import { ThemeProvider } from "../src/context/ThemeContext";
 import { decodeJwt } from "../src/utils/auth";
+import { initDB } from "../src/db/database";
+import { configureNotifications, registerForPushNotificationsAsync } from "../src/services/notifications.service";
 
 const ADMIN_ROL_ID = 7;
 
@@ -66,6 +68,12 @@ export default function Layout() {
   useEffect(() => { checkAuth(); }, [segments]);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+    initDB();
+    configureNotifications();
+  }, []);
+
+  useEffect(() => {
     if (!ready) return;
     const currentSegments = segments as string[];
     const inAuthGroup = currentSegments[0] === "login";
@@ -112,6 +120,14 @@ export default function Layout() {
       window.removeEventListener('tuchat:notification-open-room', handleNotificationOpenRoom as EventListener);
     };
   }, [hasToken, segments]);
+
+  useEffect(() => {
+    if (!ready || !hasToken || Platform.OS === 'web') return;
+
+    registerForPushNotificationsAsync().catch((error) => {
+      console.error('Error registrando notificaciones push:', error);
+    });
+  }, [ready, hasToken]);
 
   if (!ready) return null;
 
