@@ -11,6 +11,7 @@ import {
   showBrowserMessageNotification,
   syncBrowserNotificationsPreference,
 } from '../services/browserNotifications.service';
+import { presentIncomingMessageNotification } from '../services/notifications.service';
 
 const API_URL = "https://tuchat-pl9.onrender.com";
 
@@ -148,25 +149,39 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
           if (!isMe && !isActiveRoom) {
             refreshUnreadCounts();
+            let preview = msg.text || msg.contenido || 'Nuevo mensaje';
+
+            if (msg.targetPanel === 'polls' || msg.itemType === 'poll') {
+              preview = `Nueva encuesta: ${msg.question || msg.text || 'Revisa la encuesta'}`;
+            } else if (msg.targetPanel === 'events' || msg.itemType === 'event') {
+              preview = `Nuevo evento: ${msg.title || msg.text || 'Revisa el evento'}`;
+            } else if (msg.image || msg.fileName || msg.mediaType === 'file') {
+              preview = msg.fileName
+                ? `Adjunto: ${msg.fileName}`
+                : 'Adjunto recibido';
+            } else if (msg.mediaType === 'image') {
+              preview = 'Imagen recibida';
+            } else if (msg.mediaType === 'video') {
+              preview = 'Video recibido';
+            } else if (msg.requiresAck) {
+              preview = `Mensaje importante: ${msg.text || msg.contenido || 'Revisa este mensaje'}`;
+            }
+
+            if (Platform.OS !== 'web' && appState.current === 'active') {
+              const roomName = String(msg.roomName || '').trim();
+              const isGroupTitle = roomName && !/^usuario$/i.test(roomName) && !/^chat privado$/i.test(roomName);
+              presentIncomingMessageNotification({
+                title: isGroupTitle ? roomName : (msg.senderName || 'Nuevo mensaje'),
+                body: isGroupTitle
+                  ? `${msg.senderName || 'Usuario'}: ${preview}`
+                  : preview,
+                chatId: msg.roomId,
+              }).catch((error) => {
+                console.error('Error mostrando notificacion movil:', error);
+              });
+            }
+
             if (Platform.OS === 'web' && areBrowserNotificationsEnabled()) {
-              let preview = msg.text || msg.contenido || 'Nuevo mensaje';
-
-              if (msg.targetPanel === 'polls' || msg.itemType === 'poll') {
-                preview = `Nueva encuesta: ${msg.question || msg.text || 'Revisa la encuesta'}`;
-              } else if (msg.targetPanel === 'events' || msg.itemType === 'event') {
-                preview = `Nuevo evento: ${msg.title || msg.text || 'Revisa el evento'}`;
-              } else if (msg.image || msg.fileName || msg.mediaType === 'file') {
-                preview = msg.fileName
-                  ? `Adjunto: ${msg.fileName}`
-                  : 'Adjunto recibido';
-              } else if (msg.mediaType === 'image') {
-                preview = 'Imagen recibida';
-              } else if (msg.mediaType === 'video') {
-                preview = 'Video recibido';
-              } else if (msg.requiresAck) {
-                preview = `Mensaje importante: ${msg.text || msg.contenido || 'Revisa este mensaje'}`;
-              }
-
               showBrowserMessageNotification({
                 title: msg.senderName || 'Nuevo mensaje',
                 body: preview,

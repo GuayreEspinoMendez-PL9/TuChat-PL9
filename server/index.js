@@ -517,16 +517,14 @@ io.on("connection", async (socket) => {
             const textoNotif = hasDirectMention || hasRoleMention
               ? `${nombreEmisor || 'Usuario'} te mencionó: ${contenido || 'Nuevo mensaje'}`
               : `${nombreEmisor || 'Usuario'}: ${contenido || 'Nuevo mensaje'}`;
-            schedulePushFallback({
-              msgId,
-              roomId,
-              recipientId: uId,
-              notification: { title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+            await enviarNotificacionPush(uId, {
+              title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
                 ? String(message.roomName || '').trim()
-                : (nombreEmisor || message.senderName || 'Usuario'), body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+                : (nombreEmisor || message.senderName || 'Usuario'),
+              body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
                 ? `${nombreEmisor || message.senderName || 'Usuario'}: ${hasDirectMention || hasRoleMention ? `Te menciono: ${contenido || 'Nuevo mensaje'}` : `${contenido || 'Nuevo mensaje'}`}`
-                : `${hasDirectMention || hasRoleMention ? `Te menciono: ${contenido || 'Nuevo mensaje'}` : `${contenido || 'Nuevo mensaje'}`}` },
-            });
+                : `${hasDirectMention || hasRoleMention ? `Te menciono: ${contenido || 'Nuevo mensaje'}` : `${contenido || 'Nuevo mensaje'}`}`,
+            }, roomId);
         }
 
         // Después de distribuir a todos, notificar al emisor que el mensaje fue entregado (2 ticks grises)
@@ -644,15 +642,15 @@ io.on("connection", async (socket) => {
           const notifText = hasMention
             ? `${nombreEmisor}: te mencionó en un adjunto`
             : `${nombreEmisor}: 📷 Envió un adjunto`;
-          schedulePushFallback({
-            msgId,
-            roomId,
-            recipientId: uId,
-            notification: { title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+          enviarNotificacionPush(uId, {
+            title: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
               ? String(message.roomName || '').trim()
-              : (nombreEmisor || message.senderName || 'Usuario'), body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
+              : (nombreEmisor || message.senderName || 'Usuario'),
+            body: String(message.roomName || '').trim() && !/^usuario$/i.test(String(message.roomName || '').trim()) && !/^chat privado$/i.test(String(message.roomName || '').trim())
               ? `${nombreEmisor || message.senderName || 'Usuario'}: ${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}`
-              : `${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}` },
+              : `${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}`,
+          }, roomId).catch((error) => {
+            console.error("❌ Error enviando push inmediata de adjunto:", error?.message || error);
           });
       });
 
