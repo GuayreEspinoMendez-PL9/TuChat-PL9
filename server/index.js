@@ -185,6 +185,7 @@ const PRESENCE_LABELS = {
 };
 
 const IMPORTANT_MESSAGE_TYPES = new Set(["announcement", "required_read", "assessable", "urgent"]);
+const PUSH_FALLBACK_DELAY_MS = 8000;
 
 function buildIndexedMessage(payload) {
   const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
@@ -211,6 +212,34 @@ function buildIndexedMessage(payload) {
     },
   };
 }
+
+const schedulePushFallback = ({
+  msgId,
+  roomId,
+  recipientId,
+  text,
+}) => {
+  if (!msgId || !roomId || !recipientId || !text) return;
+
+  setTimeout(async () => {
+    try {
+      const status = await getMessageStatusDb(msgId);
+      const deliveredUsers = new Set((status?.deliveredUsers || []).map(String));
+      const readUsers = new Set((status?.readUsers || []).map(String));
+      const recipientKey = String(recipientId);
+
+      if (deliveredUsers.has(recipientKey) || readUsers.has(recipientKey)) {
+        console.log(`[PushFallback] Omitida para ${recipientId} en ${msgId}: ya entregado/leido`);
+        return;
+      }
+
+      console.log(`[PushFallback] Enviando push a ${recipientId} para ${msgId}`);
+      await enviarNotificacionPush(recipientId, text, roomId);
+    } catch (error) {
+      console.error(`[PushFallback] Error evaluando ${msgId} para ${recipientId}:`, error.message);
+    }
+  }, PUSH_FALLBACK_DELAY_MS);
+};
 
 // Función para cargar ajustes desde BD (roomId = id_sala)
 async function cargarAjustesSala(roomId) {
@@ -488,7 +517,12 @@ io.on("connection", async (socket) => {
             const textoNotif = hasDirectMention || hasRoleMention
               ? `${nombreEmisor || 'Usuario'} te mencionó: ${contenido || 'Nuevo mensaje'}`
               : `${nombreEmisor || 'Usuario'}: ${contenido || 'Nuevo mensaje'}`;
-            enviarNotificacionPush(uId, textoNotif, roomId);
+            schedulePushFallback({
+              msgId,
+              roomId,
+              recipientId: uId,
+              text: textoNotif,
+            });
         }
 
         // Después de distribuir a todos, notificar al emisor que el mensaje fue entregado (2 ticks grises)
@@ -606,7 +640,12 @@ io.on("connection", async (socket) => {
           const notifText = hasMention
             ? `${nombreEmisor}: te mencionó en un adjunto`
             : `${nombreEmisor}: 📷 Envió un adjunto`;
-          enviarNotificacionPush(uId, notifText, roomId);
+          schedulePushFallback({
+            msgId,
+            roomId,
+            recipientId: uId,
+            text: notifText,
+          });
       });
 
       // Notificar al emisor que el mensaje fue entregado (2 ticks grises)
