@@ -49,7 +49,7 @@ const EyeSlashIcon = () => (
 
 const buildTileShadow = () => {
   const parts: string[] = [];
-  const gap = 48.5;
+  const gap = 48;
   const coef = -4.5;
 
   for (let i = 1; i <= 4; i += 1) {
