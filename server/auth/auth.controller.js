@@ -79,16 +79,55 @@ export const registrarPushToken = async (req, res) => {
       return res.status(400).json({ ok: false, msg: "Token requerido" });
     }
 
-    const query = `
-      INSERT INTO seguridad.tokens_push (id_usuario_app, token, plataforma)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (token) 
-      DO UPDATE SET 
-        id_usuario_app = EXCLUDED.id_usuario_app,
-        plataforma = EXCLUDED.plataforma
-    `;
+    const normalizedToken = String(token).trim();
+    const normalizedPlatform = plataforma || 'unknown';
 
-    await appDb.query(query, [id_usuario_app, token, plataforma || 'unknown']);
+    if (!normalizedToken) {
+      return res.status(400).json({ ok: false, msg: "Token invalido" });
+    }
+
+    await appDb.query(
+      `DELETE FROM seguridad.tokens_push
+       WHERE id_usuario_app = $1
+         AND plataforma = $2
+         AND token <> $3`,
+      [id_usuario_app, normalizedPlatform, normalizedToken]
+    );
+
+    const updateByToken = await appDb.query(
+      `UPDATE seguridad.tokens_push
+       SET id_usuario_app = $1,
+           plataforma = $2
+       WHERE token = $3`,
+      [id_usuario_app, normalizedPlatform, normalizedToken]
+    );
+
+    if (updateByToken.rowCount === 0) {
+      const existingForUser = await appDb.query(
+        `SELECT token
+         FROM seguridad.tokens_push
+         WHERE id_usuario_app = $1 AND plataforma = $2
+         LIMIT 1`,
+        [id_usuario_app, normalizedPlatform]
+      );
+
+      if (existingForUser.rows.length > 0) {
+        await appDb.query(
+          `UPDATE seguridad.tokens_push
+           SET token = $1
+           WHERE id_usuario_app = $2 AND plataforma = $3`,
+          [normalizedToken, id_usuario_app, normalizedPlatform]
+        );
+      } else {
+        await appDb.query(
+          `INSERT INTO seguridad.tokens_push (id_usuario_app, token, plataforma)
+           VALUES ($1, $2, $3)`,
+          [id_usuario_app, normalizedToken, normalizedPlatform]
+        );
+      }
+    }
+
+    console.log(`[PushToken] Registrado token para usuario ${id_usuario_app} en ${normalizedPlatform}`);
 
     return res.json({ ok: true, msg: "Token registrado correctamente" });
 
