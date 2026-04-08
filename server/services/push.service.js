@@ -12,12 +12,29 @@ export const enviarNotificacionPush = async (idUsuarioApp, payload, idChat) => {
           body: payload?.body || "Nuevo mensaje",
         };
 
-    const { rows: prefRows } = await appDb.query(
-      `SELECT notificaciones_activas, sonidos_activos
-       FROM seguridad.usuarios_app
-       WHERE id_usuario_app = $1`,
-      [idUsuarioApp]
-    );
+    let prefRows = [];
+    try {
+      const result = await appDb.query(
+        `SELECT notificaciones_activas, sonidos_activos
+         FROM seguridad.usuarios_app
+         WHERE id_usuario_app = $1`,
+        [idUsuarioApp]
+      );
+      prefRows = result.rows || [];
+    } catch (error) {
+      if (String(error?.message || '').toLowerCase().includes('sonidos_activos')) {
+        console.warn('[Push] La columna sonidos_activos no existe aun, usando fallback silencioso de compatibilidad');
+        const fallback = await appDb.query(
+          `SELECT notificaciones_activas
+           FROM seguridad.usuarios_app
+           WHERE id_usuario_app = $1`,
+          [idUsuarioApp]
+        );
+        prefRows = fallback.rows || [];
+      } else {
+        throw error;
+      }
+    }
 
     const notifEnabled = prefRows.length > 0 ? prefRows[0].notificaciones_activas !== false : true;
     const soundEnabled = prefRows.length > 0 ? prefRows[0].sonidos_activos !== false : true;
