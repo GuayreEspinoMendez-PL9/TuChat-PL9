@@ -71,6 +71,7 @@ const buildTileShadow = () => {
 };
 
 const TILE_SHADOW = buildTileShadow();
+const LOGO_SOURCE = require("../../../assets/images/logo.png");
 
 function WebHoverBackground() {
   const [activeTile, setActiveTile] = useState<number | null>(null);
@@ -182,6 +183,8 @@ export default function LoginScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const logoScale = useRef(new Animated.Value(0.9)).current;
+  const logoShimmerTranslate = useRef(new Animated.Value(-120)).current;
+  const logoGlowOpacity = useRef(new Animated.Value(0.18)).current;
   const buttonScale = useRef(new Animated.Value(1)).current;
   const inputScaleUser = useRef(new Animated.Value(1)).current;
   const inputScalePass = useRef(new Animated.Value(1)).current;
@@ -211,8 +214,41 @@ export default function LoginScreen() {
       }),
     ]).start();
 
+    const shimmerLoop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(logoShimmerTranslate, {
+            toValue: 120,
+            duration: 1800,
+            useNativeDriver: true,
+          }),
+          Animated.sequence([
+            Animated.timing(logoGlowOpacity, {
+              toValue: 0.38,
+              duration: 650,
+              useNativeDriver: true,
+            }),
+            Animated.timing(logoGlowOpacity, {
+              toValue: 0.18,
+              duration: 1150,
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+        Animated.delay(650),
+        Animated.timing(logoShimmerTranslate, {
+          toValue: -120,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    shimmerLoop.start();
+
     return () => {
       subscription?.remove();
+      shimmerLoop.stop();
     };
   }, []);
 
@@ -311,6 +347,14 @@ export default function LoginScreen() {
     return styles.logo;
   };
 
+  const getLogoDimensions = () => {
+    if (isDesktop) return { width: 130, height: 130 };
+    if (isTablet) return { width: 120, height: 120 };
+    return { width: 100, height: 100 };
+  };
+
+  const logoDimensions = getLogoDimensions();
+
   return (
     <View style={styles.container}>
       <View style={styles.headerBar}>
@@ -360,11 +404,57 @@ export default function LoginScreen() {
               ]}
             >
               <View style={[styles.logoWrapper, isMobile && styles.logoWrapperMobile]}>
-                <Image
-                  source={require("../../../assets/images/logo.png")}
-                  style={getLogoSize()}
-                  resizeMode="contain"
+                <Animated.View
+                  pointerEvents="none"
+                  style={[
+                    styles.logoAura,
+                    {
+                      opacity: logoGlowOpacity,
+                      width: logoDimensions.width + 26,
+                      height: logoDimensions.height + 26,
+                    }
+                  ]}
                 />
+                <View
+                  style={[
+                    styles.animatedLogoFrame,
+                    {
+                      width: logoDimensions.width,
+                      height: logoDimensions.height,
+                    }
+                  ]}
+                >
+                  <Image
+                    source={LOGO_SOURCE}
+                    style={getLogoSize()}
+                    resizeMode="contain"
+                  />
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[
+                      styles.logoShimmerMask,
+                      {
+                        width: Math.round(logoDimensions.width * 0.34),
+                        height: logoDimensions.height,
+                        transform: [{ translateX: logoShimmerTranslate }],
+                      }
+                    ]}
+                  >
+                    <Animated.Image
+                      source={LOGO_SOURCE}
+                      resizeMode="contain"
+                      style={[
+                        getLogoSize(),
+                        styles.logoShimmerImage,
+                        {
+                          transform: [{ translateX: Animated.multiply(logoShimmerTranslate, -1) }],
+                        }
+                      ]}
+                    />
+                    <View style={styles.logoShimmerCore} />
+                    <View style={styles.logoShimmerTrail} />
+                  </Animated.View>
+                </View>
               </View>
             </Animated.View>
 
