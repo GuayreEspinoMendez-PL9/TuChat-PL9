@@ -21,15 +21,6 @@ import { styles } from "./Login.styles";
 const API_URL = "https://tuchat-pl9.onrender.com";
 const HOVER_GRID_COLUMNS = 14;
 const HOVER_GRID_TILES = Array.from({ length: HOVER_GRID_COLUMNS * HOVER_GRID_COLUMNS }, (_, index) => index);
-const LOGO_RAINBOW_LAYERS = Array.from({ length: 18 }, (_, index) => index);
-const LOGO_RAINBOW_COMBOS = [
-  ["rgb(232 121 249)", "rgb(96 165 250)", "rgb(94 234 212)"],
-  ["rgb(232 121 249)", "rgb(94 234 212)", "rgb(96 165 250)"],
-  ["rgb(94 234 212)", "rgb(232 121 249)", "rgb(96 165 250)"],
-  ["rgb(94 234 212)", "rgb(96 165 250)", "rgb(232 121 249)"],
-  ["rgb(96 165 250)", "rgb(94 234 212)", "rgb(232 121 249)"],
-  ["rgb(96 165 250)", "rgb(232 121 249)", "rgb(94 234 212)"],
-] as const;
 
 const UserIcon = ({ focused }: { focused: boolean }) => (
   <Svg fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke={focused ? "#2563EB" : "#94a3b8"} style={{ width: 20, height: 20 }}>
@@ -189,59 +180,57 @@ function LogoRainbowBackground() {
     overflow: "hidden",
     borderRadius: 30,
     pointerEvents: "none",
-    opacity: 0.95,
-    background: "linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(255,255,255,0.58) 100%)",
-  };
-
-  const horizontalGlowStyle: React.CSSProperties = {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 0,
-    boxShadow: "0 0 40vh 28vh rgba(255,255,255,0.96)",
-  };
-
-  const verticalGlowStyle: React.CSSProperties = {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 0,
-    boxShadow: "0 0 28vw 20vw rgba(255,255,255,0.92)",
+    opacity: 1,
+    background: `
+      linear-gradient(
+        100deg,
+        rgba(255,255,255,0.98) 0%,
+        rgba(255,255,255,0.9) 18%,
+        rgba(232,121,249,0.28) 30%,
+        rgba(255,255,255,0.92) 40%,
+        rgba(94,234,212,0.26) 52%,
+        rgba(96,165,250,0.42) 68%,
+        rgba(94,234,212,0.24) 80%,
+        rgba(232,121,249,0.34) 92%,
+        rgba(255,255,255,0.98) 100%
+      )
+    `,
+    backgroundSize: "220% 220%",
+    animation: "tuchatLogoRainbowShift 10s ease-in-out infinite alternate",
   };
 
   return (
     <div style={containerStyle}>
-      {LOGO_RAINBOW_LAYERS.map((layerIndex) => {
-        const [c1, c2, c3] = LOGO_RAINBOW_COMBOS[layerIndex % LOGO_RAINBOW_COMBOS.length];
-        const duration = 45 - (layerIndex / LOGO_RAINBOW_LAYERS.length) * 18;
-        const delay = -(layerIndex / LOGO_RAINBOW_LAYERS.length) * 45;
-        const stripeStyle: React.CSSProperties = {
+      <div
+        style={{
           position: "absolute",
-          top: 0,
-          right: "-28vw",
-          width: 0,
-          height: "100%",
-          transform: "rotate(10deg)",
-          transformOrigin: "top right",
-          animationName: "tuchatLogoRainbowSlide",
-          animationTimingFunction: "linear",
-          animationIterationCount: "infinite",
-          animationDuration: `${duration}s`,
-          animationDelay: `${delay}s`,
-          boxShadow: `-130px 0 80px 40px rgba(255,255,255,0.96), -50px 0 50px 25px ${c1}, 0 0 50px 25px ${c2}, 50px 0 50px 25px ${c3}, 130px 0 80px 40px rgba(255,255,255,0.96)`,
-        };
-
-        return <div key={layerIndex} style={stripeStyle} />;
-      })}
-      <div style={horizontalGlowStyle} />
-      <div style={verticalGlowStyle} />
+          inset: "-22%",
+          background: `
+            linear-gradient(
+              95deg,
+              rgba(255,255,255,0) 8%,
+              rgba(232,121,249,0.22) 24%,
+              rgba(255,255,255,0.14) 36%,
+              rgba(94,234,212,0.2) 50%,
+              rgba(96,165,250,0.28) 64%,
+              rgba(255,255,255,0.12) 76%,
+              rgba(232,121,249,0.18) 90%,
+              rgba(255,255,255,0) 100%
+            )
+          `,
+          filter: "blur(18px)",
+          opacity: 0.95,
+          transform: "rotate(7deg)",
+          backgroundSize: "180% 180%",
+          animation: "tuchatLogoRainbowShift 14s ease-in-out infinite reverse",
+        }}
+      />
       <style>
         {`
-          @keyframes tuchatLogoRainbowSlide {
-            from { right: -25vw; }
-            to { right: 125vw; }
+          @keyframes tuchatLogoRainbowShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
           }
         `}
       </style>
