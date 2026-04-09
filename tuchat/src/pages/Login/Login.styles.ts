@@ -151,6 +151,8 @@ export const styles = StyleSheet.create({
     borderRadius: 30,
     borderWidth: 1,
     borderColor: 'rgba(148, 163, 184, 0.18)',
+    overflow: 'hidden',
+    position: 'relative',
     zIndex: 2,
     ...Platform.select({
       ios: {
@@ -169,78 +171,14 @@ export const styles = StyleSheet.create({
     }),
   },
 
-  animatedLogoFrame: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-
-  logoAura: {
+  logoWrapperFallbackGlow: {
     position: 'absolute',
-    alignSelf: 'center',
-    borderRadius: 999,
-    backgroundColor: 'rgba(96, 165, 250, 0.22)',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#60A5FA',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.55,
-        shadowRadius: 22,
-      },
-      android: {
-        elevation: 4,
-      },
-      web: {
-        boxShadow: '0px 0px 40px rgba(96, 165, 250, 0.35)',
-      } as any,
-    }),
-  },
-
-  logoShimmerMask: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  logoShimmerImage: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    tintColor: '#F8FDFF',
-    opacity: 0.92,
-  },
-
-  logoShimmerCore: {
-    position: 'absolute',
-    top: '4%',
-    bottom: '4%',
-    width: '42%',
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 999,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#FFFFFF',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.45,
-        shadowRadius: 8,
-      },
-      web: {
-        boxShadow: '0px 0px 14px rgba(255,255,255,0.75)',
-      } as any,
-    }),
-  },
-
-  logoShimmerTrail: {
-    position: 'absolute',
-    top: '2%',
-    bottom: '2%',
-    width: '100%',
-    backgroundColor: 'rgba(191, 219, 254, 0.22)',
-    borderRadius: 999,
+    top: -30,
+    right: -22,
+    bottom: -24,
+    left: -22,
+    borderRadius: 40,
+    backgroundColor: 'rgba(191, 219, 254, 0.3)',
   },
 
   webEffectPattern: {
