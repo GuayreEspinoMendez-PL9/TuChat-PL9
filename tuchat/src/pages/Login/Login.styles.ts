@@ -461,6 +461,8 @@ export const styles = StyleSheet.create({
     padding: 16,
     alignItems: "center",
     marginTop: 8,
+    overflow: 'hidden',
+    position: 'relative',
     ...Platform.select({
       ios: {
         shadowColor: "#2563EB",
@@ -477,6 +479,16 @@ export const styles = StyleSheet.create({
         transition: 'all 0.2s ease',
       }
     }),
+  },
+
+  buttonRainbowFallback: {
+    position: 'absolute',
+    top: -10,
+    right: -10,
+    bottom: -10,
+    left: -10,
+    borderRadius: 16,
+    backgroundColor: '#3B82F6',
   },
   
   buttonDisabled: {

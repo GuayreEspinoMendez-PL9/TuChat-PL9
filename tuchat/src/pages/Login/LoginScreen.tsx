@@ -307,6 +307,72 @@ function CardRainbowBackground() {
   );
 }
 
+function ButtonRainbowBackground() {
+  if (Platform.OS !== "web") {
+    return <View pointerEvents="none" style={styles.buttonRainbowFallback} />;
+  }
+
+  const containerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    overflow: "hidden",
+    borderRadius: 10,
+    pointerEvents: "none",
+    opacity: 1,
+    background: `
+      linear-gradient(
+        110deg,
+        rgba(232,121,249,0.92) 0%,
+        rgba(167,139,250,0.98) 16%,
+        rgba(96,165,250,1) 36%,
+        rgba(94,234,212,0.98) 54%,
+        rgba(59,130,246,1) 72%,
+        rgba(232,121,249,0.96) 88%,
+        rgba(147,51,234,0.94) 100%
+      )
+    `,
+    backgroundSize: "220% 220%",
+    animation: "tuchatButtonRainbowShift 4.2s linear infinite",
+  };
+
+  return (
+    <div style={containerStyle}>
+      <div
+        style={{
+          position: "absolute",
+          inset: "-20%",
+          background: `
+            linear-gradient(
+              100deg,
+              rgba(255,255,255,0) 8%,
+              rgba(255,255,255,0.18) 24%,
+              rgba(255,255,255,0.06) 38%,
+              rgba(94,234,212,0.18) 52%,
+              rgba(96,165,250,0.22) 66%,
+              rgba(232,121,249,0.2) 84%,
+              rgba(255,255,255,0) 100%
+            )
+          `,
+          filter: "blur(16px)",
+          opacity: 0.95,
+          transform: "rotate(5deg)",
+          backgroundSize: "180% 180%",
+          animation: "tuchatButtonRainbowShift 3.1s linear infinite reverse",
+        }}
+      />
+      <style>
+        {`
+          @keyframes tuchatButtonRainbowShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
+
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
@@ -613,6 +679,7 @@ export default function LoginScreen() {
                     disabled={loading}
                     activeOpacity={0.85}
                   >
+                    {!loading ? <ButtonRainbowBackground /> : null}
                     {loading ? (
                       <View style={styles.buttonContent}>
                         <ActivityIndicator color="#fff" size="small" />
