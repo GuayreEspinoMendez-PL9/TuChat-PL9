@@ -305,6 +305,8 @@ export const styles = StyleSheet.create({
     padding: 32,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.65)',
+    overflow: 'hidden',
+    position: 'relative',
     ...Platform.select({
       ios: {
         shadowColor: "#000",
@@ -320,6 +322,16 @@ export const styles = StyleSheet.create({
         backdropFilter: "blur(16px)",
       }
     }),
+  },
+
+  formCardFallbackGlow: {
+    position: 'absolute',
+    top: -40,
+    right: -24,
+    bottom: -36,
+    left: -24,
+    borderRadius: 30,
+    backgroundColor: 'rgba(219, 234, 254, 0.38)',
   },
 
   formTitle: {

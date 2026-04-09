@@ -238,6 +238,75 @@ function LogoRainbowBackground() {
   );
 }
 
+function CardRainbowBackground() {
+  if (Platform.OS !== "web") {
+    return <View pointerEvents="none" style={styles.formCardFallbackGlow} />;
+  }
+
+  const containerStyle: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    overflow: "hidden",
+    borderRadius: 24,
+    pointerEvents: "none",
+    opacity: 1,
+    background: `
+      linear-gradient(
+        105deg,
+        rgba(255,255,255,0.96) 0%,
+        rgba(255,255,255,0.9) 16%,
+        rgba(232,121,249,0.18) 28%,
+        rgba(255,255,255,0.88) 40%,
+        rgba(94,234,212,0.16) 54%,
+        rgba(96,165,250,0.26) 70%,
+        rgba(94,234,212,0.14) 82%,
+        rgba(232,121,249,0.2) 92%,
+        rgba(255,255,255,0.96) 100%
+      )
+    `,
+    backgroundSize: "220% 220%",
+    animation: "tuchatCardRainbowShift 13s ease-in-out infinite alternate",
+  };
+
+  return (
+    <div style={containerStyle}>
+      <div
+        style={{
+          position: "absolute",
+          inset: "-18%",
+          background: `
+            linear-gradient(
+              100deg,
+              rgba(255,255,255,0) 6%,
+              rgba(232,121,249,0.14) 24%,
+              rgba(255,255,255,0.1) 36%,
+              rgba(94,234,212,0.14) 50%,
+              rgba(96,165,250,0.18) 64%,
+              rgba(255,255,255,0.08) 76%,
+              rgba(232,121,249,0.14) 90%,
+              rgba(255,255,255,0) 100%
+            )
+          `,
+          filter: "blur(22px)",
+          opacity: 0.9,
+          transform: "rotate(6deg)",
+          backgroundSize: "180% 180%",
+          animation: "tuchatCardRainbowShift 16s ease-in-out infinite reverse",
+        }}
+      />
+      <style>
+        {`
+          @keyframes tuchatCardRainbowShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
+
 export default function LoginScreen() {
   const [identificador, setIdentificador] = useState("");
   const [password, setPassword] = useState("");
@@ -457,6 +526,7 @@ export default function LoginScreen() {
 
             <View style={getContainerStyle()}>
               <View style={styles.formCard}>
+                <CardRainbowBackground />
                 <Text style={styles.formTitle}>Iniciar sesion</Text>
                 {loginError ? (
                   <View style={styles.formErrorBanner}>
