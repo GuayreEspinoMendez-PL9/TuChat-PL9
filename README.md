@@ -9,6 +9,9 @@ Acceso web publicado: `https://tu-chat-pl-9.vercel.app`
 - Cliente: Expo + React Native + Expo Router
 - Tiempo real: Socket.IO
 - Backend: Express
+- Notificaciones:
+  - Móvil: `expo-notifications` + Expo Push
+  - Web: `push.js`
 - Persistencia local:
   - Movil: SQLite (`expo-sqlite`)
   - Web: `localStorage`
@@ -53,6 +56,11 @@ Acceso web publicado: `https://tu-chat-pl-9.vercel.app`
   - Disponible
   - En clase
   - Ocupado
+- Menciones a personas y menciones rapidas de rol:
+  - `@delegados`
+  - `@profesor`
+  - `@todos`
+- Resaltado visual de mensajes que mencionan al usuario.
 
 ### Mensajeria academica avanzada
 
@@ -122,15 +130,36 @@ Acceso web publicado: `https://tu-chat-pl-9.vercel.app`
   - Eventos
   - Encuestas
 
+### Notificaciones
+
+- Notificaciones push en movil con registro de token Expo por usuario.
+- Notificaciones de navegador en web.
+- Navegacion directa al chat al pulsar una notificacion.
+- Soporte para abrir destinos concretos desde notificacion:
+  - Chat
+  - Mensaje concreto
+  - Paneles auxiliares como eventos, encuestas, menciones o informacion
+- Preferencias sincronizadas con backend:
+  - Activar o desactivar notificaciones
+  - Activar o desactivar sonidos
+- Fallback de entrega:
+  - Si el destinatario no esta conectado, el servidor intenta enviar push.
+
 ### Gestion del chat
 
 - Informacion del chat con participantes.
 - Separacion visual entre profesorado y alumnado.
+- Indicadores de presencia dentro de participantes:
+  - Conectado
+  - En clase
+  - Ocupado
+  - Desconectado
 - Configuracion de permisos de escritura:
   - Todos
   - Solo profesorado
   - Profesorado y delegados
 - Seleccion de delegados.
+- Moderacion basica desde la informacion del chat.
 
 ### Llamadas
 
@@ -151,11 +180,26 @@ Acceso web publicado: `https://tu-chat-pl-9.vercel.app`
   - Yellow
 - Uso de tema aplicado en cliente para colores base, superficies, overlays, inputs, badges y pantallas principales.
 
+### Ajustes y privacidad
+
+- Pantalla de configuracion para:
+  - Notificaciones
+  - Sonidos
+  - Confirmaciones de lectura
+  - Tema
+  - Descarga automatica de medios
+  - Sincronizacion con web
+  - Limpieza de mensajes antiguos
+- Politica de privacidad y seccion "Acerca de".
+- Confirmaciones de lectura configurables por usuario y persistidas en backend.
+
 ### Sincronizacion movil-web
 
 - Emparejamiento por codigo QR.
 - Transferencia de mensajes locales a sesion web.
 - Seguimiento de progreso.
+- Sincronizacion de mensajes recientes por bloques para evitar sobrecargas.
+- Los adjuntos grandes pueden sincronizarse sin el binario para reducir peso de transferencia.
 
 ### Panel de administracion
 
@@ -194,6 +238,32 @@ Se usa `localStorage` para almacenar:
 - Pines
 - Eventos
 - Encuestas
+- Preferencia local de notificaciones del navegador
+- Destino pendiente al abrir una notificacion
+
+## Permisos y capacidades del cliente
+
+### Android
+
+- Camara
+- Microfono
+- Ajustes de audio
+- Bluetooth
+- Estado de red
+
+### iOS
+
+- Camara para videollamadas
+- Microfono para llamadas
+
+### Web
+
+- Permiso de notificaciones del navegador
+
+## Infraestructura incluida en el repo
+
+- `docker-compose.yml`: levanta Redis (`redis:7-alpine`) en `localhost:6379`
+- `Dockerfile`: imagen del backend `server/` con Node 20 y puerto expuesto `10000`
 
 ## Estructura del repositorio
 
@@ -216,6 +286,14 @@ Comandos disponibles:
 - `npm run dev`
 - `npm start`
 
+Servicios auxiliares opcionales:
+
+```bash
+docker compose up -d
+```
+
+Actualmente se incluye Redis para funcionalidades de soporte del backend.
+
 ### Cliente
 
 Desde `tuchat/`:
@@ -231,6 +309,12 @@ Comandos disponibles:
 - `npm run web`
 - `npm run android`
 - `npm run ios`
+
+Notas practicas:
+
+- En movil, las notificaciones push requieren dispositivo fisico para obtener token Expo.
+- En web, el navegador debe conceder permiso para mostrar notificaciones.
+- Para Android, el proyecto ya incluye `google-services.json`.
 
 ## Validacion recomendada
 
@@ -248,14 +332,19 @@ npx tsc --noEmit
 - Enviar mensajes normales y mensajes docentes con tipo.
 - Confirmar lectura fuerte desde otro usuario.
 - Crear evento, encuesta y pin.
+- Probar menciones directas y por rol (`@delegados`, `@profesor`, `@todos`).
 - Buscar por texto, fecha, archivo, evento, encuesta y pin.
 - Abrir "Solo importante" y navegar al chat correcto.
 - Revisar `ChatInfoScreen > Archivos` en web y movil.
+- Verificar notificaciones:
+  - Web con permiso del navegador
+  - Push movil en dispositivo fisico
+  - Apertura del chat correcto al pulsarlas
+- Cambiar preferencias de notificaciones, sonidos y confirmaciones de lectura desde Ajustes.
+- Validar sincronizacion movil → web con QR.
 - Verificar persistencia tras cerrar y reabrir la app.
 
 ## Estado actual
-
-El proyecto ya dispone de una base funcional de comunicacion academica en tiempo real con:
 
 - almacenamiento local web y movil
 - navegacion responsive
@@ -264,9 +353,33 @@ El proyecto ya dispone de una base funcional de comunicacion academica en tiempo
 - centro de archivos
 - bandeja de importantes
 - soporte de eventos, encuestas y pines
+- notificaciones web y push movil
+- ajustes de privacidad y experiencia
+- sincronizacion por QR entre movil y web
+
+## Referencias
+
+- Documentación oficial de [Expo](https://docs.expo.dev/).
+- Documentación oficial de [React Native](https://reactnative.dev/docs/getting-started).
+- Documentación oficial de [Express](https://expressjs.com/).
+- Documentación oficial de [Socket.IO](https://socket.io/docs/v4/).
+- Documentación oficial de [Supabase](https://supabase.com/docs).
+- Documentación oficial de [PostgreSQL](https://www.postgresql.org/docs/).
+- Documentación oficial de [Redis](https://redis.io/docs/latest/).
+- Documentación oficial de [WebRTC](https://webrtc.org/).
+- [WhatsApp](https://www.whatsapp.com/).
+- [Microsoft Teams](https://www.microsoft.com/microsoft-teams/group-chat-software).
+- [Campus - Gobierno de Canarias](https://www3.gobiernodecanarias.org/medusa/eforma/campus/my/).
+- [OpenAI](https://openai.com/).
+- [Anthropic / Claude](https://claude.com/product/overview).
+- Tutoriales de YouTube de [Mouredev](https://www.youtube.com/@mouredev).
+- Tutoriales de YouTube de [Midudev](https://www.youtube.com/@midudev).
+
+
+## Estructura
 
 ```
-copia
+PL9
 ├─ docker-compose.yml
 ├─ Dockerfile
 ├─ README.md
