@@ -76,6 +76,7 @@ function WebHoverBackground() {
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  // Este componente crea un fondo interactivo para la pantalla de inicio de sesión en la versión web, dividiendo el área en una cuadrícula de 14x14 tiles.
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       const container = containerRef.current;
@@ -169,6 +170,7 @@ function WebHoverBackground() {
   );
 }
 
+// Componente para mostrar un fondo de efecto arcoíris detrás del logo en la pantalla de inicio de sesión, con animaciones suaves y un diseño que se adapta a diferentes plataformas (web y móvil).
 function LogoRainbowBackground() {
   if (Platform.OS !== "web") {
     return <View pointerEvents="none" style={styles.logoWrapperFallbackGlow} />;
@@ -391,6 +393,7 @@ export default function LoginScreen() {
   const inputScalePass = useRef(new Animated.Value(1)).current;
   const passwordInputRef = useRef<TextInput>(null);
 
+  
   useEffect(() => {
     const subscription = Dimensions.addEventListener("change", ({ window }) => {
       setDimensions(window);

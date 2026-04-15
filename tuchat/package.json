@@ -16,6 +16,7 @@
     "axios": "^1.13.2",
     "expo": "~54.0.33",
     "expo-av": "^16.0.8",
+    "expo-camera": "^55.0.15",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.12",
     "expo-device": "~8.0.10",

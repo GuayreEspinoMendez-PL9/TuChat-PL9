@@ -38,6 +38,7 @@ export default function Layout() {
   const [isAdmin, setIsAdmin] = useState(false);
   const segments = useSegments();
 
+  // Verificar token y rol al cargar la app o cambiar de ruta
   const checkAuth = async () => {
     try {
       let token = Platform.OS === 'web'
@@ -65,14 +66,17 @@ export default function Layout() {
     }
   };
 
+  // Verificar autenticación al iniciar y cada vez que cambian los segmentos de la ruta
   useEffect(() => { checkAuth(); }, [segments]);
 
+  // Inicializar DB y configurar notificaciones al montar la app
   useEffect(() => {
     if (Platform.OS === 'web') return;
     initDB();
     configureNotifications();
   }, []);
 
+  // Redirigir según estado de autenticación y segmento actual
   useEffect(() => {
     if (!ready) return;
     const currentSegments = segments as string[];
@@ -103,6 +107,7 @@ export default function Layout() {
 
   }, [ready, hasToken, isAdmin, segments]);
 
+  // Manejar apertura desde notificaciones web
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
@@ -121,6 +126,7 @@ export default function Layout() {
     };
   }, [hasToken, segments]);
 
+  // Manejar apertura desde notificaciones móviles
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
@@ -137,6 +143,7 @@ export default function Layout() {
     return () => cleanup?.();
   }, [hasToken]);
 
+  // Registrar para notificaciones push si estamos listos y tenemos token (no en web)
   useEffect(() => {
     if (!ready || !hasToken || Platform.OS === 'web') return;
 

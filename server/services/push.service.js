@@ -3,6 +3,7 @@ import { appDb } from "../db/db.js";
 
 const expo = new Expo();
 
+// Función para enviar notificación push a un usuario específico
 export const enviarNotificacionPush = async (idUsuarioApp, payload, idChat) => {
   try {
     const notification = typeof payload === "string"
@@ -77,7 +78,7 @@ export const enviarNotificacionPush = async (idUsuarioApp, payload, idChat) => {
       console.log(`[Push] Todos los tokens fueron descartados para usuario ${idUsuarioApp}`);
       return;
     }
-
+    // Enviar las notificaciones en chunks para manejar grandes cantidades de tokens
     const chunks = expo.chunkPushNotifications(messages);
     for (const chunk of chunks) {
       const tickets = await expo.sendPushNotificationsAsync(chunk);

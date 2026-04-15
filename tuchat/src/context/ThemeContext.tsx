@@ -229,6 +229,7 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export const useTheme = () => useContext(ThemeContext);
 
+// Este componente se encarga de manejar el tema global de la app, detectando el esquema del sistema, permitiendo cambiar entre temas personalizados y guardando la preferencia del usuario.
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
     const systemScheme = useColorScheme();
     const [mode, setModeState] = useState<ThemeMode>('system');
@@ -271,6 +272,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
     );
 };
 
+// Función de validación para asegurar que el valor del tema guardado es uno de los permitidos, evitando errores al cargar preferencias antiguas o corruptas.
 function isValidThemeMode(value: string): value is ThemeMode {
     return ['light', 'dark', 'system', 'green', 'red', 'yellow'].includes(value);
 }

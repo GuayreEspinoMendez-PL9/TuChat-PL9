@@ -22,7 +22,7 @@ if (Platform.OS !== 'web') {
     const SQLite = require('expo-sqlite');
     db = SQLite.openDatabaseSync('tuchat.db');
   } catch (e) {
-    console.warn('⚠️ expo-sqlite no disponible:', e);
+    console.warn('expo-sqlite no disponible:', e);
   }
 }
 
@@ -130,6 +130,8 @@ if (db) {
   initDB();
 }
 
+// Función para guardar o actualizar un mensaje local en la base de datos, manejando tanto inserciones nuevas como actualizaciones de mensajes existentes. 
+// Se encarga de serializar campos complejos como reacciones y replyTo, y de convertir booleanos a enteros para su almacenamiento.
 export const saveMessageLocal = (msg: any) => {
   if (!db) return;
   try {
@@ -145,6 +147,8 @@ export const saveMessageLocal = (msg: any) => {
   } catch (e) { console.error("Error saveMessageLocal:", e); }
 };
 
+// Función para actualizar campos específicos de un mensaje local, identificándolo por su msg_id. Permite actualizar cualquier campo, 
+// pero maneja de forma especial las reacciones, replyTo y campos booleanos para asegurar su correcto almacenamiento.
 export const updateMessageLocal = (msgId: string, patch: any) => {
   if (!db || !msgId || !patch || typeof patch !== 'object') return;
   try {
@@ -167,6 +171,8 @@ export const updateMessageLocal = (msgId: string, patch: any) => {
   }
 };
 
+// Función para verificar si un mensaje o ítem importante ha sido descartado por el usuario, consultando la tabla de importantes_descartados. 
+// Esto se usa para filtrar los mensajes importantes que se muestran al usuario, respetando sus descartes previos.
 const isImportantDismissed = (userId?: string, itemId?: string) => {
   if (!db || !userId || !itemId) return false;
   try {
@@ -177,6 +183,8 @@ const isImportantDismissed = (userId?: string, itemId?: string) => {
   }
 };
 
+// Función para obtener el conteo de mensajes no leídos en una sala específica, consultando la tabla de mensajes_locales. 
+// Esto se usa para mostrar badges de notificación en la interfaz de usuario, indicando al usuario que hay mensajes nuevos en esa sala.
 export const getUnreadCountByRoom = (roomId: string): number => {
   if (!db) return 0;
   try {
@@ -188,14 +196,16 @@ export const getUnreadCountByRoom = (roomId: string): number => {
   } catch (e) { return 0; }
 };
 
+// Función para marcar todos los mensajes de una sala como leídos, actualizando el campo 'read' a 1 en la tabla de mensajes_locales.
 export const markMessagesAsRead = (roomId: string) => {
   if (!db) return;
   try {
     db.runSync('UPDATE mensajes_locales SET read = 1 WHERE roomId = ?', [roomId]);
-    console.log(`✅ Mensajes marcados como leídos en ${roomId}`);
+    console.log(` Mensajes marcados como leídos en ${roomId}`);
   } catch (e) { console.error("Error marking read:", e); }
 };
 
+// Función para obtener todos los mensajes de una sala específica, ordenados por timestamp ascendente. Devuelve un array de mensajes normalizados para su uso en la interfaz de usuario.
 export const getMessagesByRoom = (roomId: string): any[] => {
   if (!db) return [];
   try {
@@ -204,6 +214,7 @@ export const getMessagesByRoom = (roomId: string): any[] => {
   } catch (e) { return []; }
 };
 
+// Función para actualizar la lista de lectores que han reconocido un mensaje, almacenando esta información en el campo 'ackReaders' de la tabla mensajes_locales.
 export const updateMessageAckReaders = (msgId: string, ackReaders: any[]) => {
   if (!db) return;
   try {
@@ -213,6 +224,7 @@ export const updateMessageAckReaders = (msgId: string, ackReaders: any[]) => {
   }
 };
 
+// Función para limpiar mensajes antiguos de la base de datos, eliminando aquellos cuyo timestamp sea anterior a un cierto número de días. Esto ayuda a mantener la base de datos liviana y relevante.
 const normalizeEventRecord = (row: any) => ({
   msg_id: `event:${row.id}`,
   id: row.id,
@@ -237,6 +249,9 @@ const normalizeEventRecord = (row: any) => ({
   }),
 });
 
+
+// Función para normalizar un registro de evento almacenado en la tabla chat_eventos_locales, 
+// transformándolo en el formato esperado por la interfaz de usuario. Esto incluye mapear campos específicos y construir un metadataIndex para búsquedas.
 const normalizePollRecord = (row: any) => ({
   msg_id: `poll:${row.id}`,
   id: row.id,
@@ -262,6 +277,7 @@ const normalizePollRecord = (row: any) => ({
   }),
 });
 
+// Función para normalizar un registro de mensaje fijado almacenado en la tabla mensajes_fijados, transformándolo en el formato esperado por la interfaz de usuario.
 const normalizePinRecord = (row: any) => ({
   msg_id: row.msgId ? String(row.msgId) : `pin:${row.id}`,
   id: row.id,
@@ -283,6 +299,7 @@ const normalizePinRecord = (row: any) => ({
   }),
 });
 
+// Función para obtener todos los eventos almacenados localmente, opcionalmente filtrados por sala. Devuelve un array de eventos normalizados para su uso en la interfaz de usuario. LO MISMO CON LOS DEMAS
 const getStoredEvents = (roomId?: string) => {
   if (!db) return [];
   const rows: any[] = roomId
@@ -308,6 +325,7 @@ const getStoredPins = (roomId?: string) => {
   return rows.map(normalizePinRecord);
 };
 
+// Función para obtener todos los mensajes marcados como importantes, combinando mensajes locales, eventos, encuestas y pins. Permite filtrar por sala y excluir aquellos que el usuario ha descartado.
 export const getImportantMessages = (userId?: string, roomIds?: string[]): any[] => {
   if (!db) return [];
   try {
@@ -328,6 +346,8 @@ export const getImportantMessages = (userId?: string, roomIds?: string[]): any[]
   }
 };
 
+// Función para marcar un mensaje o ítem importante como descartado por el usuario, insertando un registro en la tabla importantes_descartados. 
+// Esto permite que el sistema recuerde que el usuario no quiere ver ese ítem en la lista de importantes.
 export const dismissImportantItem = (itemId: string, userId?: string) => {
   if (!db || !itemId || !userId) return;
   try {
@@ -337,6 +357,8 @@ export const dismissImportantItem = (itemId: string, userId?: string) => {
   }
 };
 
+// Función para obtener todos los archivos compartidos en una sala específica, filtrando los mensajes locales por roomId y tipo de mensaje. 
+// Devuelve un array de mensajes que contienen archivos, normalizados para su uso en la interfaz de usuario.
 export const getFilesByRoom = (roomId: string): any[] => {
   if (!db) return [];
   try {
@@ -348,6 +370,7 @@ export const getFilesByRoom = (roomId: string): any[] => {
   }
 };
 
+// Función para buscar mensajes que coincidan con una consulta de texto o con opciones avanzadas, combinando mensajes locales, eventos, encuestas y pins.
 export const searchMessagesAdvanced = (queryOrOptions: string | any): any[] => {
   if (!db) return [];
   try {
@@ -367,6 +390,8 @@ export const searchMessagesAdvanced = (queryOrOptions: string | any): any[] => {
   }
 };
 
+// Función para guardar el borrador de mensaje de una sala específica, insertando o actualizando un registro en la tabla drafts. 
+// Esto permite que el usuario retenga el texto que estaba escribiendo incluso si sale de la sala.
 export const saveDraftLocal = (roomId: string, content: string) => {
   if (!db) return;
   try {
@@ -374,6 +399,8 @@ export const saveDraftLocal = (roomId: string, content: string) => {
   } catch (e) { console.error("Error saveDraftLocal:", e); }
 };
 
+// Función para obtener el borrador de mensaje de una sala específica, consultando la tabla drafts por roomId. 
+// Devuelve el contenido del borrador o una cadena vacía si no hay borrador guardado.
 export const getDraftLocal = (roomId: string): string => {
   if (!db) return "";
   try {
@@ -382,6 +409,7 @@ export const getDraftLocal = (roomId: string): string => {
   } catch (e) { return ""; }
 };
 
+// Función para obtener el conteo de mensajes no leídos por sala, consultando la tabla de mensajes_locales y agrupando por roomId. Devuelve un objeto con roomId como clave y conteo como valor.
 export const getAllUnreadCounts = (): Record<string, number> => {
   if (!db) return {};
   try {
@@ -401,6 +429,7 @@ export const getAllUnreadCounts = (): Record<string, number> => {
   }
 };
 
+// Función para obtener el conteo total de mensajes no leídos en todas las salas, consultando la tabla de mensajes_locales. Devuelve un número con el total de mensajes no leídos.
 export const getTotalUnreadCount = (): number => {
   if (!db) return 0;
   try {
@@ -413,8 +442,10 @@ export const getTotalUnreadCount = (): number => {
   }
 };
 
+// Función para alternar una reacción en un mensaje específico, agregando o removiendo la reacción del usuario. 
+// Actualiza el campo 'reactions' del mensaje en la base de datos y devuelve la lista actualizada de reacciones.
 export const toggleReactionFn = (msgId: string, reaction: { emoji: string, userId: string }) => {
-  console.log("🟢 [DB] toggleReactionFn called:", msgId, reaction);
+  console.log("[DB] toggleReactionFn called:", msgId, reaction);
   if (!db) return [];
   try {
     const row: any = db.getFirstSync('SELECT reactions FROM mensajes_locales WHERE msg_id = ?', [msgId]);
@@ -447,19 +478,21 @@ export const toggleReactionFn = (msgId: string, reaction: { emoji: string, userI
 // PINNED MESSAGES
 // ═══════════════════════════════════════════════════════════
 
+// Función para guardar o actualizar un mensaje fijado en la base de datos, insertando o reemplazando un registro en la tabla mensajes_fijados.
 export const savePinnedMessage = (pin: any) => {
-  if (!db) { console.log('⚠️ savePinnedMessage: sin DB (web)'); return; }
+  if (!db) { console.log('savePinnedMessage: sin DB (web)'); return; }
   try {
     db.runSync(
       'INSERT OR REPLACE INTO mensajes_fijados (id, roomId, msgId, text, senderName, category, color, duration, durationLabel, pinnedAt, expiresAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [pin.id, pin.roomId, pin.msgId, pin.text, pin.senderName, pin.category, pin.color, pin.duration, pin.durationLabel, pin.pinnedAt, pin.expiresAt]
     );
-    console.log(`📌 Pin guardado: ${pin.id} en ${pin.roomId}`);
+    console.log(`Pin guardado: ${pin.id} en ${pin.roomId}`);
   } catch (e) {
     console.error("Error savePinnedMessage:", e);
   }
 };
 
+// Función para obtener todos los mensajes fijados de una sala específica, filtrando por roomId y verificando que no hayan expirado. Devuelve un array de mensajes fijados.
 export const getPinnedMessagesByRoom = (roomId: string): any[] => {
   if (!db) return [];
   try {
@@ -468,7 +501,7 @@ export const getPinnedMessagesByRoom = (roomId: string): any[] => {
       'SELECT * FROM mensajes_fijados WHERE roomId = ? AND expiresAt > ? ORDER BY pinnedAt DESC',
       [roomId, now]
     );
-    console.log(`📌 Pins cargados: ${rows.length} en ${roomId}`);
+    console.log(`Pins cargados: ${rows.length} en ${roomId}`);
     return rows;
   } catch (e) {
     console.error("Error getPinnedMessagesByRoom:", e);
@@ -476,6 +509,7 @@ export const getPinnedMessagesByRoom = (roomId: string): any[] => {
   }
 };
 
+// Función para obtener un mensaje fijado específico por su ID, consultando la tabla mensajes_fijados. Devuelve el mensaje fijado o null si no se encuentra.
 export const saveRoomEventLocal = (event: any) => {
   if (!db || !event?.id) return;
   try {
@@ -507,6 +541,7 @@ export const saveRoomEventLocal = (event: any) => {
   }
 };
 
+// Función para eliminar un evento local específico por su ID, removiendo el registro correspondiente de la tabla chat_eventos_locales.
 export const removeRoomEventLocal = (eventId: string) => {
   if (!db) return;
   try {
@@ -516,6 +551,7 @@ export const removeRoomEventLocal = (eventId: string) => {
   }
 };
 
+// Función para guardar o actualizar una encuesta local en la base de datos, insertando o reemplazando un registro en la tabla chat_encuestas_locales.
 export const saveRoomPollLocal = (poll: any) => {
   if (!db || !poll?.id) return;
   try {
@@ -549,6 +585,7 @@ export const saveRoomPollLocal = (poll: any) => {
   }
 };
 
+// Función para eliminar una encuesta local específica por su ID, removiendo el registro correspondiente de la tabla chat_encuestas_locales.
 export const removeRoomPollLocal = (pollId: string) => {
   if (!db) return;
   try {
@@ -558,28 +595,30 @@ export const removeRoomPollLocal = (pollId: string) => {
   }
 };
 
+// Función para eliminar un mensaje fijado específico por su ID, removiendo el registro correspondiente de la tabla mensajes_fijados.
 export const removePinnedMessage = (roomId: string, msgId: string) => {
   if (!db) return;
   try {
     db.runSync('DELETE FROM mensajes_fijados WHERE roomId = ? AND msgId = ?', [roomId, msgId]);
-    console.log(`📌 Pin eliminado: ${msgId} de ${roomId}`);
+    console.log(`Pin eliminado: ${msgId} de ${roomId}`);
   } catch (e) {
     console.error("Error removePinnedMessage:", e);
   }
 };
 
+// Función para limpiar los mensajes fijados que han expirado, eliminando aquellos cuyo expiresAt sea anterior a la fecha actual. Esto ayuda a mantener la lista de pins relevante y actualizada.
 export const cleanExpiredPins = () => {
   if (!db) return;
   try {
     const now = Date.now();
     db.runSync('DELETE FROM mensajes_fijados WHERE expiresAt <= ?', [now]);
-    console.log(`📌 Pins expirados limpiados`);
+    console.log(`Pins expirados limpiados`);
   } catch (e) {
     console.error("Error cleanExpiredPins:", e);
   }
 };
 
-// ─── CLEAR OLD MESSAGES (>20 days) ───────────────────────
+// Función para eliminar mensajes locales antiguos, eliminando aquellos cuyo timestamp sea anterior a un cierto número de días. Devuelve el conteo de mensajes eliminados.
 export const clearOldMessages = (days: number = 20): number => {
   if (!db) return 0;
   try {
@@ -590,7 +629,7 @@ export const clearOldMessages = (days: number = 20): number => {
     const count = countRow?.count || 0;
     if (count > 0) {
       db.runSync('DELETE FROM mensajes_locales WHERE timestamp < ?', [cutoff]);
-      console.log(`🗑️ ${count} mensajes antiguos eliminados (>${days} días)`);
+      console.log(`${count} mensajes antiguos eliminados (>${days} días)`);
     }
     return count;
   } catch (e) {
@@ -599,6 +638,7 @@ export const clearOldMessages = (days: number = 20): number => {
   }
 };
 
+// Función para obtener los mensajes de una sala específica que han sido modificados o creados en un cierto período de días, útil para sincronización. Devuelve un array de objetos con roomId y mensajes.
 export const getMessagesForSync = (days: number = 30): { roomId: string; messages: any[] }[] => {
   if (!db) return [];
   try {

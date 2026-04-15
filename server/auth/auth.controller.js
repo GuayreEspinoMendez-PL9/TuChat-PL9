@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 const sha256 = (input) => crypto.createHash("sha256").update(input).digest("hex");
 
+// Login con DNI/CIAL y contraseña
 export const login = async (req, res) => {
   try {
     const { identificador, password } = req.body;
@@ -63,6 +64,7 @@ export const login = async (req, res) => {
   }
 };
 
+// Endpoint para verificar el estado de autenticación
 export const checkStatus = async (req, res) => {
   return res.json({
     ok: true,
@@ -70,6 +72,7 @@ export const checkStatus = async (req, res) => {
   });
 };
 
+// Registrar o actualizar token de push para el usuario autenticado
 export const registrarPushToken = async (req, res) => {
   try {
     const { token, plataforma } = req.body;
@@ -137,7 +140,7 @@ export const registrarPushToken = async (req, res) => {
   }
 };
 
-// ─── CAMBIAR CONTRASEÑA (usuario autenticado) ────────────
+// Cambiar contraseña para el usuario autenticado
 export const cambiarPassword = async (req, res) => {
   try {
     const { password_actual, password_nueva } = req.body;

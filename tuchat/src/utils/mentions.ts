@@ -11,6 +11,7 @@ const normalize = (value: string) =>
     .toLowerCase()
     .trim();
 
+    // Función para construir el payload de menciones a partir del texto del mensaje, la lista de miembros de la sala y el ID del usuario actual.
 export const buildMentionsPayload = (
   text: string,
   members: MentionableMember[],
@@ -59,6 +60,7 @@ export const buildMentionsPayload = (
   };
 };
 
+// Función para verificar si un mensaje menciona al usuario actual, ya sea a través de menciones directas por ID o por nombre de usuario.
 export const messageMentionsCurrentUser = (
   message: any,
   currentUserId: string,

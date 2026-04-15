@@ -49,15 +49,16 @@ const loadIceConfig = async () => {
     const data = await res.json();
     if (data.iceServers) {
       iceConfiguration = {
+        // Validar que iceServers es un array no vacío, si no usar la configuración por defecto
         iceServers: Array.isArray(data.iceServers) && data.iceServers.length
           ? data.iceServers
           : DEFAULT_ICE_SERVERS,
         iceCandidatePoolSize: 10,
       };
-      console.log('✅ ICE config cargada con TURN:', data.iceServers.length, 'servidores');
+      console.log('ICE config cargada con TURN:', data.iceServers.length, 'servidores');
     }
   } catch (e) {
-    console.warn('⚠️ No se pudo cargar ICE config, usando solo STUN:', e);
+    console.warn('No se pudo cargar ICE config, usando solo STUN:', e);
   }
 };
 
@@ -121,10 +122,12 @@ interface ParticipantInfo {
   connected: boolean;
 }
 
+// ─── Helpers ─────────────────────────────────────────────
 const getToken = async () => Platform.OS === 'web'
   ? localStorage.getItem('token')
   : await SecureStore.getItemAsync('token');
 
+// En web, los datos de usuario se guardan en localStorage para facilitar el acceso desde contextos no React (p. ej. MeetScreen sin montar toda la app)
 const getStoredUserData = async () => {
   try {
     const raw = Platform.OS === 'web'
@@ -136,18 +139,21 @@ const getStoredUserData = async () => {
   }
 };
 
+// Generar un nombre de usuario genérico a partir del ID (ej: "Usuario 123abc")
 const getFallbackName = (id: string) => {
   const normalized = String(id || '').trim();
   if (!normalized) return 'Participante';
   return `Usuario ${normalized.slice(0, 6)}`;
 };
 
+// Detectar si un track de video parece ser de pantalla compartida (en base a su label y/o settings)
 const looksLikeScreenTrack = (track: any) => {
   const label = String(track?.label || '').toLowerCase();
   const displaySurface = track?.getSettings?.()?.displaySurface;
   return !!displaySurface || /screen|window|display|monitor|tab/.test(label);
 };
 
+// Describir un stream con sus tracks y settings (para debugging)
 const describeStream = (stream: any) => ({
   id: stream?.id || null,
   audioTracks: stream?.getAudioTracks?.().map((t: any) => ({
@@ -166,8 +172,10 @@ const describeStream = (stream: any) => ({
   })) || []
 });
 
+// Función para limitar el volumen entre 0 y 100
 const clampVolume = (value: number) => Math.max(0, Math.min(100, value));
 
+// Función para dibujar un video en un canvas con "cover" (recortando los bordes si no coincide la relación de aspecto)
 const drawVideoCover = (
   ctx: CanvasRenderingContext2D,
   video: HTMLVideoElement,
@@ -187,6 +195,7 @@ const drawVideoCover = (
 };
 
 // ─── Componente principal ─────────────────────────────────
+// Este componente se encarga de manejar toda la lógica de la llamada: permisos, WebRTC, UI, etc.
 export default function MeetScreen() {
   const params = useLocalSearchParams();
   const { socket } = useSocket();
@@ -195,6 +204,9 @@ export default function MeetScreen() {
   const userId = String(params.from || '');
   const callType = String(params.type || 'audio');
 
+  // Estados locales
+  // El stream local se guarda en un estado para forzar re-render al obtenerlo, pero también en un ref para acceder a él desde callbacks sin depender del estado
+  // El resto de estados se usan para controlar la UI y la lógica de la llamada
   const [localStream, setLocalStream] = useState<any>(null);
   const [status, setStatus] = useState('Conectando...');
   const [isMuted, setIsMuted] = useState(false);
@@ -216,6 +228,7 @@ export default function MeetScreen() {
   // Contador independiente: no depende de si hay stream, sube al conectarse
   const [remoteCount, setRemoteCount] = useState(0);
 
+  // Refs para manejar streams, conexiones y elementos de forma mutable sin depender del estado
   const localStreamRef = useRef<any>(null);
   const screenStreamRef = useRef<any>(null);
   const composedScreenStreamRef = useRef<any>(null);
@@ -238,9 +251,10 @@ export default function MeetScreen() {
       Alert.alert('Error', 'ID de usuario inválido', [{ text: 'OK', onPress: () => router.back() }]);
       return;
     }
-    console.log(`🎬 Iniciando llamada:`, { roomId, userId, type: callType });
+    console.log(`Iniciando llamada:`, { roomId, userId, type: callType });
   }, []);
 
+  // ─── Cargar nombres de participantes ─────────────────────
   useEffect(() => {
     const loadParticipantNames = async () => {
       try {
@@ -260,6 +274,7 @@ export default function MeetScreen() {
         const data = await res.json();
         if (!data?.ok || !Array.isArray(data.usuarios)) return;
 
+        // Mapear IDs de usuario a nombres, usando el nombre actual del usuario local si coincide
         const nextNames: Record<string, string> = {};
         data.usuarios.forEach((u: any) => {
           nextNames[String(u.id)] = u.nombre || getFallbackName(String(u.id));
@@ -267,7 +282,7 @@ export default function MeetScreen() {
         if (currentUserName) nextNames[userId] = currentUserName;
         setParticipantNames(prev => ({ ...prev, ...nextNames }));
       } catch (e) {
-        console.log('⚠️ No se pudieron cargar nombres de participantes:', e);
+        console.log('No se pudieron cargar nombres de participantes:', e);
       }
     };
 
@@ -283,25 +298,27 @@ export default function MeetScreen() {
         ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
         : true;
 
+      // En web, intentar obtener audio+video juntos para minimizar prompts, pero si falla intentar solo audio (ej: usuario deniega cámara pero permite micrófono)
       try {
         const stream = await navigator.mediaDevices.getUserMedia(
           wantsVideo ? { audio: true, video: videoConstraints } : { audio: true, video: false }
         );
-        console.log('✅ getUserMedia OK:', wantsVideo ? 'Audio+Video' : 'Audio');
+        console.log('getUserMedia OK:', wantsVideo ? 'Audio+Video' : 'Audio');
         setHasAudio(stream.getAudioTracks().length > 0);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
       } catch (e: any) {
-        console.log('⚠️ getUserMedia falló:', e.name, e.message);
+        console.log('getUserMedia falló:', e.name, e.message);
         if (wantsVideo && e.name !== 'NotAllowedError' && e.name !== 'PermissionDeniedError') {
           try {
+            // Si el error no fue por denegación de permisos, intentar solo audio (ej: error técnico al acceder a la cámara)
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            console.log('✅ Fallback: Solo audio');
+            console.log('Fallback: Solo audio');
             setHasAudio(stream.getAudioTracks().length > 0);
             setHasVideo(false);
             return stream;
           } catch (e2: any) {
-            console.log('❌ Audio también falló:', e2.name);
+            console.log('Audio también falló:', e2.name);
           }
         }
       }
@@ -313,29 +330,33 @@ export default function MeetScreen() {
     // Nativo
     if (wantsVideo) {
       try {
+        // Intentar obtener audio+video juntos para minimizar prompts, pero si falla intentar solo audio (ej: usuario deniega cámara pero permite micrófono)
         const stream = await WebRTC.mediaDevices.getUserMedia({ audio: true, video: true });
         setHasAudio(stream.getAudioTracks().length > 0);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
-      } catch (e) { console.log('⚠️ Nativo audio+video falló:', e); }
+      } catch (e) { console.log('Nativo audio+video falló:', e); }
     }
     try {
+      // Si el usuario no quiere video o si la obtención de audio+video falló, intentar solo audio
       const stream = await WebRTC.mediaDevices.getUserMedia({ audio: true, video: false });
       setHasAudio(stream.getAudioTracks().length > 0);
       setHasVideo(false);
       return stream;
-    } catch (e) { console.log('⚠️ Nativo audio falló:', e); }
+    } catch (e) { console.log('Nativo audio falló:', e); }
 
     setHasAudio(false);
     setHasVideo(false);
     return null;
   };
 
+  // ─── Manejo de streams y participantes ─────────────────
   const getDisplayName = (participantUserId: string, isLocal = false) => {
     if (isLocal) return 'Tú';
     return participantNames[String(participantUserId)] || getFallbackName(String(participantUserId));
   };
 
+  // Iniciar monitorización de voz para un participante (solo en web y si tiene stream de audio)
   const monitorSpeaking = (key: string, stream: any) => {
     if (Platform.OS !== 'web' || typeof window === 'undefined' || !stream?.getAudioTracks?.().length) return;
     if (audioAnalyzersRef.current.has(key)) return;
@@ -343,6 +364,7 @@ export default function MeetScreen() {
     const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!AudioContextCtor) return;
 
+    // Crear un analizador de audio para detectar el volumen y determinar si el participante está hablando
     try {
       const context = new AudioContextCtor();
       const analyser = context.createAnalyser();
@@ -352,6 +374,7 @@ export default function MeetScreen() {
       source.connect(analyser);
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
+      // Actualizar el estado de "hablando" cada 180ms basándome en el volumen promedio del audio
       const intervalId = window.setInterval(() => {
         analyser.getByteFrequencyData(dataArray);
         const avg = dataArray.reduce((sum, value) => sum + value, 0) / Math.max(1, dataArray.length);
@@ -359,6 +382,7 @@ export default function MeetScreen() {
         setSpeakingStates(prev => prev[key] === speaking ? prev : { ...prev, [key]: speaking });
       }, 180);
 
+      // Guardar el analizador y su función de limpieza para detenerlo cuando el participante se desconecte o cambie de stream
       audioAnalyzersRef.current.set(key, {
         intervalId,
         cleanup: () => {
@@ -369,10 +393,11 @@ export default function MeetScreen() {
         }
       });
     } catch (e) {
-      console.log('⚠️ No se pudo iniciar detección de voz:', e);
+      console.log('No se pudo iniciar detección de voz:', e);
     }
   };
 
+  // Detener monitorización de voz para un participante
   const stopMonitoringSpeaking = (key: string) => {
     const current = audioAnalyzersRef.current.get(key);
     if (!current) return;
@@ -386,6 +411,7 @@ export default function MeetScreen() {
     });
   };
 
+  // Obtener una lista de todas las pistas locales que se están enviando actualmente (cámara, micrófono, pantalla compartida)
   const getOutgoingTrackEntries = () => {
     const entries: Array<{ track: any; stream: any; kind: 'audio' | 'video'; source: 'camera' | 'screen' | 'audio' }> = [];
 
@@ -398,6 +424,7 @@ export default function MeetScreen() {
       });
     }
 
+    // Si hay una pantalla compartida (compuesta o no (con o sin cámara)), sus pistas de video y audio también se envían, y tienen prioridad sobre las de la cámara en el peer remoto
     const activeScreenStream = composedScreenStreamRef.current || screenStreamRef.current;
     if (activeScreenStream) {
       activeScreenStream.getAudioTracks?.().forEach((track: any) => {
@@ -407,7 +434,7 @@ export default function MeetScreen() {
         entries.push({ track, stream: activeScreenStream, kind: 'video', source: 'screen' });
       });
     }
-
+    // En web, si no hay stream local pero sí transceivers (caso de usuario sin cámara/micrófono), también añadir pistas "vacías" para que el navegador genere candidatos ICE y la conexión se establezca correctamente
     console.log('[Meet][OutgoingTracks]', entries.map(({ track, stream, kind, source }) => ({
       source,
       kind,
@@ -421,6 +448,7 @@ export default function MeetScreen() {
     return entries;
   };
 
+  // Detener y limpiar todo lo relacionado con la pantalla compartida compuesta (canvas, videos, stream, loop de renderizado)
   const stopComposedScreenShare = () => {
     if (composeLoopRef.current != null && typeof window !== 'undefined') {
       window.clearInterval(composeLoopRef.current);
@@ -433,6 +461,7 @@ export default function MeetScreen() {
     composeCameraVideoRef.current = null;
   };
 
+  // Construir un stream compuesto para la pantalla compartida en web, combinando el video de la pantalla y el de la cámara en un canvas para enviarlo como un único stream al peer remoto
   const buildComposedScreenStream = async (screenStream: any) => {
     if (Platform.OS !== 'web') return screenStream;
     const cameraStream = localStreamRef.current;
@@ -499,6 +528,7 @@ export default function MeetScreen() {
     return composedStream;
   };
 
+  // Obtener el stream de reproducción para un participante, priorizando el audio de la pantalla compartida (si lo hay) sobre el de la cámara, y combinándolos en un único stream en web para evitar problemas de renegociación al cambiar entre pantalla/cámara
   const getParticipantPlaybackStream = (participant: any) => {
     if (Platform.OS !== 'web' || typeof MediaStream === 'undefined' || !participant) return participant?.audioStream || participant?.stream || null;
     const merged = new MediaStream();
@@ -517,6 +547,7 @@ export default function MeetScreen() {
 
   const getParticipantVolume = (participantKey: string) => participantVolumes[participantKey] ?? 100;
 
+  // Guardar la referencia al elemento de audio/video de un participante para poder actualizar su volumen dinámicamente, y eliminarla al desmontar el elemento
   const setMediaElementRef = (key: string, el: HTMLMediaElement | null, volume = 100) => {
     if (!el) {
       mediaElementRefs.current.delete(key);
@@ -526,6 +557,7 @@ export default function MeetScreen() {
     mediaElementRefs.current.set(key, el);
   };
 
+  // Actualizar el volumen de un participante tanto en el estado como en el elemento de audio correspondiente, limitando el valor entre 0 y 100
   const updateParticipantVolume = (participantKey: string, volume: number) => {
     console.log('[Meet][VolumeChange]', { participantKey, volume });
     setParticipantVolumes(prev => ({ ...prev, [participantKey]: volume }));
@@ -533,17 +565,20 @@ export default function MeetScreen() {
     if (element) element.volume = Math.max(0, Math.min(1, volume / 100));
   };
 
-  // ─── PeerConnection ───────────────────────────────────
+  // Crear una nueva conexión WebRTC para un participante remoto, añadiendo las pistas locales y configurando los handlers de eventos para ICE y tracks entrantes
   const createPeerConnection = (socketId: string, participantUserId: string) => {
-    console.log(`🔗 Creando PC con ${socketId}`);
+    console.log(`Creando PC con ${socketId}`);
     const PC = Platform.OS === 'web' ? RTCPeerConnection : WebRTC.RTCPeerConnection;
     const pc = new PC(iceConfiguration);
 
+    // Añadir las pistas locales al peer connection.
+    // En web se añaden las pistas individuales para que el navegador genere candidatos ICE correctamente incluso sin stream local, y para que el peer remoto pueda distinguir entre cámara y pantalla compartida. 
+    // En nativo se añade el stream completo porque es lo recomendado y no causa problemas.
     const outgoingTracks = getOutgoingTrackEntries();
     if (outgoingTracks.length) {
       if (Platform.OS === 'web') {
         outgoingTracks.forEach(({ track, stream }) => pc.addTrack(track, stream));
-        console.log(`📡 Añadidos ${outgoingTracks.length} tracks locales a PC ${socketId}`);
+        console.log(`Añadidos ${outgoingTracks.length} tracks locales a PC ${socketId}`);
       } else if (localStreamRef.current) {
         pc.addStream(localStreamRef.current);
       }
@@ -553,36 +588,38 @@ export default function MeetScreen() {
       // sendrecv en lugar de recvonly para que el peer remoto también pueda enviar sin problemas
       pc.addTransceiver('audio', { direction: 'recvonly' });
       pc.addTransceiver('video', { direction: 'recvonly' });
-      console.log(`📡 Sin stream local: añadidos transceivers recvonly a PC ${socketId}`);
+      console.log(`Sin stream local: añadidos transceivers recvonly a PC ${socketId}`);
     }
 
+    // Configurar handlers de eventos para ICE candidates y cambios en la conexión
     pc.onicecandidate = (e: any) => {
       if (e.candidate && socket) {
-        console.log(`🧊 ICE candidate generado para ${socketId}: ${e.candidate.type}`);
+        console.log(`ICE candidate generado para ${socketId}: ${e.candidate.type}`);
         socket.emit('meet:ice-candidate', { to: socketId, candidate: e.candidate, roomId });
       } else if (!e.candidate) {
-        console.log(`🧊 ICE gathering completo para ${socketId}`);
+        console.log(`ICE gathering completo para ${socketId}`);
       }
     };
 
+    /// Manejar cambios en el estado de la conexión ICE para detectar desconexiones y reiniciar la conexión si es necesario
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState;
-      console.log(`🔌 ICE ${socketId}: ${state}`);
+      console.log(`ICE ${socketId}: ${state}`);
 
       // Guardar estado ICE en el peer para que renegotiateWithAllPeers pueda esperarlo
       const peer = peersRef.current.get(socketId);
       if (peer) peer.iceState = state;
 
       if (state === 'failed') {
-        console.log('🔁 ICE failed, reiniciando...');
+        console.log('ICE failed, reiniciando...');
         pc.restartIce();
       }
     };
-
+    // Configurar handler para tracks entrantes: en web se reciben individualmente con ontrack, en nativo se recibe el stream completo con onaddstream
     if (Platform.OS === 'web') {
       pc.ontrack = (e: any) => {
         if (e.streams && e.streams[0]) {
-          console.log(`🎬 Track recibido de ${socketId}: ${e.track.kind}`);
+          console.log(`Track recibido de ${socketId}: ${e.track.kind}`);
           setParticipants(prev => {
             const newMap = new Map(prev);
             const previous = newMap.get(socketId) || { userId: participantUserId, connected: true };
@@ -608,6 +645,7 @@ export default function MeetScreen() {
                 baseStream: previous.stream?.id || null
               } : null
             });
+            // Construir el objeto del participante actualizando su stream y sus pistas de cámara/pantalla/audio según el track recibido, priorizando la pantalla compartida sobre la cámara en el stream principal
             const nextParticipant: ParticipantInfo = {
               ...previous,
               userId: previous.userId || participantUserId,
@@ -615,6 +653,7 @@ export default function MeetScreen() {
               stream: isScreen ? (previous.stream || trackStream) : trackStream
             };
 
+            // Priorizar la pista de pantalla compartida sobre la cámara en el stream principal del participante, para que al reproducirlo se use la pantalla compartida si está disponible sin necesidad de cambiar el stream (lo que causaría problemas de renegociación)
             if (e.track.kind === 'audio') nextParticipant.audioStream = trackStream;
             if (e.track.kind === 'video' && isScreen) nextParticipant.screenStream = trackStream;
             if (e.track.kind === 'video' && !isScreen) nextParticipant.cameraStream = trackStream;
@@ -630,6 +669,7 @@ export default function MeetScreen() {
               audioStream: describeStream(nextParticipant.audioStream)
             });
 
+            //  Actualizar el participante en el estado
             newMap.set(socketId, nextParticipant);
             return newMap;
           });
@@ -637,8 +677,10 @@ export default function MeetScreen() {
         }
       };
     } else {
+      // En nativo, el evento onaddstream se dispara con el stream completo (audio+video) del participante remoto, sin distinguir entre cámara y pantalla compartida. 
+      // Por simplicidad, se asigna directamente al stream del participante, y se detecta si es pantalla compartida o cámara en base a sus pistas al reproducirlo.
       pc.onaddstream = (e: any) => {
-        console.log(`🎬 Stream nativo de ${socketId}`);
+        console.log(`Stream nativo de ${socketId}`);
         setParticipants(prev => {
           const newMap = new Map(prev);
           newMap.set(socketId, { userId: participantUserId, stream: e.stream, connected: true });
@@ -674,20 +716,20 @@ export default function MeetScreen() {
 
   // ─── Renegociación (compartir pantalla) ───────────────
   const renegotiateWithAllPeers = async () => {
-    console.log('🔄 Iniciando renegociación para', peersRef.current.size, 'peers');
+    console.log('Iniciando renegociación para', peersRef.current.size, 'peers');
 
     for (const [socketId, peer] of peersRef.current.entries()) {
       const pc = peer.peerConnection;
       const iceState = pc.iceConnectionState;
-      console.log(`🔌 Estado ICE antes de renegociar con ${socketId}: ${iceState}`);
+      console.log(`Estado ICE antes de renegociar con ${socketId}: ${iceState}`);
 
       // Esperar a que ICE esté estable antes de renegociar
       // Si renegociamos mientras ICE está en "checking", la conexión se rompe
       if (iceState === 'checking' || iceState === 'new') {
-        console.log(`⏳ Esperando ICE connected para ${socketId}...`);
+        console.log(`Esperando ICE connected para ${socketId}...`);
         await new Promise<void>(resolve => {
           const timeout = setTimeout(() => {
-            console.warn(`⚠️ Timeout esperando ICE connected para ${socketId}, continuando de todas formas`);
+            console.warn(`Timeout esperando ICE connected para ${socketId}, continuando de todas formas`);
             resolve();
           }, 10000);
           const check = () => {
@@ -702,14 +744,15 @@ export default function MeetScreen() {
           // Comprobar de inmediato por si ya cambió
           check();
         });
-        console.log(`✅ ICE resuelto para ${socketId}: ${pc.iceConnectionState}`);
+        console.log(`ICE resuelto para ${socketId}: ${pc.iceConnectionState}`);
       }
 
       if (pc.iceConnectionState === 'closed' || pc.signalingState === 'closed') {
-        console.warn(`⚠️ PC cerrada para ${socketId}, saltando renegociación`);
+        console.warn(`PC cerrada para ${socketId}, saltando renegociación`);
         continue;
       }
-
+      // En web, para evitar problemas de pistas "huérfanas" y discrepancias entre lo que el peer remoto tiene y lo que el navegador está enviando, 
+      // eliminar todas las pistas del peer connection y volver a añadirlas todas desde cero antes de crear la offer de renegociación.
       if (Platform.OS === 'web') {
         const senders = pc.getSenders();
         senders.forEach((s: any) => {
@@ -726,9 +769,9 @@ export default function MeetScreen() {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         socket?.emit('meet:offer', { to: socketId, offer, roomId, isRenegotiation: true });
-        console.log(`📤 Offer de renegociación enviada a ${socketId}`);
+        console.log(`Offer de renegociación enviada a ${socketId}`);
       } catch (e) {
-        console.error(`❌ Error creando offer de renegociación para ${socketId}:`, e);
+        console.error(`Error creando offer de renegociación para ${socketId}:`, e);
       }
     }
 
@@ -738,7 +781,7 @@ export default function MeetScreen() {
   // ─── Efecto principal ─────────────────────────────────
   useEffect(() => {
     if (!roomId || !userId || !socket) return;
-    console.log(`🎯 Socket global:`, socket.id);
+    console.log(`Socket global:`, socket.id);
 
     const init = async () => {
       // CRÍTICO: obtener stream ANTES de emitir meet:join
@@ -747,7 +790,7 @@ export default function MeetScreen() {
       if (stream) {
         setLocalStream(stream);
         localStreamRef.current = stream;
-        console.log('📡 Stream listo, tracks:', stream.getTracks().map((t: any) => t.kind));
+        console.log('Stream listo, tracks:', stream.getTracks().map((t: any) => t.kind));
       }
 
       // Cargar servidores TURN antes de crear ninguna PeerConnection
@@ -758,7 +801,7 @@ export default function MeetScreen() {
       socket.emit('meet:join', { roomId, userId, type: callType });
 
       const handleParticipants = async (data: any) => {
-        console.log(`👥 Participantes existentes: ${data.participants.length}`);
+        console.log(`Participantes existentes: ${data.participants.length}`);
         // Registrar contador inmediatamente, sin esperar stream
         setRemoteCount(data.participants.length);
         if (Array.isArray(data.screenSharers)) {
@@ -773,9 +816,11 @@ export default function MeetScreen() {
             return newMap;
           });
 
+          // Crear PeerConnection para cada participante existente (sin tracks por ahora, se añadirán al renegociar)
           const pc = createPeerConnection(p.socketId, p.userId);
           peersRef.current.set(p.socketId, { peerConnection: pc, userId: p.userId });
 
+          // Enviar offer a cada participante existente para establecer la conexión WebRTC
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           socket.emit('meet:offer', { to: p.socketId, offer, roomId });
@@ -784,7 +829,7 @@ export default function MeetScreen() {
       };
 
       const handleUserJoined = (data: any) => {
-        console.log(`➕ Nuevo participante: ${data.userId} (${data.socketId})`);
+        console.log(`Nuevo participante: ${data.userId} (${data.socketId})`);
         // Registrar inmediatamente en contador y mapa
         setRemoteCount(prev => prev + 1);
         setParticipants(prev => {
@@ -797,6 +842,7 @@ export default function MeetScreen() {
         peersRef.current.set(data.socketId, { peerConnection: pc, userId: data.userId });
       };
 
+      // Manejar cambios en el estado de compartir pantalla de los participantes para actualizar la UI y el stream que se reproduce
       const handleScreenShareState = (data: any) => {
         setScreenSharers(prev => {
           const next = new Map(prev);
@@ -804,6 +850,7 @@ export default function MeetScreen() {
           else next.delete(data.socketId);
           return next;
         });
+        // Si el participante dejó de compartir pantalla, eliminar su stream de pantalla para que se reproduzca su cámara o audio en su lugar
         if (!data.isSharing) {
           setParticipants(prev => {
             const next = new Map(prev);
@@ -820,8 +867,11 @@ export default function MeetScreen() {
         }
       };
 
+      // Al recibir una offer, si no existe el peer connection es que el participante nos envió la offer 
+      // antes de que nos llegara su evento de "user-joined" (posible en conexiones lentas o con muchos participantes), 
+      // así que crear la conexión en ese momento y esperar a que se establezca antes de procesar la offer para evitar problemas de renegociación
       const handleOffer = async (data: any) => {
-        console.log(`📥 Offer de ${data.from} (renegotiation: ${!!data.isRenegotiation})`);
+        console.log(`Offer de ${data.from} (renegotiation: ${!!data.isRenegotiation})`);
 
         let peer = peersRef.current.get(data.from);
         if (!peer) {
@@ -852,7 +902,7 @@ export default function MeetScreen() {
           }
           peer.pendingCandidates = [];
         }
-
+        // Enviar answer al participante que hizo la offer para completar la negociación
         const answer = await peer.peerConnection.createAnswer();
         await peer.peerConnection.setLocalDescription(answer);
         socket.emit('meet:answer', { to: data.from, answer, roomId });
@@ -875,6 +925,8 @@ export default function MeetScreen() {
         }
       };
 
+      // Al recibir un candidato ICE, si la descripción remota aún no está establecida, 
+      // guardarlo en una lista de pendientes para procesarlo después y evitar errores de "no remote description"
       const handleIceCandidate = async (data: any) => {
         const peer = peersRef.current.get(data.from);
         if (!peer) return;
@@ -892,8 +944,9 @@ export default function MeetScreen() {
         }
       };
 
+      // Al salir un participante, cerrar su conexión y eliminarlo del estado
       const handleUserLeft = (data: any) => {
-        console.log(`👋 Salió: ${data.socketId}`);
+        console.log(`Salió: ${data.socketId}`);
         const peer = peersRef.current.get(data.socketId);
         if (peer) {
           peer.peerConnection.close();
@@ -913,10 +966,13 @@ export default function MeetScreen() {
       };
 
       const handleError = (data: any) => {
-        console.error('❌ Error servidor:', data.msg);
+        console.error('Error servidor:', data.msg);
         Alert.alert('Error', data.msg);
       };
 
+      // Registrar handlers de eventos del socket para mensajes relacionados con la reunión
+      // Es importante registrar estos handlers después de obtener el stream y cargar los servidores TURN, 
+      // para evitar condiciones de carrera donde recibimos mensajes antes de estar listos para manejarlos
       socket.on('meet:participants', handleParticipants);
       socket.on('meet:user-joined', handleUserJoined);
       socket.on('meet:offer', handleOffer);
@@ -938,6 +994,7 @@ export default function MeetScreen() {
       };
     };
 
+    // Inicializar la reunión y registrar los handlers de eventos del socket, y devolver una función de limpieza que cierre las conexiones y libere los recursos al salir de la reunión
     const cleanup = init();
     return () => {
       cleanup.then(fn => fn?.());
@@ -945,6 +1002,7 @@ export default function MeetScreen() {
     };
   }, [socket, roomId, userId, callType]);
 
+  // Efecto para monitorizar el estado de habla de los participantes analizando sus pistas de audio, y limpiar los analizadores cuando cambian de stream o se desconectan
   useEffect(() => {
     const remoteKeys = new Set<string>();
     participants.forEach((participant, socketId) => {
@@ -955,12 +1013,14 @@ export default function MeetScreen() {
       }
     });
 
+    // Monitorizar también el stream local para detectar si el usuario está hablando, y limpiar el analizador si deja de tener pistas de audio (ej: se quita el micrófono)
     if (localStream?.getAudioTracks?.().length) {
       monitorSpeaking('local', localStream);
     } else {
       stopMonitoringSpeaking('local');
     }
 
+    // Limpiar los analizadores de los participantes que ya no tienen stream de audio o que se han desconectado
     for (const existingKey of Array.from(audioAnalyzersRef.current.keys())) {
       if (existingKey === 'local') continue;
       if (!remoteKeys.has(existingKey)) stopMonitoringSpeaking(existingKey);
@@ -971,6 +1031,7 @@ export default function MeetScreen() {
     };
   }, [participants, localStream]);
 
+  // Efecto para limpiar los analizadores de audio al salir de la reunión, deteniendo cualquier proceso de análisis en curso y liberando los recursos asociados
   useEffect(() => {
     return () => {
       for (const key of Array.from(audioAnalyzersRef.current.keys())) {
@@ -979,6 +1040,8 @@ export default function MeetScreen() {
     };
   }, []);
 
+  // Efecto para monitorizar cambios en la visibilidad de la página en web, principalmente para depurar problemas relacionados con la renegociación al compartir pantalla
+  // y detectar si están relacionados con el navegador pausando los tracks o no enviando frames cuando la pestaña está oculta
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const onVisibilityChange = () => {
@@ -1027,7 +1090,7 @@ export default function MeetScreen() {
       await renegotiateWithAllPeers();
       return true;
     } catch (e: any) {
-      console.error('❌ No se pudo activar la cámara:', e);
+      console.error('No se pudo activar la cámara:', e);
       Alert.alert('Cámara', 'No se pudo activar la cámara. Revisa los permisos del navegador o del dispositivo.');
       return false;
     }
@@ -1096,6 +1159,7 @@ export default function MeetScreen() {
     }
   };
 
+  // Al finalizar la llamada, cerrar todas las conexiones, detener todos los tracks locales y de pantalla compartida, notificar al servidor que hemos salido y navegar a la pantalla principal
   const endCall = () => {
     peersRef.current.forEach(p => p.peerConnection?.close());
     peersRef.current.clear();
@@ -1137,6 +1201,8 @@ export default function MeetScreen() {
 
   const showAvatarGrid = !hasLocalVideo && !hasRemoteVideo;
 
+  // Construir la lista de presentadores para compartir pantalla, priorizando la pantalla compartida sobre la cámara en el stream principal, 
+  // y añadiendo el stream local al principio si el usuario está compartiendo pantalla
   const screenSharePresenters = Array.from(screenSharers.entries())
     .map(([socketId, sharerUserId]) => {
       const participant = participants.get(socketId);
@@ -1163,6 +1229,8 @@ export default function MeetScreen() {
 
   const mainPresenter = screenSharePresenters.find(p => p.key === selectedMainStream) || screenSharePresenters[0] || null;
 
+  // Construir la lista de miniaturas de vídeo para los participantes remotos que tienen vídeo (pantalla compartida o cámara), 
+  // excluyendo al presentador principal para evitar mostrar dos veces su stream si está compartiendo pantalla y cámara a la vez
   const remoteVideoThumbnails = remoteParticipants
     .filter(p => {
       const participantKey = `remote:${p.socketId}`;
@@ -1178,6 +1246,7 @@ export default function MeetScreen() {
   const screenSharePresenterKeys = screenSharePresenters.map(p => p.key).join('|');
   const mainPresenterVolumeKey = mainPresenter ? `volume:${mainPresenter.key}` : null;
 
+  // Efecto para depurar el estado de la reunión en cada render, mostrando información relevante sobre los streams locales y remotos, el presentador principal, los participantes y quién está hablando
   useEffect(() => {
     console.log('[Meet][RenderDecision]', {
       isScreenSharingLocal: isScreenSharing,
@@ -1217,6 +1286,7 @@ export default function MeetScreen() {
     localCameraPreviewStream?.id
   ]);
 
+  // Efecto para actualizar el presentador principal seleccionado automáticamente si el actual deja de compartir pantalla o si ya no hay presentadores disponibles, para evitar mostrar un stream vacío o desfasado
   useEffect(() => {
     if (!screenSharePresenters.length) {
       if (selectedMainStream !== null) setSelectedMainStream(null);

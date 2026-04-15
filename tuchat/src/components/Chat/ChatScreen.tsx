@@ -155,6 +155,7 @@ const toDateTimeLocalValue = (value: string) => {
   return formatDateTimeLocal(parsed);
 };
 
+// --- FUNCIONES AUXILIARES ---
 const getClientStorage = () => {
   if (Platform.OS === 'web') {
     return {
@@ -173,7 +174,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const getFileIcon = (fileName: string, mimeType?: string): { icon: string; color: string; label: string } => {
   const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
   const mime = (mimeType || '').toLowerCase();
-  // icon = SVG path d attribute for each file type
+  // Íconos SVG simplificados para cada tipo de archivo. 
   const pdf = "M7 21h10a2 2 0 002-2V9l-5-5H7a2 2 0 00-2 2v13a2 2 0 002 2zM14 4v5h5M9 13h2v4H9v-4zm4 0h1a1 1 0 011 1v0a1 1 0 01-1 1h-1v2m-6-4h1.5a1.5 1.5 0 010 3H7";
   const doc = "M7 21h10a2 2 0 002-2V9l-5-5H7a2 2 0 00-2 2v13a2 2 0 002 2zM14 4v5h5M9 13h6M9 17h4";
   const xls = "M7 21h10a2 2 0 002-2V9l-5-5H7a2 2 0 00-2 2v13a2 2 0 002 2zM14 4v5h5M9 13l3 4m0-4l-3 4";
@@ -195,6 +196,7 @@ const getFileIcon = (fileName: string, mimeType?: string): { icon: string; color
   return { icon: clip, color: '#64748B', label: 'FILE' };
 };
 
+// Función para formatear el tamaño del archivo de forma legible
 const formatFileSize = (bytes: number): string => {
   if (!bytes || bytes <= 0) return '';
   if (bytes < 1024) return `${bytes} B`;
@@ -202,6 +204,7 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
+// Función para inferir el tipo de medio basado en el nombre del archivo o el tipo MIME
 const inferMediaType = (fileName?: string, mimeType?: string): 'image' | 'video' | 'file' => {
   const mime = (mimeType || '').toLowerCase();
   const ext = (fileName || '').split('.').pop()?.toLowerCase() || '';
@@ -214,6 +217,7 @@ const inferMediaType = (fileName?: string, mimeType?: string): 'image' | 'video'
   return 'file';
 };
 
+// Función para convertir un archivo a base64, con manejo específico para web y nativo
 const fileToBase64Web = (uri: string): Promise<string> => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -227,6 +231,7 @@ const fileToBase64Web = (uri: string): Promise<string> => {
   });
 };
 
+// En nativo, usamos FileSystem para leer el archivo como base64 directamente, lo cual es más eficiente que usar fetch + FileReader
 const fileToBase64Native = async (uri: string, mimeType: string): Promise<string> => {
   const b64 = await FileSystem.readAsStringAsync(uri, { encoding: (FileSystem as any).EncodingType.Base64 });
   return `data:${mimeType || 'application/octet-stream'};base64,${b64}`;
@@ -322,8 +327,9 @@ interface ChatScreenProps {
   isEmbedded?: boolean;
   onBack?: () => void;
 }
-
+// Componente principal de la pantalla de chat, con toda la lógica y estado necesario para manejar mensajes, archivos, eventos, encuestas, moderación, etc.
 export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorProp = false, targetMsgId, targetPanel, isEmbedded = false, onBack }: ChatScreenProps) => {
+  // Contexto de tema para estilos dinámicos
   const { colors } = useTheme();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
@@ -331,6 +337,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
 
+  // Estados para manejo de mensajes, entrada de texto, usuario, configuraciones, archivos adjuntos, eventos, encuestas, presencia, moderación, etc.
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState("");
   const [myUserId, setMyUserId] = useState("");
@@ -396,11 +403,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const messageAckTimeoutsRef = useRef<Record<string, any>>({});
   const autoRetriedOnConnectRef = useRef(false);
 
+  // Estados para manejo de hover, selección, menú de reacciones, menú de opciones, etc. En móvil se usan para toque largo y selección.
   const [hoveredMessageId, setHoveredMessageId] = useState<string | null>(null);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null); // For touch/click
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
+  // Efecto para mantener una referencia actualizada de los mensajes, útil para callbacks que necesitan el estado más reciente sin depender de cierres sobre el estado.
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -410,11 +419,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
 
+  // Funciones para manejo de mensajes, entrada, archivos, eventos, encuestas, presencia, moderación, etc.
   const handleCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
     setOpenMenuId(null);
   };
 
+  // Función para manejar la inserción de emojis desde el selector, añadiéndolos al texto actual y guardando el borrador localmente
   const handleInsertEmoji = (emoji: string) => {
     const next = `${input}${emoji}`;
     setInput(next);
@@ -425,12 +436,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const { width } = useWindowDimensions();
   const isDesktop = Platform.OS === 'web' && width >= 768;
 
+  // Función para hacer scroll al final de la lista de mensajes, con opción de animación. Se usa requestAnimationFrame para asegurar que el scroll ocurra después de que la UI haya actualizado.
   const scrollToBottom = (animated = true) => {
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated });
     });
   };
 
+  // Función para aplicar un parche a un mensaje específico, actualizando su estado y limpiando timeouts de ACK si el mensaje ha sido confirmado como enviado, entregado, leído o ha fallado.
   const applyMessagePatch = useCallback((msgId: string, patch: any) => {
     if (['sent', 'delivered', 'read', 'failed'].includes(String(patch?.status || ''))) {
       const timeout = messageAckTimeoutsRef.current[msgId];
@@ -445,6 +458,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     if (typeof updateMessageLocal === 'function') updateMessageLocal(msgId, patch);
   }, []);
 
+  // Función para programar el cambio de estado de un mensaje a "failed" si no se recibe confirmación de envío después de un tiempo determinado (8 segundos). 
+  // Si el mensaje ya tiene un timeout programado, se limpia antes de establecer uno nuevo, lo que permite reintentos sin acumular múltiples timeouts.
   const scheduleFailedMessage = useCallback((msgId: string) => {
     const previous = messageAckTimeoutsRef.current[msgId];
     if (previous) clearTimeout(previous);
@@ -453,6 +468,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }, 8000);
   }, [applyMessagePatch]);
 
+  // Función para emitir un mensaje a través del socket. Si el socket no está disponible, se marca el mensaje como "failed" inmediatamente. 
+  // Si el socket está disponible, se programa un timeout para marcarlo como "failed" si no se recibe confirmación de envío en 8 segundos. 
+  // Al recibir la confirmación (ACK) del servidor, se actualiza el estado del mensaje a "sent" o "failed" según corresponda.
   const emitChatMessage = useCallback((message: any) => {
     if (!socket) {
       applyMessagePatch(message.msg_id, { status: 'failed' });
@@ -469,6 +487,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     });
   }, [socket, applyMessagePatch, scheduleFailedMessage]);
 
+  // Función para reconciliar el estado de los mensajes con los estados persistidos localmente, actualizando el estado de los mensajes en la UI y 
+  // asegurando que cualquier cambio relevante se refleje también en el almacenamiento local. Esto es útil para mantener la consistencia del estado 
+  // de los mensajes entre sesiones y después de recargar la pantalla.
   const reconcilePersistedStatuses = useCallback((statuses: any[] = []) => {
     if (!Array.isArray(statuses) || statuses.length === 0) return;
     const statusMap = new Map(statuses.map((item) => [String(item.msg_id), item]));
@@ -499,10 +520,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const canPin = esProfesor || delegados.includes(myUserId);
   const canManageExtras = canPin;
 
+  // Efecto para resetear el estado de auto-scroll al cambiar de chat, permitiendo que la pantalla haga scroll automático a los nuevos 
+  // mensajes solo la primera vez que se cargan o cuando se cambia de chat, pero no después si el usuario ha interactuado con el scroll manualmente.
   useEffect(() => {
     hasAutoScrolledRef.current = false;
   }, [id]);
 
+  // Efecto para limpiar cualquier timeout pendiente de mensajes al desmontar el componente, evitando que se intente actualizar el estado de mensajes 
+  // que ya no están montados en la UI, lo que podría causar errores o comportamientos inesperados.
   useEffect(() => {
     return () => {
       Object.values(messageAckTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
@@ -510,6 +535,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
   }, []);
 
+  // Efecto para hacer scroll automático al fondo de la lista de mensajes cuando se cargan los mensajes por primera vez o cuando se reciben nuevos mensajes, 
+  // pero solo si el usuario no ha interactuado manualmente con el scroll (lo que se indica con hasAutoScrolledRef). Esto permite que la pantalla 
+  // de chat muestre siempre los mensajes más recientes al cargar, pero respeta la interacción del usuario si decide desplazarse hacia arriba para leer mensajes anteriores.
   useEffect(() => {
     if (loading || messages.length === 0 || hasAutoScrolledRef.current) return;
     hasAutoScrolledRef.current = true;
@@ -517,6 +545,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return () => clearTimeout(timer);
   }, [loading, messages.length]);
 
+  // Efecto para cargar la lista de emojis disponibles para el selector de emojis de entrada, 
+  // intentando obtenerlos desde la API y aplicando un fallback silencioso a los emojis locales por defecto si la carga falla o si la lista obtenida es insuficiente. 
+  // Esto permite que el selector de emojis tenga una lista actualizada desde el servidor cuando sea posible, 
+  // pero garantiza que siempre haya una lista funcional de emojis para el usuario incluso si la carga remota falla.
   useEffect(() => {
     let cancelled = false;
 
@@ -548,6 +580,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
   }, []);
 
+  // Efecto principal para configurar la pantalla de chat al cargar, que incluye la carga de mensajes, borradores, mensajes fijados, detalles de miembros, 
+  // configuración de moderación, y cualquier otro estado relevante para mostrar la pantalla de chat correctamente.
   useEffect(() => {
     const setup = async () => {
       setChatSetupReady(false);
@@ -562,6 +596,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           setPinnedMessages(getPinnedMessagesByRoom(id));
         }
         try {
+          // Intentamos cargar el estado de la sala desde el almacenamiento local para mostrar información de miembros, moderación y configuración de acceso lo antes posible,
+          // antes de que se completen las llamadas a la API. Si falla, simplemente no mostramos esa información hasta que se cargue desde la API, sin bloquear la carga de mensajes.
           const storage = getClientStorage();
           const cachedRoomStateRaw = await storage.getItem(roomCacheKey);
           if (cachedRoomStateRaw) {
@@ -589,7 +625,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           const uid = decoded?.sub;
           currentUserId = String(uid || '');
           setMyUserId(uid);
-          myUserIdRef.current = uid; // Keep ref in sync
+          myUserIdRef.current = uid; // Mantener referencia actualizada para callbacks
 
           try {
             const device = Platform.OS === 'web' ? 'web' : 'mobile';
@@ -597,6 +633,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
               headers: { Authorization: `Bearer ${token}` }
             });
 
+            // Cargar mensajes pendientes de Redis, marcándolos como leídos si el remitente es el usuario actual, y luego enviar ACK al servidor para que los marque como entregados.
             const pendingMessages = Array.isArray(pendingResponse.data?.mensajes) ? pendingResponse.data.mensajes : [];
             if (pendingMessages.length > 0) {
               pendingMessages.forEach((pendingMessage: any) => {
@@ -638,13 +675,16 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
 
           setEsProfesor(esProfessorUsuario);
         }
-
+        // Cargar detalles de miembros y configuración de moderación, con manejo de errores para cada llamada a la API 
+        // para asegurar que la pantalla se cargue aunque alguna de las llamadas falle, mostrando la información que se pudo cargar correctamente.
           const response = await axios.get(`${API_URL}/academico/miembros/${id}`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           if (response.data.ok) setMiembros(response.data.ids || []);
 
           try {
+            // Intentamos cargar detalles de miembros y configuración de moderación desde un endpoint que devuelve toda esa información en una sola llamada para optimizar la carga,
+            // pero si falla, hacemos llamadas separadas para cargar al menos la información de delegados y moderación, sin bloquear la carga de miembros.
             const detailResponse = await axios.get(`${API_URL}/academico/miembros-detalle/${id}`, {
               headers: { Authorization: `Bearer ${token}` }
             });
@@ -663,7 +703,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             console.log("No se pudieron cargar detalles de miembros:", e);
           }
 
-          // Fetch chat settings to get delegates (safe - won't break if endpoint unavailable)
+          // Cargar configuración de moderación y delegados, con manejo de errores para asegurar que la pantalla se cargue aunque esta llamada falle, 
+          // mostrando la información que se pudo cargar correctamente.
           try {
             const settingsResponse = await axios.get(`${API_URL}/chat/settings/${id}`, {
               headers: { Authorization: `Bearer ${token}` }
@@ -682,6 +723,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             console.log("No se pudieron cargar los delegados:", e);
           }
           try {
+            // Cargar presencia, eventos, encuestas y mensajes fijados en paralelo para optimizar la carga de esta información adicional, 
+            // que no es crítica para mostrar los mensajes pero mejora la experiencia del usuario. 
+            // Si alguna de estas llamadas falla, se maneja el error individualmente para cargar al menos la información que se pudo obtener correctamente.
             const [presenceData, eventsData, pollsData, pinsData] = await Promise.all([
               fetchRoomPresence(id),
               fetchRoomEvents(id),
@@ -711,6 +755,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             }
           }
 
+          // Cargar preferencia de confirmaciones de lectura, con manejo de errores para asegurar que la pantalla se cargue aunque esta llamada falle, 
+          // usando un valor por defecto de "activadas" para no afectar negativamente la experiencia del usuario si no se pudo cargar su preferencia real.
           try {
             const privacyResponse = await axios.get(`${API_URL}/auth/read-receipts-preference`, {
               headers: { Authorization: `Bearer ${token}` }
@@ -727,6 +773,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           emitReadReceiptsForMessages(currentMessages, currentUserId);
         }
 
+        // Después de cargar los mensajes actuales, intentamos sincronizar su estado con los estados persistidos en el servidor para asegurarnos de que cualquier cambio relevante se refleje en la UI,
+        // como mensajes que fueron entregados o leídos mientras el usuario no estaba conectado. Si esta llamada falla, simplemente no actualizamos los estados de los mensajes, 
+        // pero la pantalla seguirá funcionando con los estados que se tenían hasta ese momento.
         if (token && currentMessages.length > 0) {
           try {
             const statusResponse = await axios.post(`${API_URL}/mensajes/estados`, {
@@ -743,6 +792,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
             console.log("No se pudieron sincronizar estados persistidos:", e);
           }
         }
+        // Finalmente, intentamos guardar en el almacenamiento local el estado de la sala que acabamos de cargar desde la API, 
+        // incluyendo miembros, detalles de miembros, delegados, configuración de acceso y moderación,
         try {
           const storage = getClientStorage();
           await storage.setItem(roomCacheKey, JSON.stringify({
@@ -763,6 +814,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setup();
   }, [id, socket, reconcilePersistedStatuses, readReceiptsEnabled]);
 
+  // Efecto para manejar la lógica de enfoque de la pantalla, que incluye marcar mensajes como leídos, actualizar el conteo de no leídos, establecer la sala activa en el contexto global,
   useFocusEffect(
     useCallback(() => {
       if (typeof markMessagesAsRead === 'function') markMessagesAsRead(id);
@@ -773,6 +825,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }, [id, refreshUnreadCounts, setActiveRoom, socket, readReceiptsEnabled])
   );
 
+  // Efecto para guardar en el almacenamiento local el estado de la sala cada vez que cambian los miembros, detalles de miembros, delegados, configuración de acceso o moderación,
   useEffect(() => {
     (async () => {
       try {
@@ -789,11 +842,14 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     })();
   }, [roomCacheKey, miembros, memberDetails, delegados, roomAccessSettings, chatModeration]);
 
+  // Efecto para actualizar el estado de presencia del usuario en el servidor cada vez que cambia su estado de presencia local, asegurando que otros usuarios vean su estado actualizado en tiempo real.
   useEffect(() => {
     if (!socket) return;
     socket.emit("presence:set_status", { status: myPresenceStatus });
   }, [socket, myPresenceStatus]);
 
+  // Efecto para manejar la apertura de paneles adicionales (información, eventos, encuestas, menciones) según el valor de targetPanel, 
+  // que se puede pasar como prop para abrir un panel específico al cargar la pantalla.
   useEffect(() => {
     if (!targetPanel) return;
     if (targetPanel === 'info') {
@@ -803,6 +859,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setShowExtrasPanel(targetPanel);
   }, [targetPanel]);
 
+  // Efecto para configurar los listeners de eventos del socket relacionados con el chat, como nuevos mensajes, confirmaciones de envío, entregas, lecturas, reacciones, pines, presencia, eventos y encuestas.
   useEffect(() => {
     if (!socket) return;
 
@@ -1014,29 +1071,31 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
   }, [socket, id, refreshUnreadCounts, myUserId, applyMessagePatch, readReceiptsEnabled]);
 
+  // Función para manejar la adición o eliminación de una reacción a un mensaje, actualizando el estado local para reflejar el cambio inmediatamente,
+  // actualizando la base de datos local a través de toggleReactionFn, y emitiendo el cambio a través del socket para que otros usuarios vean la reacción actualizada en tiempo real.
   const handleReaction = (msgId: string, emoji: string) => {
     const reaction = { emoji, userId: myUserId };
 
-    // 1. Optimistic Update
+    // 1. Actualizar estado localmente para respuesta inmediata
     setMessages(prev => prev.map(m => {
       if (m.msg_id === msgId) {
         let reactions = m.reactions ? [...m.reactions] : [];
         const existingIndex = reactions.findIndex((r: any) => r.userId === myUserId);
         if (existingIndex >= 0) {
           if (reactions[existingIndex].emoji === emoji) {
-            reactions.splice(existingIndex, 1); // Remove toggle
+            reactions.splice(existingIndex, 1); // QUITAR REACCIOM
           } else {
-            reactions[existingIndex] = reaction; // Update
+            reactions[existingIndex] = reaction; // ACTUALIZAR
           }
         } else {
-          reactions.push(reaction); // Add
+          reactions.push(reaction); // AÑADIR
         }
         return { ...m, reactions };
       }
       return m;
     }));
 
-    // Update local DB
+    // Actualizar BD
     if (typeof toggleReactionFn === 'function') toggleReactionFn(msgId, reaction);
     setShowReactionPicker(null);
     setShowInputEmojiPicker(false);
@@ -1062,6 +1121,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     });
   };
 
+  // Función para manejar la inserción rápida de una mención al seleccionar un candidato de mención, que actualiza el texto de entrada con la mención seleccionada, 
+  // guarda el borrador localmente, cierra el selector de emojis de entrada y enfoca el campo de entrada para que el usuario pueda continuar escribiendo después de insertar la mención.
   const quickMention = (token: string) => {
     const next = `${input}${token}`;
     setInput(next);
@@ -1070,10 +1131,12 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     inputRef.current?.focus();
   };
 
-  // --- Mention autocomplete logic ---
+
   const normalizeMention = (s: string) =>
     s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+  // Función para detectar si el usuario está escribiendo una mención al analizar el texto de entrada, buscando el último '@' que no esté precedido por un carácter que no sea espacio o salto de línea,
+  // y extrayendo el texto que sigue a ese '@' como posible consulta de mención, siempre y cuando no haya un espacio después del '@' que indicaría que la mención ya está cerrada.
   const detectMentionQuery = (text: string): string | null => {
     // Find the last '@' that is either at position 0 or preceded by a space
     const lastAt = text.lastIndexOf('@');
@@ -1085,6 +1148,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return afterAt;
   };
 
+  // Función para actualizar la lista de candidatos de mención cada vez que cambia el texto de entrada, detectando si hay una consulta de mención activa,
+  // normalizando esa consulta para hacer una búsqueda insensible a mayúsculas y acentos, y filtrando la lista de miembros para mostrar solo aquellos que coinciden con la consulta, 
+  // además de incluir opciones especiales como "todos", "delegados" y "profesor" para permitir menciones rápidas a esos grupos. Si no hay una consulta de mención activa, se limpia la lista de candidatos.
   const updateMentionCandidates = (text: string) => {
     const query = detectMentionQuery(text);
     setMentionQuery(query);
@@ -1114,6 +1180,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la selección de un candidato de mención, que inserta la mención seleccionada en el texto de entrada, 
+  // guarda el borrador localmente, limpia la consulta y candidatos de mención, y enfoca el campo de entrada para que el usuario pueda continuar escribiendo después de insertar la mención.
   const handleMentionSelect = (member: MentionCandidate) => {
     const query = mentionQuery ?? '';
     const lastAt = input.lastIndexOf('@');
@@ -1130,6 +1198,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     inputRef.current?.focus();
   };
 
+  // Función para emitir eventos de "escribiendo" y "dejó de escribir" a través del socket, que se llama cada vez que cambia el texto de entrada para indicar a otros usuarios 
+  // que este usuario está escribiendo un mensaje,
+  // y que utiliza un temporizador para emitir el evento de "dejó de escribir" después de un período de inactividad, o inmediatamente si el texto de entrada queda vacío.
   const emitTyping = (text: string) => {
     if (!socket) return;
     if (text.trim()) {
@@ -1143,6 +1214,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     }
   };
+
+  // Función para analizar errores de las llamadas a la API relacionadas con eventos y encuestas, que verifica si el error tiene una respuesta del servidor y un código de estado,
+  // y devuelve un mensaje de error adecuado según el código de estado, o un mensaje genérico si no se pudo obtener información específica del error.
   const parseInlineApiError = (error: any, fallback: string) => {
     const status = error?.response?.status;
     if (!error?.response) {
@@ -1153,6 +1227,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
     return error?.response?.data?.msg || fallback;
   };
+
+  // Función para manejar la creación de un nuevo evento, que valida los campos del formulario, muestra errores específicos para cada campo si es necesario, 
+  // y si la validación es exitosa, hace una llamada a la API para crear el evento,
+  // actualiza el estado local para incluir el nuevo evento, guarda el evento en la base de datos local, y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const createEvent = async () => {
     setEventFormError(null);
     setEventFieldErrors({});
@@ -1203,6 +1281,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la creación de una nueva encuesta, que valida los campos del formulario, muestra errores específicos para cada campo si es necesario,
+  // y si la validación es exitosa, hace una llamada a la API para crear la encuesta,
+  // actualiza el estado local para incluir la nueva encuesta, guarda la encuesta en la base de datos local, y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const createPoll = async () => {
     setPollFormError(null);
     setPollFieldErrors({});
@@ -1253,6 +1334,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la votación en una encuesta, que hace una llamada a la API para registrar el voto del usuario, actualiza el estado local para reflejar el nuevo estado de la encuesta con el voto registrado,
+  // guarda la encuesta actualizada en la base de datos local, y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const votePoll = async (pollId: string, optionId: string) => {
     try {
 	      const updated = await votePollRequest({ roomId: id, pollId, optionId });
@@ -1265,6 +1348,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la eliminación de un evento, que muestra una confirmación al usuario antes de proceder, y si el usuario confirma, hace una llamada a la API para eliminar el evento,
+  // actualiza el estado local para eliminar el evento de la lista, elimina el evento de la base de datos local, 
+  // y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const deleteEvent = async (eventId: string) => {
 	    try {
 	      await deleteRoomEventRequest({ roomId: id, eventId });
@@ -1275,6 +1361,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar el cierre de una encuesta, que hace una llamada a la API para cerrar la encuesta, actualiza el estado local para reflejar el nuevo estado de la encuesta como cerrada,
+  // guarda la encuesta actualizada en la base de datos local, y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const closePoll = async (pollId: string) => {
     try {
 	      const updated = await closePollRequest({ roomId: id, pollId });
@@ -1287,6 +1375,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la eliminación de una encuesta, que muestra una confirmación al usuario antes de proceder, y si el usuario confirma, hace una llamada a la API para eliminar la encuesta,
+  // actualiza el estado local para eliminar la encuesta de la lista, elimina la encuesta de la base de datos local, 
+  // y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const deletePoll = async (pollId: string) => {
 	    try {
 	      await deletePollRequest({ roomId: id, pollId });
@@ -1297,6 +1388,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la aplicación de una acción de moderación (mutear, banear, desmutear, desbanear) a un usuario, que valida que se haya seleccionado un objetivo de moderación,
+    // determina la duración de la acción según la configuración seleccionada, hace una llamada a la API para aplicar la acción de moderación, actualiza el estado local para reflejar los cambios en la moderación,
+    // y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const submitModeration = async (actionOverride?: 'mute' | 'ban' | 'clear_mute' | 'clear_ban') => {
     if (!moderationTarget?.id) {
       Alert.alert('Selecciona un alumno', 'Elige primero a quien quieres moderar.');
@@ -1355,6 +1449,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar el envío de un mensaje, que valida que haya texto o un archivo adjunto para enviar, construye el objeto de mensaje con toda la información necesaria,
+    // actualiza el estado local para agregar el mensaje a la lista de mensajes, guarda el mensaje en la base de datos local, limpia el campo de entrada y el estado de mención, emite el mensaje a través del socket para que otros usuarios lo vean en tiempo real,
+    // y maneja cualquier error que pueda ocurrir durante este proceso mostrando un mensaje adecuado al usuario.
   const sendMessage = async (mediaUri?: string, mediaType: 'text' | 'image' | 'video' | 'file' = 'text', fileName?: string, fileSize?: number, mimeType?: string) => {
     console.log("SENDING MESSAGE...", { input, mediaUri: mediaUri?.substring(0, 60), socket: !!socket, myUserId, mediaType, fileName });
     if (!input.trim() && !mediaUri) return;
@@ -1423,6 +1520,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setTimeout(() => scrollToBottom(true), 100);
   };
 
+  // Función para manejar el reintento de envío de un mensaje que ha fallado, que actualiza el estado del mensaje a "reintentando" para mostrar una indicación visual al usuario, 
+  // y emite el mensaje a través del socket para intentar enviarlo nuevamente.
   const retryMessage = useCallback((message: any) => {
     if (!message?.msg_id) return;
     applyMessagePatch(message.msg_id, { status: 'retrying' });
@@ -1432,6 +1531,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     });
   }, [applyMessagePatch, emitChatMessage]);
 
+  // Efecto para detectar cambios en la conexión del socket y reintentar el envío de mensajes pendientes que hayan fallado, 
+  // asegurando que solo se realice un intento automático por conexión para evitar bucles de reintentos.
   useEffect(() => {
     if (!socket?.connected) {
       autoRetriedOnConnectRef.current = false;
@@ -1443,6 +1544,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     pending.forEach((message) => retryMessage(message));
   }, [socket?.connected, messages, retryMessage]);
 
+  // Función para manejar la selección de un documento para enviar, que utiliza el DocumentPicker para permitir al usuario seleccionar un archivo, valida el tamaño del archivo seleccionado,
+  // convierte el archivo a una URI de datos base64 si es posible, y luego llama a la función de envío de mensajes para enviar el archivo como un mensaje,
+  // o muestra un error si el archivo es demasiado grande o si ocurre un error durante la conversión.
   const pickDocument = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -1480,6 +1584,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la selección de un medio (foto o video) para enviar, que utiliza el ImagePicker para permitir al usuario seleccionar un archivo multimedia, valida el tamaño del archivo seleccionado,
+  // convierte el archivo a una URI de datos base64 si es posible, y luego llama a la función de envío de mensajes para enviar el archivo como un mensaje,
+  // o muestra un error si el archivo es demasiado grande o si ocurre un error durante la conversión.
   const pickMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
@@ -1499,14 +1606,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para manejar la acción de adjuntar un archivo o medio, que en plataformas web simplemente llama a la función de selección de documentos para permitir al usuario seleccionar cualquier tipo de archivo,
+  // mientras que en plataformas móviles muestra una alerta con opciones para seleccionar entre galería (fotos/videos) o documentos, y llama a la función correspondiente según la elección del usuario.
   const handleAttachment = () => {
     if (Platform.OS === 'web') {
-      // On web we can just use pickDocument for everything or show a custom modal
-      // For simplicity, let's just trigger pickDocument which allows all files including images
       pickDocument();
-      // OR offer choice:
-      // const choice = window.confirm("¿Enviar imagen/video? (Cancelar para documento)");
-      // if (choice) pickMedia(); else pickDocument();
     } else {
       Alert.alert(
         "Enviar adjunto",
@@ -1520,8 +1624,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   };
 
+  // Función para formatear la marca de tiempo de un mensaje en una hora legible, utilizando la función toLocaleTimeString con formato de 2 dígitos para horas y minutos.
   const formatTime = (ts: number) => new Date(ts).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
+  // Función para determinar el estado de un mensaje (enviando, reintentando, enviado, entregado, leído, fallido) basada en las propiedades del mensaje como status, isMe, readByRecipient, delivered, etc.,
+  // lo que permite mostrar una indicación visual adecuada al usuario sobre el estado de cada mensaje.
   const getMessageStatus = (msg: any): 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed' => {
     if (msg.status === 'failed') return 'failed';
     if (msg.status === 'retrying') return 'retrying';
@@ -1539,6 +1646,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return 'sent';
   };
 
+  // Función para emitir recibos de lectura para un conjunto de mensajes, que verifica si la función de recibos de lectura está habilitada y si el socket está conectado,
+    // luego normaliza el ID de usuario para evitar problemas de tipo, filtra los mensajes para incluir solo aquellos que no fueron enviados por el usuario actual y que tienen un ID de mensaje válido,
+    // y finalmente emite un evento de "chat:read_receipt" a través del socket para cada mensaje leído, incluyendo el ID del mensaje, el ID de la sala y el ID del usuario que leyó el mensaje.
   function emitReadReceiptsForMessages(messagesToRead: any[], userIdOverride?: string | null) {
     if (!readReceiptsEnabled || !socket) return;
     const normalizedUserId = String(userIdOverride || myUserIdRef.current || '');
@@ -1556,6 +1666,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     });
   }
 
+  // Función para obtener la etiqueta de estado de un mensaje basada en su estado actual, que devuelve una cadena legible para mostrar al usuario, 
+  // como "Enviando...", "Reintentando...", "No enviado. Toca para reintentar.", "Entregado", "Leído", o "Enviado".
   const getMessageStatusLabel = (status: 'sending' | 'retrying' | 'sent' | 'delivered' | 'read' | 'failed') => {
     switch (status) {
       case 'sending':
@@ -1579,6 +1691,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
   const managedStudents = memberDetails.filter((member: any) => !member.es_profesor);
   const isDelegate = delegados.includes(String(myUserId || ''));
 
+  // Variables de control de permisos para acciones de moderación y gestión de eventos/encuestas, que se basan en si el usuario es profesor o delegado, 
+  // y se utilizan para mostrar u ocultar opciones en la interfaz de usuario según los permisos del usuario.
   useEffect(() => {
     const allEntries = [...(chatModeration.mutedMembers || []), ...(chatModeration.bannedMembers || [])];
     const futureExpirations = allEntries
@@ -1602,6 +1716,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return () => clearTimeout(timeoutId);
   }, [chatModeration, moderationNow]);
 
+  // Efecto para detectar eventos futuros (inicio de eventos o cierre de encuestas) y actualizar el estado de la línea de tiempo en consecuencia, 
+  // que calcula los próximos momentos relevantes basados en las fechas de inicio de los eventos y las fechas de expiración de las encuestas,
+  // y establece un temporizador para actualizar el estado de la línea de tiempo cuando se alcance el próximo momento relevante, 
+  // lo que permite que la interfaz de usuario refleje correctamente el estado actual de los eventos y encuestas sin necesidad de recargar la página.
   useEffect(() => {
     const futureMoments = [
       ...(events || []).map((event: any) => Number(new Date(event?.startsAt || 0).getTime())),
@@ -1628,11 +1746,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return () => clearTimeout(timeoutId);
   }, [events, polls, timelineNow]);
 
+  // Función para obtener la entrada de moderación (muteo o baneo) para un usuario específico, que busca en las listas de miembros muteados y baneados en el estado de moderación del chat,
+  // y devuelve la entrada correspondiente si el usuario está actualmente muteado o baneado, o null si no hay una entrada activa para ese usuario,
+  // lo que permite mostrar información relevante sobre el estado de moderación de cada usuario en la interfaz de usuario.
   const getModerationEntry = useCallback((userId: string, kind: 'mute' | 'ban') => {
     const source = kind === 'mute' ? chatModeration.mutedMembers : chatModeration.bannedMembers;
     return source.find((entry: any) => String(entry?.userId) === String(userId) && (!entry?.expiresAt || Number(entry.expiresAt) > moderationNow)) || null;
   }, [chatModeration, moderationNow]);
 
+  // Función para obtener un resumen del estado de moderación de un usuario específico, que verifica si el usuario está actualmente baneado o muteado utilizando la función getModerationEntry,
+  // y devuelve una cadena que indica si el usuario está suspendido o silenciado, y hasta cuándo si hay una fecha de expiración, o null si el usuario no tiene una restricción de moderación activa,
+  // lo que permite mostrar un resumen claro del estado de moderación de cada usuario en la interfaz de usuario.
   const getModerationSummary = useCallback((userId: string) => {
     const banEntry = getModerationEntry(userId, 'ban');
     if (banEntry) {
@@ -1651,6 +1775,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return null;
   }, [getModerationEntry]);
 
+  // Función para abrir el modal de moderación para un usuario específico, que establece el objetivo de moderación en el usuario seleccionado o en el primer estudiante gestionado si no se proporciona un usuario,
+  // y restablece los campos del formulario de moderación a sus valores predeterminados, lo que permite al usuario aplicar una acción de moderación a un usuario específico a través de la interfaz de usuario.
   const openModerationModal = useCallback((member?: any | null) => {
     setModerationTarget(member || managedStudents[0] || null);
     setModerationAction('mute');
@@ -1661,6 +1787,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setModerationModalVisible(true);
   }, [managedStudents]);
 
+  // Función para abrir el modal de moderación para un usuario específico basado en su ID, que busca el miembro correspondiente en la lista de estudiantes gestionados utilizando el ID proporcionado,
+  // y si se encuentra el miembro, establece el objetivo de moderación en ese miembro, establece la acción de moderación preferida si se proporciona, 
+  // y restablece los campos del formulario de moderación a sus valores predeterminados,
+  // lo que permite al usuario aplicar una acción de moderación a un usuario específico a través de la interfaz de usuario utilizando su ID.
   const openModerationModalForUser = useCallback((userId?: string | null, preferredAction?: 'mute' | 'ban') => {
     const normalizedUserId = String(userId || '');
     const targetMember = managedStudents.find((member: any) => String(member.id) === normalizedUserId);
@@ -1675,6 +1805,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setModerationModalVisible(true);
   }, [managedStudents]);
 
+  // Función para abrir el selector de fecha y hora para la duración personalizada de una acción de moderación, que maneja la lógica de apertura del selector de fecha y hora en plataformas Android e iOS,
+  // asegurando que la fecha inicial sea válida y que se actualice el estado de duración personalizada con la fecha seleccionada por el usuario, 
+  // lo que permite al usuario seleccionar una duración personalizada para una acción de moderación a través de la interfaz de usuario.
   const openModerationDatePicker = useCallback(() => {
     const initialDate = moderationCustomUntil ? new Date(moderationCustomUntil) : new Date();
     const safeDate = Number.isNaN(initialDate.getTime()) ? new Date() : initialDate;
@@ -1707,6 +1840,13 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   }, [moderationCustomUntil]);
 
+
+  // Variables de control para determinar si el usuario tiene restricciones de moderación activas (muteo o baneo), 
+  // si la sala tiene configuraciones de acceso que limitan quién puede escribir, y si el sistema de chat en tiempo real está listo,
+  // que se utilizan para calcular el estado de bloqueo del compositor de mensajes, 
+  // mostrando mensajes adecuados al usuario sobre por qué no puede escribir en el chat si tiene restricciones de moderación o si la sala tiene configuraciones de acceso restrictivas,
+  // o si el sistema de chat en tiempo real aún se está preparando, lo que permite proporcionar una experiencia de usuario clara 
+  // y contextualizada sobre el estado actual del chat y las razones por las cuales un usuario puede no tener permiso para enviar mensajes.
   const activeMuteForMe = getModerationEntry(String(myUserId || ''), 'mute');
   const activeBanForMe = getModerationEntry(String(myUserId || ''), 'ban');
   const roomAllowsDelegates = roomAccessSettings.soloProfesores && delegados.length > 0;
@@ -1758,6 +1898,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           }
         : null;
 
+  // Efecto para manejar el desplazamiento automático a un mensaje específico cuando se proporciona un ID de mensaje objetivo (targetMsgId), 
+  // que verifica si el mensaje objetivo ya ha sido desplazado o si no hay mensajes cargados, y si no, busca el mensaje objetivo en la lista de mensajes, 
+  // y si se encuentra, desplaza automáticamente a ese mensaje y establece un estado de resaltado temporal para llamar la atención del usuario sobre el mensaje objetivo, 
+  // lo que permite que los usuarios sean llevados directamente a un mensaje relevante cuando acceden al chat a través de enlaces o notificaciones que incluyen un ID de mensaje específico.
   useEffect(() => {
     if (!targetMsgId || hasScrolledToTargetRef.current || messages.length === 0) return;
     if (activeThreadFilter !== 'Todos') {
@@ -1769,10 +1913,17 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setTimeout(() => scrollToMessage(targetMsgId), 150);
   }, [targetMsgId, messages]);
 
+  // Variables y lógica para el filtrado de mensajes por hilo (thread), que construye una lista de opciones de filtro basada en los filtros predefinidos y los temas de hilo únicos presentes en los mensajes,
+  // y luego filtra la lista de mensajes según el filtro de hilo activo seleccionado, 
+  // lo que permite a los usuarios ver solo los mensajes relevantes para un tema de hilo específico o para categorías predefinidas como "Importantes", "Menciones", etc.
   const threadOptions = [
     ...CONVERSATION_FILTERS,
     ...Array.from(new Set(messages.map((message) => message.threadTopic).filter(Boolean))),
   ];
+
+  // Función para filtrar los mensajes según el filtro de hilo activo seleccionado, que devuelve la lista completa de mensajes si el filtro es "Todos",
+  // o filtra los mensajes para incluir solo aquellos que son importantes, requieren acuse de recibo, mencionan al usuario, son encuestas, son eventos, 
+  // o pertenecen a un tema de hilo específico según el filtro seleccionado,
   const filteredMessages = (() => {
     if (activeThreadFilter === 'Todos') return messages;
     if (activeThreadFilter === 'Importantes') return messages.filter((message) => message.important || message.messageType);
@@ -1783,6 +1934,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return messages.filter((message) => message.threadTopic === activeThreadFilter);
   })();
 
+  // Efecto para manejar el desplazamiento automático a un mensaje específico cuando se proporciona un ID de mensaje objetivo (targetMsgId) y 
+  // el mensaje objetivo no estaba presente en la lista de mensajes inicialmente cargada,
+  // que verifica si hay un mensaje objetivo pendiente de desplazamiento y si hay mensajes filtrados disponibles, y si el mensaje objetivo está presente en la lista de mensajes filtrados,
+  // y si es así, establece un temporizador para desplazarse automáticamente al mensaje objetivo después de un breve retraso, 
+  // lo que permite que los usuarios sean llevados directamente a un mensaje relevante incluso si ese mensaje no estaba presente en la carga inicial de mensajes debido a filtros o paginación.
   useEffect(() => {
     if (!pendingScrollTargetRef.current || filteredMessages.length === 0) return;
     const targetId = pendingScrollTargetRef.current;
@@ -1791,6 +1947,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return () => clearTimeout(timeoutId);
   }, [filteredMessages]);
 
+  // Renderizado de pantalla de carga mientras se preparan los mensajes y el contexto del chat, que muestra un indicador de actividad y mensajes informativos al usuario sobre lo que se está cargando,
+  // así como esqueletos de mensajes para dar una idea visual de cómo se verá el chat una vez que se haya cargado completamente, 
+  // lo que mejora la experiencia del usuario al proporcionar retroalimentación visual durante la carga.
   if (loading) {
     return (
       <View style={[styles.loadingContainer, isEmbedded && { paddingTop: 0 }, { backgroundColor: colors.background }]}>
@@ -1822,6 +1981,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     );
   }
 
+  // Función para desplazarse a un mensaje específico en la lista de mensajes filtrados, que busca el índice del mensaje objetivo en la lista de mensajes filtrados,
+  // y si se encuentra, desplaza automáticamente a ese mensaje utilizando la referencia del FlatList, y establece un estado de resaltado temporal para llamar la atención del usuario sobre el mensaje objetivo,
+  // lo que permite que los usuarios sean llevados directamente a un mensaje relevante cuando acceden al chat a través de enlaces o notificaciones que incluyen un ID de mensaje específico, 
+  // incluso si ese mensaje no estaba presente en la carga inicial de mensajes debido a filtros o paginación.
   function scrollToMessage(targetMsgId: string) {
     const index = filteredMessages.findIndex(m => m.msg_id === targetMsgId);
     if (index !== -1) {
@@ -1837,6 +2000,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     }
   }
 
+  // Función para manejar la apertura de un mensaje desde la pantalla de información del chat, que cierra la pantalla de información, establece el mensaje objetivo pendiente para desplazamiento,
+  // cierra cualquier panel de extras abierto, y si el filtro de hilo activo no es "Todos", lo establece en "Todos" para asegurarse de que el mensaje objetivo sea visible,
+  // y luego establece un temporizador para desplazarse automáticamente al mensaje objetivo después de un breve retraso, 
+  // lo que permite a los usuarios ser llevados directamente a un mensaje relevante desde la pantalla de información del chat.
   const handleOpenMessageFromInfo = (message: any) => {
     setShowInfo(false);
     pendingScrollTargetRef.current = message.msg_id;
@@ -1848,7 +2015,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setTimeout(() => scrollToMessage(message.msg_id), 120);
   };
 
-  // Modal de info del chat
+  // Renderizado de la pantalla de información del chat si el estado showInfo es verdadero, que incluye un encabezado con un botón para volver al chat y un título,
+  // y el componente ChatInfoScreen que muestra información detallada sobre la sala de chat, los participantes, y opciones de moderación si el usuario tiene permisos,
+  // así como la capacidad de abrir mensajes específicos desde la pantalla de información, lo que proporciona a los usuarios una vista detallada del contexto del chat y sus participantes.
   if (showInfo) {
     return (
       <View style={{ flex: 1 }}>
@@ -1877,6 +2046,11 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     );
   }
 
+  // Renderizado del componente principal del chat, que incluye un encabezado con el nombre de la sala, el número de participantes y conectados, y acciones para iniciar llamadas o abrir la información del chat,
+  // un banner para mensajes fijados si hay mensajes fijados, un menú de filtros para seleccionar el hilo de conversación activo,
+  // y una lista de mensajes filtrados que se renderizan utilizando el componente CellRenderer,
+  // que ajusta el estilo de cada mensaje para asegurarse de que los mensajes que tienen abierto el selector de reacciones o el menú de acciones tengan un z-index más alto para evitar problemas de superposición,
+  // y también incluye lógica para mostrar un panel de extras con eventos o encuestas relevantes según el filtro seleccionado, lo que proporciona una experiencia de chat rica y contextualizada para los usuarios.
   const CellRenderer = (props: any) => {
     const item = messages[props.index];
     if (!item) return <View {...props} />;
@@ -1887,6 +2061,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     );
   };
 
+  // Cálculo de métricas y datos relevantes para mostrar en la interfaz de usuario, como el número de usuarios conectados basado en la presencia, 
+  // los próximos eventos filtrados por fecha de inicio, las encuestas visibles con estado actualizado según la fecha de expiración,
+  // y una lista de miembros para mostrar en la sección de menciones rápidas, lo que permite proporcionar a los usuarios información relevante sobre la actividad del chat y los participantes.
   const presenceEntries = Object.values(presenceByUser);
   const onlineCount = presenceEntries.filter((entry: any) => entry?.online).length;
   const upcomingEvents = events
@@ -1900,6 +2077,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return poll;
   });
 
+  // Construcción de la lista de menciones rápidas para mostrar en el selector de menciones, que filtra los miembros para excluir al usuario actual, limita la lista a los primeros 4 miembros,
+  // y mapea cada miembro a un formato que incluye su ID y una etiqueta de mención basada en su nombre, 
+  // lo que permite a los usuarios mencionar rápidamente a otros participantes en el chat utilizando el selector de menciones.
   const myMentionBadge = memberDetails
     .filter(member => member.id !== myUserId)
     .slice(0, 4)
@@ -1908,6 +2088,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
       label: `@${(member.nombre || '').split(' ')[0]}`,
     }));
 
+  // Función para manejar la selección de un filtro de conversación, que establece el filtro de hilo activo según la selección del usuario, 
+  // cierra el menú de filtros, y muestra el panel de extras correspondiente si el filtro seleccionado es "Eventos" o "Encuestas",
   const selectConversationFilter = (filter: string) => {
     setActiveThreadFilter(filter);
     setShowThreadFilterMenu(false);
@@ -1922,6 +2104,9 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     setShowExtrasPanel('threads');
   };
 
+  // Función para obtener el nombre de usuario para mostrar en la interfaz de usuario, que normaliza el ID de usuario para evitar problemas de tipo,
+  // y luego busca el nombre del usuario en los detalles de los miembros, la presencia, o devuelve un formato genérico si no se encuentra el nombre,
+  // lo que permite mostrar un nombre de usuario legible para cada participante en el chat, incluso si no se tiene información detallada sobre ese usuario.
   const getUserDisplayName = (userId: string) => {
     const normalizedUserId = String(userId);
     if (normalizedUserId === String(myUserId)) return myUserName || 'TÃº';
@@ -1933,6 +2118,10 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     return `Usuario ${normalizedUserId.slice(0, 8)}`;
   };
 
+  // Función para obtener el desglose de lectores para un mensaje que requiere acuse de recibo, que construye un conjunto de IDs de usuarios que han leído el mensaje basado en los lectores proporcionados,
+  // y luego construye una lista de miembros fuente basada en los detalles de los miembros o la lista de IDs de miembros, 
+  // y finalmente filtra esa lista para obtener las listas de usuarios confirmados (que han leído el mensaje) y pendientes (que no han leído el mensaje),
+  // y normaliza la lista de confirmados para incluir la información de lectura proporcionada por los lectores, lo que permite mostrar un desglose claro de quién ha leído un mensaje que requiere acuse de recibo.
   const getCheckerBreakdown = (message: any) => {
     const readers = Array.isArray(message?.ackReaders) ? message.ackReaders : [];
     const readSet = new Set(readers.map((reader: any) => String(reader.userId)));
@@ -1955,6 +2144,8 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     };
   };
 
+  // Renderizado del contenido principal del chat, que incluye el encabezado, el banner de mensajes fijados, los filtros de conversación, y la lista de mensajes filtrados,
+  // y también incluye la lógica para mostrar un panel de extras con eventos o encuestas relevantes según el filtro seleccionado, lo que proporciona una experiencia de chat rica y contextualizada para los usuarios.
   const content = (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
@@ -3034,6 +3225,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
     </View >
   );
 
+  // Moderacion Modal que se muestra al seleccionar "Silenciar" o "Suspender" en el menu de un mensaje de un alumno (solo para profesores)
   function renderModerationModal() {
     const activeModerationSummary = moderationTarget?.id ? getModerationSummary(moderationTarget.id) : null;
     return (
@@ -3217,7 +3409,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
           }}
           onPin={(data) => {
             const now = Date.now();
-            // NO aÃ±adimos localmente, el servidor lo devolverÃ¡ via chat:receive_pin
+            // NO añadimos localmente, el servidor lo devolverá via chat:receive_pin
             socket?.emit('chat:pin_message', {
               roomId: id,
               messageId: data.messageId,
@@ -3318,7 +3510,7 @@ export const ChatScreen = ({ id, nombre, tipo = 'grupo', esProfesor: esProfesorP
         }}
         onPin={(data) => {
           const now = Date.now();
-          // NO aÃ±adimos localmente, el servidor lo devolverÃ¡ via chat:receive_pin
+          // NO añadimos localmente, el servidor lo devolverá via chat:receive_pin
           socket?.emit('chat:pin_message', {
             roomId: id,
             messageId: data.messageId,

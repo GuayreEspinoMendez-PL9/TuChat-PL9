@@ -4,6 +4,7 @@ import crypto from "crypto";
 
 const sha256 = (input) => crypto.createHash("sha256").update(input).digest("hex");
 
+// Función para sincronizar la cache de una clase específica
 const syncClaseCache = async (idClase) => {
     const { rows: [clase] } = await gobDb.query(`
         SELECT c.id_clase, c.id_plan, c.curso, c.grupo, c.nombre, p.nombre as nombre_plan
@@ -201,9 +202,8 @@ const syncClaseCache = async (idClase) => {
     `, [idClase]);
 };
 
-// ============================================================
-// DASHBOARD
-// ============================================================
+
+// DASHBOARD GENERAL (appDb - seguridad.v_admin_estadisticas + gobDb para datos adicionales)
 export const getDashboard = async (req, res) => {
     try {
         const { rows: [stats] } = await appDb.query(`SELECT * FROM seguridad.v_admin_estadisticas`);
@@ -221,9 +221,7 @@ export const getDashboard = async (req, res) => {
     }
 };
 
-// ============================================================
 // CENTROS (gobDb - externo.centros)
-// ============================================================
 export const getCentros = async (req, res) => {
     try {
         const { rows } = await gobDb.query(`
@@ -238,6 +236,7 @@ export const getCentros = async (req, res) => {
     }
 };
 
+// Crear nuevo centro en externo.centros y loggear la acción
 export const crearCentro = async (req, res) => {
     try {
         const { codigo_centro, nombre, isla, municipio } = req.body;
@@ -253,6 +252,7 @@ export const crearCentro = async (req, res) => {
     }
 };
 
+// Actualizar centro en externo.centros y loggear la acción
 export const actualizarCentro = async (req, res) => {
     try {
         const { id } = req.params;
@@ -268,6 +268,7 @@ export const actualizarCentro = async (req, res) => {
     }
 };
 
+// Desactivar centro en externo.centros (sin eliminar) y loggear la acción
 export const eliminarCentro = async (req, res) => {
     try {
         const { id } = req.params;
@@ -280,9 +281,7 @@ export const eliminarCentro = async (req, res) => {
     }
 };
 
-// ============================================================
 // CURSOS ESCOLARES (gobDb - academico.cursos_escolares)
-// ============================================================
 export const getCursosEscolares = async (req, res) => {
     try {
         const { rows } = await gobDb.query(`SELECT * FROM academico.cursos_escolares ORDER BY fecha_inicio DESC`);
@@ -292,6 +291,7 @@ export const getCursosEscolares = async (req, res) => {
     }
 };
 
+// Crear nuevo curso escolar en academico.cursos_escolares y loggear la acción
 export const crearCursoEscolar = async (req, res) => {
     try {
         const { nombre, fecha_inicio, fecha_fin } = req.body;
@@ -317,6 +317,8 @@ export const crearCursoEscolar = async (req, res) => {
     }
 };
 
+
+// Actualizar curso escolar en academico.cursos_escolares y loggear la acción
 export const actualizarCursoEscolar = async (req, res) => {
     try {
         const { id } = req.params;
@@ -345,6 +347,7 @@ export const actualizarCursoEscolar = async (req, res) => {
     }
 };
 
+// Eliminar curso escolar en academico.cursos_escolares (solo si no tiene clases asociadas) y loggear la acción
 export const eliminarCursoEscolar = async (req, res) => {
     try {
         const { id } = req.params;
@@ -366,9 +369,7 @@ export const eliminarCursoEscolar = async (req, res) => {
     }
 };
 
-// ============================================================
 // PLANES DE ESTUDIO (gobDb - academico.planes_estudio)
-// ============================================================
 export const getPlanes = async (req, res) => {
     try {
         const { rows } = await gobDb.query(`
@@ -424,9 +425,9 @@ export const eliminarPlan = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // ASIGNATURAS (gobDb - academico.asignaturas)
-// ============================================================
+// 
 export const getAsignaturas = async (req, res) => {
     try {
         const { buscar, page = 1, limit = 50 } = req.query;
@@ -488,9 +489,9 @@ export const eliminarAsignatura = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // CLASES (gobDb - academico.clases)
-// ============================================================
+// 
 export const getClases = async (req, res) => {
     try {
         const { buscar, page = 1, limit = 50 } = req.query;
@@ -593,9 +594,9 @@ export const toggleClaseActiva = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // OFERTAS DE ASIGNATURAS (gobDb - academico.oferta_asignaturas)
-// ============================================================
+// 
 export const getOfertas = async (req, res) => {
     try {
         const { id_plan } = req.query;
@@ -656,9 +657,9 @@ export const eliminarOferta = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // MATRÍCULAS (gobDb - academico.matriculas)
-// ============================================================
+// 
 export const getMatriculas = async (req, res) => {
     try {
         const { id_clase, buscar, page = 1, limit = 30 } = req.query;
@@ -711,9 +712,9 @@ export const eliminarMatricula = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // ASIGNACIONES PROFESOR (gobDb - academico.asignaciones_profesor)
-// ============================================================
+// 
 export const getAsignaciones = async (req, res) => {
     try {
         const { id_clase } = req.query;
@@ -762,9 +763,9 @@ export const eliminarAsignacion = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // PERSONAS Y USUARIOS GOB (gobDb - externo.personas + externo.usuarios_gobierno + credenciales)
-// ============================================================
+// 
 export const getPersonas = async (req, res) => {
     try {
         const { buscar, page = 1, limit = 30 } = req.query;
@@ -843,9 +844,9 @@ export const resetPassword = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // USUARIOS APP (appDb - seguridad.usuarios_app)
-// ============================================================
+// 
 export const getUsuariosApp = async (req, res) => {
     try {
         const { tipo, activo, centro, buscar, page = 1, limit = 20 } = req.query;
@@ -895,9 +896,9 @@ export const cambiarRolUsuario = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // SALAS DE CHAT (appDb)
-// ============================================================
+// 
 export const getSalas = async (req, res) => {
     try {
         const { rows } = await appDb.query(`
@@ -927,9 +928,9 @@ export const updateSalaConfig = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // ROLES + AUDIT LOG
-// ============================================================
+// 
 export const getRoles = async (req, res) => {
     try {
         const { rows } = await appDb.query(`SELECT r.id_rol, r.nombre, (SELECT count(*) FROM seguridad.usuarios_app u WHERE u.id_rol = r.id_rol) as total_usuarios FROM seguridad.roles r ORDER BY r.id_rol`);
@@ -939,9 +940,9 @@ export const getRoles = async (req, res) => {
     }
 };
 
-// ============================================================
+// 
 // WIZARD — ASISTENTE DE CREACIÓN DE CLASE COMPLETA
-// ============================================================
+// 
 
 // Paso 1 helper: obtener ofertas de un plan (asignaturas disponibles por curso)
 export const getOfertasPorPlan = async (req, res) => {

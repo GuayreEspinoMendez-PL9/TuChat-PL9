@@ -11,7 +11,7 @@ import {
 
 const router = Router();
 
-// T3: Descargar mensajes guardados mientras el usuario estaba offline
+//Descargar mensajes guardados mientras el usuario estaba offline
 router.get("/pendientes/:userId", async (req, res) => {
   try {
     const redis = getRedis();
@@ -29,7 +29,7 @@ router.get("/pendientes/:userId", async (req, res) => {
   }
 });
 
-// T3: Confirmación de descarga (Borrar de Redis)
+// Confirmación de descarga (Borrar de Redis)
 router.post("/ack", async (req, res) => {
   try {
     const redis = getRedis();
@@ -53,6 +53,7 @@ router.post("/ack", async (req, res) => {
   }
 });
 
+// Obtener estados de mensajes por IDs
 router.post("/estados", async (req, res) => {
   try {
     const { roomId, msgIds } = req.body || {};

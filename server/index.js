@@ -6,15 +6,11 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import jwt from "jsonwebtoken";
 
-// fetch está disponible de forma nativa en Node 18+
-// Si usas Node 16 o anterior, instala node-fetch: npm install node-fetch
-// y descomenta: import fetch from 'node-fetch';
-
 import authRoutes from "./routes/auth.routes.js";
 import academicoRoutes from "./routes/academico.routes.js";
 import mensajesRoutes from "./routes/mensajes.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
-import adminRoutes from "./routes/admin.routes.js";       // ✅ AÑADIDO
+import adminRoutes from "./routes/admin.routes.js";      
 
 import { appDb } from "./db/db.js";
 import { getRedis } from "./redis.js";
@@ -44,7 +40,7 @@ app.use("/auth", authRoutes);
 app.use("/academico", academicoRoutes);
 app.use("/mensajes", mensajesRoutes);
 app.use("/chat", chatRoutes);
-app.use("/admin", adminRoutes);                            // ✅ AÑADIDO
+app.use("/admin", adminRoutes);                            
 
 app.get("/health", (req, res) => res.json({ ok: true, name: "tuchat-server" }));
 
@@ -58,12 +54,6 @@ app.get("/health/db", async (req, res) => {
 });
 
 // ─── TURN credentials endpoint ────────────────────────────────────────────────
-// Usa Metered.ca para TURN servers fiables (tier gratuito: 50GB/mes)
-// 1. Regístrate gratis en https://dashboard.metered.ca
-// 2. Crea una app y copia el nombre y la API key
-// 3. Añade en tu .env:
-//    METERED_API_KEY=tu_api_key_aqui
-//    METERED_APP_NAME=tu_app_name_aqui  (el subdominio, ej: "tuchat")
 app.get("/meet/ice-config", async (req, res) => {
   const apiKey = process.env.METERED_API_KEY;
   const appName = process.env.METERED_APP_NAME;
@@ -76,18 +66,18 @@ app.get("/meet/ice-config", async (req, res) => {
       );
       if (response.ok) {
         const iceServers = await response.json();
-        console.log(`✅ ICE config de Metered: ${iceServers.length} servidores`);
+        console.log(`ICE config de Metered: ${iceServers.length} servidores`);
         return res.json({ iceServers });
       }
-      console.warn('⚠️ Metered respondió con error:', response.status);
+      console.warn('Metered respondió con error:', response.status);
     } catch (e) {
-      console.error('❌ Error obteniendo ICE config de Metered:', e.message);
+      console.error('Error obteniendo ICE config de Metered:', e.message);
     }
   }
 
   // Fallback: múltiples TURN públicos por si falla Metered o no hay .env configurado
   // Nota: estos son menos fiables que Metered para producción
-  console.warn('⚠️ Usando TURN público de fallback (configura METERED_API_KEY para producción)');
+  console.warn('Usando TURN público de fallback (configura METERED_API_KEY para producción)');
   const iceServers = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -117,6 +107,8 @@ app.get("/meet/ice-config", async (req, res) => {
   res.json({ iceServers });
 });
 
+
+// Verificación de Redis
 app.get("/health/redis", async (req, res) => {
   try {
     const redis = getRedis();
@@ -128,21 +120,27 @@ app.get("/health/redis", async (req, res) => {
   }
 });
 
+// Inicialización del servidor HTTP y Socket.IO con soporte CORS
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", methods: ["GET", "POST"],
-    allowedHeaders: ["my-custom-header"], credentials: true
+    origin: "*", // Guayre : En producción esto debería ser solo los dominios del Front
+    methods: ["GET", "POST"],
+    allowedHeaders: ["my-custom-header"], 
+    credentials: true
   },
 });
 
+// Extrae el Jwt de diferentes posibles ubicaciones en el handshake del socket
+// 1. auth.token | 2.  query.token | 3. headers.authorization (Bearer)
 const getSocketToken = (socket) => {
+  // 1. Intentamos extraer el token de auth.token 
   const authToken = socket.handshake.auth?.token;
   if (typeof authToken === "string" && authToken.trim()) return authToken.trim();
-
+  // 2. Intentamos extraerlo de query.token
   const queryToken = socket.handshake.query?.token;
   if (typeof queryToken === "string" && queryToken.trim()) return queryToken.trim();
-
+  // 3. Intentamos extraerlo de headers.authorization (formato "Bearer <token>")
   const authorizationHeader = socket.handshake.headers?.authorization;
   if (typeof authorizationHeader === "string" && authorizationHeader.startsWith("Bearer ")) {
     return authorizationHeader.slice(7).trim();
@@ -151,6 +149,8 @@ const getSocketToken = (socket) => {
   return null;
 };
 
+// Middleware de Socket.IO para autenticar conexiones usando JWT antes de permitir la conexión
+// Si es válido añade userId y authUser al socket, si no rechaza la conexión con un error
 io.use((socket, next) => {
   try {
     const token = getSocketToken(socket);
@@ -187,15 +187,19 @@ const PRESENCE_LABELS = {
 const IMPORTANT_MESSAGE_TYPES = new Set(["announcement", "required_read", "assessable", "urgent"]);
 const PUSH_FALLBACK_DELAY_MS = 8000;
 
+// Normaliza el mensaje para asegurar que siempre tenga los campos necesarios y la metadata correcta, independientemente de cómo lo envíe el cliente. Esto facilita el manejo uniforme en el servidor y el cliente
 function buildIndexedMessage(payload) {
   const metadata = payload?.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
   const messageType = payload?.messageType || metadata.messageType || null;
   const threadTopic = payload?.threadTopic || metadata.threadTopic || null;
   const requiresAck = Boolean(payload?.requiresAck);
+
+  // Un mensaje es importante si su tipo está en IMPORTANT_MESSAGE_TYPES o si explícitamente viene marcado como importante en el payload o metadata. Esto permite destacar ciertos mensajes en el cliente
   const important = Boolean(payload?.important || metadata.important || IMPORTANT_MESSAGE_TYPES.has(String(messageType || "")));
 
   return {
     ...payload,
+    // Asegura consistencia entre 'text' y 'contenido'
     text: payload?.text ?? payload?.contenido ?? "",
     contenido: payload?.contenido ?? payload?.text ?? "",
     messageType,
@@ -213,6 +217,13 @@ function buildIndexedMessage(payload) {
   };
 }
 
+/**
+ * Programa una notificación Push si el mensaje no se entrega vía Socket en un tiempo determinado.
+ * @param {string} msgId - ID del mensaje a monitorear.
+ * @param {string} recipientId - Usuario que debe recibir la notificación.
+ * @param {number} PUSH_FALLBACK_DELAY_MS - Tiempo de espera antes de verificar la entrega.
+ */
+
 const schedulePushFallback = ({
   msgId,
   roomId,
@@ -228,11 +239,13 @@ const schedulePushFallback = ({
       const readUsers = new Set((status?.readUsers || []).map(String));
       const recipientKey = String(recipientId);
 
+      // Si el mensaje ya fue entregado o leído por el destinatario, no enviamos la notificación push
       if (deliveredUsers.has(recipientKey) || readUsers.has(recipientKey)) {
         console.log(`[PushFallback] Omitida para ${recipientId} en ${msgId}: ya entregado/leido`);
         return;
       }
 
+      // El usuario está offline o no recibió el evento por socket, disparamos Push
       console.log(`[PushFallback] Enviando push a ${recipientId} para ${msgId}`);
       await enviarNotificacionPush(recipientId, notification, roomId);
     } catch (error) {
@@ -241,7 +254,7 @@ const schedulePushFallback = ({
   }, PUSH_FALLBACK_DELAY_MS);
 };
 
-// Función para cargar ajustes desde BD (roomId = id_sala)
+// Función para cargar ajustes del chat específico desde BD (roomId = id_sala)
 async function cargarAjustesSala(roomId) {
   try {
     const { rows } = await appDb.query(`
@@ -250,6 +263,7 @@ async function cargarAjustesSala(roomId) {
       WHERE id_sala = $1
     `, [roomId]);
 
+    // Si existe configuración, se normaliza y se guarda en el objeto global 'ajustesSalas'
     if (rows.length > 0 && rows[0].configuracion) {
       const config = rows[0].configuracion;
       ajustesSalas[roomId] = {
@@ -260,22 +274,30 @@ async function cargarAjustesSala(roomId) {
       };
     }
 
+    // Devuelve la configuración de la sala o un objeto por defecto (fallback)
     return ajustesSalas[roomId] || { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
   } catch (e) {
+    // En caso de error de BD, devolvemos una configuración permisiva para no romper el flujo
     console.error("Error cargando ajustes:", e);
     return { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
   }
 }
 
+// Función para verificar si un usuario tiene una entrada activa de moderación (baneo o mute) en la sala, considerando expiraciones temporales. Devuelve la entrada activa o null si no hay restricciones vigentes
 const getActiveModerationEntry = (entries = [], userId) => {
   const now = Date.now();
   return (Array.isArray(entries) ? entries : []).find((entry) => {
+    // Compara IDs asegurando que ambos sean strings
     if (String(entry?.userId || '') !== String(userId || '')) return false;
+    // Si no tiene fecha de expiración, se considera restricción permanente (activa)
     if (!entry?.expiresAt) return true;
+    // Verifica si la restricción sigue vigente comparando con el tiempo actual
     return Number(entry.expiresAt) > now;
   }) || null;
 };
 
+// Función para determinar el mensaje de bloqueo por moderación (baneo o mute) que se le debe mostrar a un usuario si intenta enviar un mensaje en una sala donde tiene restricciones activas. 
+// Devuelve el mensaje específico según el tipo de restricción o null si no hay bloqueos
 const getModerationBlockMessage = (settings, senderId) => {
   const bannedEntry = getActiveModerationEntry(settings?.bannedMembers, senderId);
   if (bannedEntry) {
@@ -284,6 +306,7 @@ const getModerationBlockMessage = (settings, senderId) => {
       : 'No puedes enviar mensajes en este chat hasta que el profesorado retire la restriccion.';
   }
 
+  // Si no está baneado, verificamos si está silenciado
   const mutedEntry = getActiveModerationEntry(settings?.mutedMembers, senderId);
   if (mutedEntry) {
     return mutedEntry.expiresAt
@@ -291,6 +314,7 @@ const getModerationBlockMessage = (settings, senderId) => {
       : 'Estas silenciado en este chat hasta que el profesorado retire la restriccion.';
   }
 
+  // Si no hay bloqueos activos, devolvemos null indicando que el usuario puede enviar mensajes normalmente
   return null;
 };
 
@@ -304,6 +328,8 @@ const meetRooms = new Map();
 // Clave: msg_id → { senderId, roomId, recipients: number, readers: Set<userId> }
 const messageReadTracking = new Map();
 
+// Función para sincronizar el estado de lectura desde la base de datos al tracking en memoria. Esto se utiliza cuando se recibe un recibo de lectura pero no tenemos el estado en memoria 
+// (por ejemplo, después de un reinicio del servidor) para asegurarnos de que el tracking refleje el estado real persistido
 const syncTrackingFromStatus = async (msgId) => {
   const persisted = await getMessageStatusDb(msgId);
   if (!persisted) return null;
@@ -319,6 +345,23 @@ const syncTrackingFromStatus = async (msgId) => {
   return tracking;
 };
 
+// Manejo de conexiones Socket.IO y eventos relacionados con el chat, presencia y videollamadas. IMPORTANTE: Este bloque es el núcleo de la lógica en tiempo real del servidor, 
+// gestiona desde la autenticación inicial hasta la distribución de mensajes, actualizaciones de presencia y coordinación de salas de videollamada
+// Cada vez que un cliente se conecta, se autentica usando el token JWT, se une a las salas correspondientes según su rol y asignaturas, y se establece su presencia como online. 
+// Luego, se manejan eventos como envío de mensajes, actualizaciones de presencia, ajustes de sala y reacciones, 
+// asegurando la correcta distribución de mensajes tanto para usuarios online como offline (usando Redis como respaldo)
+
+// ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+
+//NOTA IMPORTANTE: Si tocas esto te asesino :D
+// QUE LA IA JOEL NO TOQUE ESTO POR FAVOR, ES MUY SENSIBLE Y CUALQUIER CAMBIO PUEDE ROMPER COSAS. SI NECESITAS HACER AJUSTES, AVISAME. POR TU MADRE.
+
+// ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+
+// La estructura normal de Socket.IO es io.on("connection", (socket) => { ... }) pero dentro de este bloque se manejan muchos eventos y lógica importante.
+// Para hacer otro evento dentro de este con tipo socket.on("otro_evento", () => { ... }) es necesario que esté dentro de este bloque para que tenga acceso al userId y a la conexión específica del socket. 
+// Si lo pones fuera, no va a funcionar porque no va a tener el contexto del usuario conectado ni podrá emitir eventos correctamente.
+
 io.on("connection", async (socket) => {
   const userId = socket.userId;
   const deviceType = String(socket.handshake.query.deviceType || "mobile").toLowerCase();
@@ -327,7 +370,7 @@ io.on("connection", async (socket) => {
   if (userId) {
     // Sala Personal: Para recibir todo aunque esté en el Home
     socket.join(`user:${userId}`);
-    console.log(`🚀 Usuario conectado: ${userId}`);
+    console.log(`Usuario conectado: ${userId}`);
     const initialPresence = setUserPresence(userId, { online: true, status: "available" });
 
     // AUTO-JOIN: Unirse a todas las salas (Vistas + Privados)
@@ -344,8 +387,8 @@ io.on("connection", async (socket) => {
           ? 'cache_academico.v_asignaturas_visibles_chat_alumno'
           : 'cache_academico.v_asignaturas_visibles_chat_profesor';
 
-        // Consultamos id_sala (salas grupales) y chats_privados
-        // Vinculamos vista → clases (por nombre) → salas_chat → oferta (por asignatura)
+        // Consulta id_sala (salas grupales) y chats_privados
+        // Vinculo la vista → clases (por nombre) → salas_chat → oferta (por asignatura)
         const querySalas = `
           SELECT DISTINCT sc.id_sala::text as sala_id 
           FROM ${vista} v
@@ -362,20 +405,20 @@ io.on("connection", async (socket) => {
 
         const { rows: salas } = await appDb.query(querySalas, [userId]);
 
+        // Unirse a cada sala obtenida y emitir presencia inicial a cada una
         salas.forEach(row => {
           socket.join(row.sala_id);
           connectedRooms.push(String(row.sala_id));
-          // console.log(`📡 Escuchando sala: ${row.sala_id}`);
         });
 
         connectedRooms.forEach((roomId) => {
           io.to(roomId).emit("presence:update", initialPresence);
         });
 
-        console.log(`✅ Sincronizadas ${salas.length} salas para ${userId}`);
+        console.log(`Sincronizadas ${salas.length} salas para ${userId}`);
       }
     } catch (e) {
-      console.error("❌ Error Auto-Join:", e.message);
+      console.error("Error Auto-Join:", e.message);
     }
 
     // Recuperar pendientes web. Los del movil se sincronizan via API + ACK explicito.
@@ -384,7 +427,7 @@ io.on("connection", async (socket) => {
       if (deviceType === "web" && redis && redis.status === 'ready') {
         const pendingMessages = await listPendingMessages(redis, userId, "web");
         if (pendingMessages.length > 0) {
-          console.log(`📦 Entregando ${pendingMessages.length} mensajes offline`);
+          console.log(`Entregando ${pendingMessages.length} mensajes offline`);
           pendingMessages.forEach(obj => {
             try {
               if (obj.type === 'reaction') {
@@ -398,22 +441,26 @@ io.on("connection", async (socket) => {
         }
       }
     } catch (e) {
-      console.error("⚠️ Redis no disponible (no crítico):", e.message);
+      console.error("Redis no disponible (no crítico):", e.message);
     }
   }
 
-  // --- EVENTOS DE CHAT ---
-
+  // La funcion de este evento es permitir que el cliente se una manualmente a una sala específica (por ejemplo, al abrir un chat desde la lista) y 
+  // cargar los ajustes de esa sala para aplicar las restricciones correspondientes. Esto es útil para asegurar que el cliente siempre tenga la configuración actualizada 
+  // de la sala a la que se une, especialmente si hay cambios en los permisos o moderación
   socket.on("join_room", async (roomId) => {
+    // Verificamos que el usuario tenga permiso para unirse a esa sala antes de permitirlo
     socket.join(roomId);
     if (!connectedRooms.includes(String(roomId))) {
       connectedRooms.push(String(roomId));
     }
-    console.log(`👤 Unión manual: ${socket.id} -> ${roomId}`);
+    console.log(`Unión manual: ${socket.id} -> ${roomId}`);
 
+    // Funcion asíncrona que espera a que le lleguen los datos de la funcion (que esta llama a la BD) para cargar los ajustes de la sala 
     await cargarAjustesSala(roomId);
   });
 
+  // Manejo de actualización de presencia. Permite al cliente actualizar su estado de presencia (disponible, en clase, ocupado)
   socket.on("presence:set_status", ({ status }) => {
     if (!userId) return;
     const nextStatus = ["available", "in_class", "busy"].includes(status) ? status : "available";
@@ -426,6 +473,10 @@ io.on("connection", async (socket) => {
     io.to(`user:${userId}`).emit("presence:update", presence);
   });
 
+  // EL EJE CENTRAL DE LA APP => ENVIAR MENSAJES 
+  // Este es el evento central para el chat, donde se reciben los mensajes enviados por los clientes, se validan los permisos según la configuración de la sala (ajustesSalas)
+  // se construye el mensaje con la metadata necesaria, se emite a la sala correspondiente y a los destinatarios específicos, y se maneja el almacenamiento en Redis 
+  // para usuarios offline y el tracking de lectura para grupos
   socket.on("chat:send", async (payload, ackFn) => {
     const senderId = userId;
     const { roomId, recipients, esProfesor, contenido, nombreEmisor, imageUri } = payload;
@@ -433,7 +484,8 @@ io.on("connection", async (socket) => {
     if (!ajustesSalas[roomId]) {
       await cargarAjustesSala(roomId);
     }
-    // Check de permisos (ajustesSalas debe estar definido arriba en tu index.js)
+    // Check de permisos: Si la sala es solo para profesores, el emisor no es profesor y no es delegado, no puede enviar mensajes. 
+    // Además, si tiene una restricción activa de baneo o mute, se le bloquea con el mensaje correspondiente
     const settings = ajustesSalas[roomId] || { soloProfesores: false, delegados: [], mutedMembers: [], bannedMembers: [] };
     const puedeHablar = !settings.soloProfesores || esProfesor || settings.delegados?.includes(senderId);
     const moderationBlockMessage = esProfesor ? null : getModerationBlockMessage(settings, senderId);
@@ -448,12 +500,14 @@ io.on("connection", async (socket) => {
     const message = buildIndexedMessage({
       ...payload,
       senderId,
-      contenido: contenido || payload.text, // Aseguramos que tenga algo
+      contenido: contenido || payload.text, // Aseguramos que tenga algo porque sino se jode el cliente al intentar renderizar mensajes sin contenido
       timestamp: Date.now(),
       read: false
     });
 
-    // A. Envío a la sala (Para los que están dentro del chat abierto)
+    // DISTIBUCION DEL MENSAJE EN TIEMPO REAL CON LOS CLIENTES CONECTADOS (Sockets) Y RESPALDO EN REDIS PARA LOS OFFLINE
+
+    // A. Envío a la sala (Para los que están dentro del chat abierto) 
     io.to(roomId).emit("chat:receive", message);
 
     // Confirmar al emisor que el servidor recibió el mensaje (tick simple)
@@ -462,6 +516,9 @@ io.on("connection", async (socket) => {
     }
     // También emitir evento explícito para que el emisor actualice el estado
     socket.emit("chat:msg_sent", { msg_id: message.msg_id || payload.msg_id });
+
+    // TRACKING DE LECTURA Y PERSISTENCIA EN DB: Inicializo el tracking de lectura para este mensaje, 
+    // guardo el estado inicial en la base de datos y programao una verificación para enviar notificaciones push si el mensaje no se entrega por socket
 
     // B. Envío Global y Redis (Para los que están fuera o offline)
     if (recipients && Array.isArray(recipients)) {
@@ -477,6 +534,9 @@ io.on("connection", async (socket) => {
           readers: new Set(),
           deliveredUsers: new Set(),
         });
+
+        // MANTENIMIENTO DE MEMORIA
+
         // Limpiar tracking antiguo (>24h) para evitar memory leak
         const now = Date.now();
         if (!messageReadTracking._lastCleanup || now - messageReadTracking._lastCleanup > 3600000) {
@@ -488,6 +548,8 @@ io.on("connection", async (socket) => {
         }
         messageReadTracking.get(msgId).createdAt = now;
       }
+
+      // Registro inicial en BD para auditorias y persistencia a largo plazo (solo si es un mensaje grupal, para mensajes 1:1 no es necesario)
       if (msgId) {
         await createMessageStatusDb({
           msgId,
@@ -498,6 +560,9 @@ io.on("connection", async (socket) => {
         });
       }
 
+      // DISTRIBUCIÓN MULTI-CANAL ( USUARIOS FUERA DE LA SALA O OFFLINE )
+      // Para cada destinatario que no sea el emisor, se intenta entregar el mensaje por socket (si está online y conectado a la sala), se guarda en Redis como respaldo para offline, 
+      // y se envía una notificación push si es importante o si el destinatario fue mencionado
       try {
         const redis = getRedis();
         for (const uId of otherRecipients) {
@@ -532,21 +597,23 @@ io.on("connection", async (socket) => {
           socket.emit("chat:update_delivered_status", { msg_id: msgId });
         }
       } catch (e) {
-        console.error("❌ Error en distribución:", e);
+        console.error("Error en distribución:", e);
       }
     }
   });
 
-  // --- TYPING ---
+  // Emite el evento de que la persona esta escribiendo como: "Ana está escribiendo ..."
   socket.on("chat:typing", ({ roomId, userName }) => {
     socket.to(roomId).emit("chat:user_typing", { userName });
   });
 
+  // Actualiza la interfaz para que deje de mostrar "Ana está escribiendo ..."
   socket.on("chat:stop_typing", ({ roomId }) => {
     socket.to(roomId).emit("chat:user_stopped_typing");
   });
 
-  // --- SETTINGS ---
+  // Manejo de actualización de ajustes de sala (soloProfesores, delegados, muteos, baneos). 
+  // Este evento permite que el profesorado actualice la configuración de la sala en tiempo real
   socket.on("chat:update_settings", async (settings) => {
     const { roomId, soloProfesores, delegados } = settings;
     const currentSettings = ajustesSalas[roomId] || { mutedMembers: [], bannedMembers: [] };
@@ -554,10 +621,11 @@ io.on("connection", async (socket) => {
     ajustesSalas[roomId] = {
       soloProfesores,
       delegados,
-      mutedMembers: currentSettings.mutedMembers || [],
-      bannedMembers: currentSettings.bannedMembers || [],
+      mutedMembers: currentSettings.mutedMembers || [], // hace lo mismo que banned
+      bannedMembers: currentSettings.bannedMembers || [], // hace los mismo que mited
     };
 
+    // Persistencia en la BD para guardar los cambios 
     try {
       await appDb.query(
         `UPDATE comunicacion.salas_chat SET configuracion = $1 WHERE id_sala = $2`,
@@ -567,9 +635,13 @@ io.on("connection", async (socket) => {
       console.error("Error guardando ajustes:", e);
     }
 
+    // Luego se emite a todos los usuarios para que se actualicen los permisos 
     io.to(roomId).emit("chat:settings_changed", ajustesSalas[roomId]);
   });
 
+
+  // Manejo de envío de mensajes con medios (imágenes). 
+  // Este evento es similar a "chat:send" pero específicamente para mensajes que incluyen un campo 'image' con la imagen en base64.
   socket.on("chat:send_media", async (payload, ackFn) => {
     // 1. Extraemos los datos (payload trae el campo 'image' con el base64)
     const senderId = userId;
@@ -628,12 +700,13 @@ io.on("connection", async (socket) => {
         });
       }
 
+      // Distribución a destinatarios específicos (para notificaciones push y respaldo en Redis)
       const redis = getRedis();
       otherRecipients.forEach(uId => {
           io.to(`user:${uId}`).emit("chat:receive", message);
           if (redis?.status === 'ready') {
             enqueuePendingMessage(redis, uId, message).catch((error) => {
-              console.error("❌ Error guardando adjunto en Redis:", error.message);
+              console.error("Error guardando adjunto en Redis:", error.message);
             });
           }
           const mentionTargets = payload.mentions?.targetUserIds || [];
@@ -650,7 +723,7 @@ io.on("connection", async (socket) => {
               ? `${nombreEmisor || message.senderName || 'Usuario'}: ${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}`
               : `${hasMention ? 'Te menciono en un adjunto' : 'Adjunto recibido'}`,
           }, roomId).catch((error) => {
-            console.error("❌ Error enviando push inmediata de adjunto:", error?.message || error);
+            console.error("Error enviando push inmediata de adjunto:", error?.message || error);
           });
       });
 
@@ -661,6 +734,8 @@ io.on("connection", async (socket) => {
     }
   });
 
+  // Manejo de reacciones a mensajes. Permite a los usuarios reaccionar a mensajes específicos con emojis u otras reacciones, 
+  // y distribuye esa información tanto a los usuarios dentro de la sala como a los destinatarios específicos (usando Redis para offline)
   socket.on("chat:reaction", async (payload) => {
     const senderId = userId;
     const { roomId, msgId, reaction, recipients } = payload;
@@ -676,22 +751,27 @@ io.on("connection", async (socket) => {
 
         for (const uId of recipients) {
           if (uId !== senderId) {
-            // Only send to personal channel (for users not in the room/offline)
-            // socket.to(roomId) already covered users inside the room
+            // IMPORTANTE: No uso io.to(`user:${uId}`) aquí porque quiero que la reacción solo llegue a los usuarios que no están actualmente en la sala (offline o fuera de la sala),
+            // si uso io.to(`user:${uId}`) va a llegar a todos los dispositivos del usuario, incluso si están dentro del chat, y eso puede causar que la reacción se duplique o se muestre incorrectamente y se lia
+            // Rezo para que no pase nada raro con esto. 
+            // La idea es que la reacción se entregue por socket a los usuarios que están en la sala (incluido el emisor), y para los que no están, se guarde en Redis para entregar cuando se conecten o abran el chat.
             if (redis?.status === 'ready') {
               await enqueuePendingMessage(redis, uId, reactionObj);
             }
           }
         }
       } catch (e) {
-        console.error("❌ Error distributing reaction:", e);
+        console.error("Error distributing reaction:", e);
       }
     }
   });
 
+  // Manejo de recibos de lectura y entrega. Estos eventos se disparan cuando un cliente lee un mensaje o recibe un mensaje, 
+  // y actualiza el estado tanto en memoria (para tracking en grupos) como en la base de datos,
   socket.on("chat:read_receipt", ({ msg_id, roomId }) => {
     if (!msg_id || !userId) return;
 
+    // IMPORTANTE: Este evento es crítico para el tracking de lectura en grupos. Cuando se recibe un recibo de lectura, se actualiza el tracking en memoria (messageReadTracking) para ese mensaje específico
     Promise.resolve()
       .then(async () => {
         let tracking = messageReadTracking.get(msg_id);
@@ -715,10 +795,11 @@ io.on("connection", async (socket) => {
         }
       })
       .catch((error) => {
-        console.error("❌ Error en chat:read_receipt:", error.message);
+        console.error("Error en chat:read_receipt:", error.message);
       });
   });
 
+  // Manejo de recibos de entrega. Similar al recibo de lectura, pero se dispara cuando un mensaje es entregado al cliente (por ejemplo, cuando se recibe por socket o se recupera de Redis),
   socket.on("chat:delivered_receipt", ({ msg_id, roomId }) => {
     if (!msg_id || !userId) return;
 
@@ -740,10 +821,11 @@ io.on("connection", async (socket) => {
         }
       })
       .catch((error) => {
-        console.error("❌ Error en chat:delivered_receipt:", error.message);
+        console.error("Error en chat:delivered_receipt:", error.message);
       });
   });
 
+  // Manejo de recibos de lectura "fuertes" ( tick azul ).
   socket.on("chat:strong_read", ({ msg_id, roomId, userName }) => {
     if (!msg_id || !roomId || !userId) return;
     io.to(roomId).emit("chat:update_strong_read", {
@@ -756,12 +838,11 @@ io.on("connection", async (socket) => {
     });
   });
 
-  // ==================================
-  // PIN MESSAGE HANDLERS
-  // ==================================
+  // Manejo de mensajes fijados (pin) y des-fijados (unpin). 
+  // Permite al profesorado fijar mensajes importantes en la parte superior del chat, con una categoría, color y duración opcional
   socket.on("chat:pin_message", async (payload) => {
     const { roomId, messageId, duration, category, color, durationLabel } = payload;
-    console.log(`📌 Pin message request:`, payload);
+    console.log(`Pin message request:`, payload);
 
     const pinData = await createPinDb({
       roomId,
@@ -774,31 +855,28 @@ io.on("connection", async (socket) => {
       text: payload.text || payload.contenido || 'Mensaje fijado',
     });
 
-    // Broadcast to all users in the room
+    // Emitir a todos los usuarios en la sala el mensaje fijado para que lo muestren en la interfaz
     io.to(roomId).emit("chat:receive_pin", pinData);
-    console.log(`📌 Pin broadcast to room ${roomId}`);
+    console.log(`Pin broadcast to room ${roomId}`);
   });
 
   socket.on("chat:unpin_message", async (payload) => {
     const { roomId, messageId } = payload;
-    console.log(`📌 Unpin message request:`, payload);
+    console.log(`Unpin message request:`, payload);
 
     await removePinDb({ roomId, messageId });
 
-    // Broadcast to all users in the room
+    // Emitir a todos los usuarios en la sala que se ha des-fijado el mensaje para que lo eliminen de la interfaz
     io.to(roomId).emit("chat:receive_unpin", { messageId });
-    console.log(`📌 Unpin broadcast to room ${roomId}`);
+    console.log(`Unpin broadcast to room ${roomId}`);
   });
 
-  // ==================================
-  // SISTEMA DE VIDEOLLAMADAS TIPO MEET
-  // ==================================
+  // SISTEMA DE VIDEOLLAMADAS (COPIA DE GOOGLE MEET) PUTISIMA IMPLEMENTACION, PERO FUNCIONA Y NO ROMPE NADA  | REZAR Y QUE NO SE ROMPA MAS PORQUE ES UN INFIERNO DE CODIGO
 
   // Unirse a una sala de videollamada
   socket.on("meet:join", ({ roomId, userId: claimedUserId, type }) => {
     const meetUserId = userId;
-    // LOG DETALLADO PARA DEBUGGING
-    console.log(`📞 MEET:JOIN recibido:`, {
+    console.log(`MEET:JOIN recibido:`, {
       roomId,
       userId: meetUserId,
       claimedUserId,
@@ -812,60 +890,73 @@ io.on("connection", async (socket) => {
 
     // VALIDACIÓN DE DATOS
     if (!roomId || roomId === 'null' || roomId === 'undefined' || roomId.trim() === '') {
-      console.error("❌ roomId inválido en meet:join");
+      console.error("roomId inválido en meet:join");
       socket.emit("meet:error", { msg: "ID de sala inválido" });
       return;
     }
-
+ 
+    // El userId que viene en la petición es solo referencial, el real se obtiene del token JWT y se asigna a meetUserId. Esto es para evitar suplantaciones de identidad.
     if (!meetUserId || meetUserId === 'null' || meetUserId === 'undefined' || meetUserId.trim() === '') {
-      console.error("❌ userId inválido en meet:join");
+      console.error("userId inválido en meet:join");
       socket.emit("meet:error", { msg: "ID de usuario inválido" });
       return;
     }
 
+    // Si la sala no existe en memoria, la creamos. Cada sala tiene un mapa de participantes (userId → socketId) y un mapa de screen sharers (socketId → userId)
     if (!meetRooms.has(roomId)) {
       meetRooms.set(roomId, { participants: new Map(), screenSharers: new Map(), callId: crypto.randomUUID(), type });
-      console.log(`✨ Creada sala de Meet en memoria: ${roomId}`);
+      console.log(`Creada sala de Meet en memoria: ${roomId}`);
     }
-
+    
+    // Agregar o actualizar el participante en la sala
     const room = meetRooms.get(roomId);
     if (!room.screenSharers) room.screenSharers = new Map();
 
     // Evitar duplicados
     if (room.participants.has(meetUserId)) {
-      console.log(`⚠️ Usuario ${meetUserId} ya está en la sala, actualizando socketId`);
+      console.log(`Usuario ${meetUserId} ya está en la sala, actualizando socketId`);
       room.participants.set(meetUserId, socket.id);
+      // Nota: Esto puede pasar si el usuario se conecta desde otro dispositivo o pestaña, o si se recarga la página. En este caso, simplemente actualizamos el socketId para ese userId.
     } else {
       room.participants.set(meetUserId, socket.id);
-      console.log(`➕ Usuario ${meetUserId} añadido a la sala ${roomId}`);
+      console.log(`Usuario ${meetUserId} añadido a la sala ${roomId}`);
     }
 
+    // Unir el socket a la sala de Socket.IO para facilitar la emisión de eventos a todos los participantes
     socket.join(`meet:${roomId}`);
-    console.log(`🚪 Socket ${socket.id} unido a meet:${roomId}`);
+    console.log(`Socket ${socket.id} unido a meet:${roomId}`);
 
+    // Enviar al nuevo participante la lista de participantes existentes y quiénes están compartiendo pantalla
     const others = Array.from(room.participants.entries())
       .filter(([uid]) => uid !== meetUserId)
       .map(([uid, sid]) => ({ userId: uid, socketId: sid }));
 
-    console.log(`👥 Enviando lista de ${others.length} participantes existentes a ${meetUserId}`);
+    console.log(`Enviando lista de ${others.length} participantes existentes a ${meetUserId}`);
+    // Además de la lista de participantes, también enviamos quiénes están compartiendo pantalla para que el cliente pueda mostrar los indicadores correspondientes
     socket.emit("meet:participants", {
       participants: others,
       callId: room.callId,
       screenSharers: Array.from(room.screenSharers.entries()).map(([socketId, sharerUserId]) => ({ socketId, userId: sharerUserId }))
     });
 
-    console.log(`📢 Notificando a ${others.length} usuarios sobre nuevo participante ${meetUserId}`);
+    console.log(`Notificando a ${others.length} usuarios sobre nuevo participante ${meetUserId}`);
+    // Notificar a los demás participantes que se ha unido un nuevo usuario, incluyendo su userId y socketId para que puedan establecer la conexión WebRTC
     socket.to(`meet:${roomId}`).emit("meet:user-joined", { userId: meetUserId, socketId: socket.id });
   });
 
+  // Manejo de cambio de estado de compartir pantalla. Cuando un participante comienza o deja de compartir pantalla, 
+  // se actualiza el estado en la sala y se notifica a los demás participantes para que actualicen su interfaz y conexiones WebRTC en consecuencia
   socket.on("meet:screen-share-state", ({ roomId, isSharing }) => {
     const room = meetRooms.get(roomId);
     if (!room) return;
     if (!room.screenSharers) room.screenSharers = new Map();
 
+    // Actualizar el mapa de screen sharers: si isSharing es true, añadimos al participante, si es false, lo eliminamos
     if (isSharing) room.screenSharers.set(socket.id, userId);
     else room.screenSharers.delete(socket.id);
 
+    // Notificar a los demás participantes el cambio de estado de compartir pantalla, 
+    // incluyendo el socketId del participante que cambió su estado y su userId para que puedan identificarlo en la interfaz
     socket.to(`meet:${roomId}`).emit("meet:screen-share-state", {
       socketId: socket.id,
       userId,
@@ -873,9 +964,9 @@ io.on("connection", async (socket) => {
     });
   });
 
+  // Manejo de ofertas WebRTC (SDP) para establecer la conexión peer-to-peer entre los participantes.
   socket.on("meet:offer", (data) => {
-    console.log(`📤 Reenviando Offer de ${socket.id} a ${data.to} (renegotiation: ${!!data.isRenegotiation})`);
-    // FIX: propagar isRenegotiation al receptor para que fuerce re-mount del <video>
+    console.log(`Reenviando Offer de ${socket.id} a ${data.to} (renegotiation: ${!!data.isRenegotiation})`);
     io.to(data.to).emit("meet:offer", {
       from: socket.id,
       offer: data.offer,
@@ -884,27 +975,28 @@ io.on("connection", async (socket) => {
     });
   });
 
+  // Manejo de respuestas WebRTC (SDP) para completar el proceso de establecimiento de la conexión peer-to-peer entre los participantes.
   socket.on("meet:answer", (data) => {
-    console.log(`📥 Reenviando Answer de ${socket.id} a ${data.to}`);
+    console.log(`Reenviando Answer de ${socket.id} a ${data.to}`);
     io.to(data.to).emit("meet:answer", { from: socket.id, answer: data.answer, roomId: data.roomId });
   });
-
+ // Manejo de candidatos ICE para facilitar la conexión peer-to-peer entre los participantes, reenviando los candidatos al destinatario correspondiente para que puedan establecer la conexión directa.
   socket.on("meet:ice-candidate", (data) => {
     if (data.to) {
-      console.log(`🧊 Reenviando ICE candidate de ${socket.id} a ${data.to}`);
+      console.log(`Reenviando ICE candidate de ${socket.id} a ${data.to}`);
       io.to(data.to).emit("meet:ice-candidate", { from: socket.id, candidate: data.candidate });
     }
   });
 
+  // Manejo de salida de la sala de videollamada. Cuando un participante se va, se elimina de la sala en memoria, 
+  // se notifica a los demás participantes para que actualicen su interfaz y conexiones WebRTC, y si la sala queda vacía, se elimina completamente.
   socket.on("meet:leave", ({ roomId, userId: claimedUserId }) => {
-    console.log(`👋 meet:leave recibido de ${userId} en sala ${roomId}`, { claimedUserId });
+    console.log(`meet:leave recibido de ${userId} en sala ${roomId}`, { claimedUserId });
     leaveMeetRoom(roomId, userId, socket.id);
   });
 
-  // ==================================
-  // QR SYNC - Sincronizar mensajes móvil → web
-  // ==================================
-  // Mapa global de tokens QR activos: token → { webSocketId, userId, createdAt }
+
+  // SISTEMA DE SINCRONIZACIÓN DE MENSAJES POR QR ENTRE DISPOSITIVOS (WEB ↔ MÓVIL) | FUNCIONARÁ? - FUNCIONA VAMOOO
   const qrSyncSessions = io._qrSyncSessions || (io._qrSyncSessions = new Map());
 
   // 1. Web solicita un token QR para mostrar
@@ -931,11 +1023,13 @@ io.on("connection", async (socket) => {
       socket.emit("sync:error", { msg: "Código QR expirado o inválido" });
       return;
     }
+    // Verificación de que el userId del token coincide con el userId del socket que intenta emparejar. Esto es para evitar que alguien intente usar un QR que no le pertenece.
     if (session.userId !== userId) {
       console.warn(`[QR Sync] Intento de emparejado cruzado`, { expectedUserId: session.userId, claimedUserId, socketUserId: userId });
       socket.emit("sync:error", { msg: "El QR pertenece a otro usuario" });
       return;
     }
+    // Emparejar: guardar el socketId del móvil en la sesión y marcar como emparejado
     session.mobileSocketId = socket.id;
     session.paired = true;
     qrSyncSessions.set(token, session);
@@ -963,7 +1057,7 @@ io.on("connection", async (socket) => {
     console.log(`[QR Sync] Completado: ${totalMessages} mensajes en ${totalRooms} salas`);
   });
 
-  // --- LIMPIEZA EN DISCONNECT ---
+  // Manejo de desconexión del socket. Cuando un socket se desconecta, se actualiza la presencia del usuario a offline, se notifica a las salas conectadas para que actualicen la presencia
   socket.on("disconnecting", () => {
     if (!userId) return;
     const offlinePresence = setUserPresence(userId, { online: false, status: "offline" });
@@ -972,13 +1066,15 @@ io.on("connection", async (socket) => {
     });
   });
 
+  // Manejo de desconexión definitiva del socket. Después de que el socket se ha desconectado, se limpia cualquier referencia a ese socket en las salas de videollamada (meetRooms) 
+  // para evitar que queden usuarios "colgados" con sockets inválidos, y se notifica a los demás participantes si es necesario.
   socket.on("disconnect", () => {
-    console.log(`❌ Socket desconectado: ${socket.id}`);
+    console.log(`Socket desconectado: ${socket.id}`);
 
     meetRooms.forEach((room, rId) => {
       for (let [uId, sId] of room.participants) {
         if (sId === socket.id) {
-          console.log(`🧹 Limpiando usuario ${uId} de sala ${rId} por disconnect`);
+          console.log(`Limpiando usuario ${uId} de sala ${rId} por disconnect`);
           leaveMeetRoom(rId, uId, socket.id);
         }
       }
@@ -989,10 +1085,10 @@ io.on("connection", async (socket) => {
   function leaveMeetRoom(roomId, userId, socketId) {
     const room = meetRooms.get(roomId);
     if (!room) {
-      console.log(`⚠️ Sala ${roomId} no encontrada en leaveMeetRoom`);
+      console.log(`Sala ${roomId} no encontrada en leaveMeetRoom`);
       return;
     }
-
+    // borra al participante de la sala
     room.participants.delete(userId);
     if (room.screenSharers) room.screenSharers.delete(socketId);
     socket.leave(`meet:${roomId}`);
@@ -1001,7 +1097,7 @@ io.on("connection", async (socket) => {
     socket.to(`meet:${roomId}`).emit("meet:user-left", { userId, socketId });
     socket.to(`meet:${roomId}`).emit("meet:screen-share-state", { userId, socketId, isSharing: false });
 
-    console.log(`👋 ${userId} salió de meet ${roomId}. Quedan: ${room.participants.size}`);
+    console.log(`${userId} salió de meet ${roomId}. Quedan: ${room.participants.size}`);
 
     // Si no queda nadie, eliminar sala y actualizar BD
     if (room.participants.size === 0) {
@@ -1013,7 +1109,7 @@ io.on("connection", async (socket) => {
       ).catch(e => console.error("Error finalizando llamada:", e));
 
       meetRooms.delete(roomId);
-      console.log(`🗑️ Meet ${roomId} eliminado (sin participantes)`);
+      console.log(`Meet ${roomId} eliminado (sin participantes)`);
     }
   }
 });
@@ -1023,10 +1119,10 @@ const PORT = process.env.PORT || 4000;
 Promise.all([initCollabTables(), initMessageStatusTable()])
   .then(() => {
     server.listen(PORT, () => {
-      console.log(`✅ Servidor corriendo en puerto ${PORT}`);
+      console.log(`Servidor corriendo en puerto ${PORT}`);
     });
   })
   .catch((error) => {
-    console.error("❌ No se pudieron inicializar las tablas colaborativas:", error.message);
+    console.error("No se pudieron inicializar las tablas colaborativas:", error.message);
     process.exit(1);
   });

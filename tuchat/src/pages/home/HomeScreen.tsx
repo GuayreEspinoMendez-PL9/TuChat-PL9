@@ -115,9 +115,13 @@ const MessageStatus = ({ status }: { status: 'sent' | 'delivered' | 'read' }) =>
   );
 };
 
+// Función para construir el índice de búsqueda de un mensaje a partir de sus propiedades relevantes, 
+// como texto, remitente, sala, metadatos, y fragmentos de fecha. Esto permite realizar búsquedas eficientes en la base de datos utilizando este índice preconstruido.
 const EducationFlipHero = ({ colors }: { colors: any }) => {
   const translateY = React.useRef(new Animated.Value(0)).current;
 
+  // Animación de flip vertical que recorre las palabras clave del home cuando no hay chats, creando un efecto dinámico 
+  // y atractivo para el usuario mientras espera a que se carguen sus conversaciones o decide iniciar una nueva.
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
@@ -249,6 +253,8 @@ export const HomeScreen = () => {
     };
   }, []);
 
+
+  //  Función para obtener los datos del usuario desde el almacenamiento seguro (SecureStore) o localStorage, dependiendo de la plataforma.
   const fetchUserData = async () => {
     try {
       const userDataStr = Platform.OS === 'web'
@@ -273,6 +279,7 @@ export const HomeScreen = () => {
     }
   };
 
+  // Función para cargar las listas de chats disponibles para el usuario, tanto grupales como privados, desde la API.
   const fetchChats = useCallback(async () => {
     try {
       const storage = await getPreferenceStorage();
@@ -382,6 +389,8 @@ export const HomeScreen = () => {
     }
   }, [resetSessionViewState]);
 
+  // Función para actualizar la lista de mensajes importantes, filtrando por los chats actualmente visibles según la pestaña activa (grupos o privados) 
+  // y obteniendo los mensajes marcados como importantes para el usuario en esos chats.
   const refreshImportantItems = useCallback(() => {
     const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));
     setImportantItems(typeof getImportantMessages === 'function' ? getImportantMessages(userId, roomIds) : []);
@@ -392,6 +401,8 @@ export const HomeScreen = () => {
     fetchChats();
   }, [fetchChats]);
 
+  // Al cargar la pantalla, se intenta recuperar las preferencias del usuario (como la pestaña activa, el modo de panel, la consulta de búsqueda y las búsquedas recientes) 
+  // desde el almacenamiento seguro o localStorage. Esto permite mantener una experiencia personalizada y consistente para el usuario cada vez que accede a la aplicación.
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -409,6 +420,8 @@ export const HomeScreen = () => {
     return () => { mounted = false; };
   }, [getPreferenceStorage]);
 
+  // Cada vez que cambian las preferencias relevantes para la vista (pestaña activa, modo de panel, consulta de búsqueda o búsquedas recientes), 
+  // se guardan estas preferencias en el almacenamiento seguro o localStorage. Esto asegura que la próxima vez que el usuario acceda a la aplicación, su configuración personalizada se mantenga intacta.
   useEffect(() => {
     (async () => {
       try {
@@ -430,6 +443,7 @@ export const HomeScreen = () => {
     }, [refreshUnreadCounts, fetchChats])
   );
 
+  // Cada vez que cambian los chats visibles o los conteos de mensajes no leídos, se actualiza la lista de mensajes importantes para reflejar cualquier cambio relevante en esos chats.
   useEffect(() => {
     refreshImportantItems();
   }, [refreshImportantItems, unreadCounts]);
@@ -448,6 +462,8 @@ export const HomeScreen = () => {
     if (typeof markMessagesAsRead === 'function') markMessagesAsRead(normalizedRoomId);
     refreshUnreadCounts();
 
+    // Si la sala existe en las listas actuales, se abre directamente. Si no, se crea un objeto de chat temporal con el ID proporcionado y se abre igual, 
+    // lo que permite manejar notificaciones de salas nuevas o no listadas sin errores.
     if (isDesktop) {
       setSelectedChat({
         ...nextChat,
@@ -471,6 +487,9 @@ export const HomeScreen = () => {
     return true;
   }, [chats, privateChats, isDesktop, refreshUnreadCounts]);
 
+  // Al cargar la pantalla, se verifica si hay alguna notificación pendiente que indique que se debe abrir una sala específica. 
+  // Si existe dicha notificación, se procesa para abrir la sala correspondiente. Además, en la versión web, 
+  // se agrega un listener para eventos personalizados que permitan abrir salas desde notificaciones incluso después de la carga inicial.
   useEffect(() => {
     if (loading) return;
 
@@ -504,6 +523,9 @@ export const HomeScreen = () => {
     }
   }, [loading, openRoomFromNotification]);
 
+  // Cada vez que cambian la consulta de búsqueda, los filtros de búsqueda o los chats visibles, se realiza una nueva búsqueda avanzada de mensajes utilizando 
+  // la función searchMessagesAdvanced (si está disponible) y se actualizan los resultados de búsqueda en consecuencia. 
+  // Si la consulta de búsqueda está vacía y no hay filtros activos, se limpian los resultados de búsqueda para evitar mostrar resultados irrelevantes.
   useEffect(() => {
     const roomIds = currentScopeChats.map((chat) => String(chat.id_chat));
     if (!searchQuery.trim() && !searchFilters.onlyImportant && !searchFilters.onlyFiles && !searchFilters.requiresAck) {
@@ -519,6 +541,8 @@ export const HomeScreen = () => {
     }) : []);
   }, [searchQuery, searchFilters, currentScopeChats, scopeRoomIdsKey]);
 
+  // Cada vez que la consulta de búsqueda cambia, se actualiza la lista de búsquedas recientes para incluir la nueva consulta (si tiene al menos 3 caracteres) 
+  // y se asegura de mantener solo las 4 búsquedas más recientes, eliminando cualquier duplicado.
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed || trimmed.length < 3) return;
@@ -557,6 +581,8 @@ export const HomeScreen = () => {
     }
   };
 
+  // Función para abrir un resultado de búsqueda específico, marcando los mensajes relevantes como leídos y navegando a la sala correspondiente, 
+  // enfocándose en el mensaje objetivo dentro de esa sala. En la versión de escritorio, se actualiza el panel de chat seleccionado, mientras que en la versión móvil se navega a la pantalla de chat.
   const openMessageResult = (item: any) => {
     if (isDesktop) {
       setSelectedChat({
@@ -581,6 +607,7 @@ export const HomeScreen = () => {
     });
   };
 
+  // Función para cerrar la sesión del usuario, eliminando los tokens de autenticación y datos de usuario del almacenamiento seguro o localStorage,
   const handleLogout = async () => {
     setMenuVisible(false);
     try {
@@ -635,6 +662,8 @@ export const HomeScreen = () => {
     }
   };
 
+  // Función para formatear la hora del último mensaje de una sala, mostrando solo la hora si el mensaje es del mismo día, "Ayer" si fue el día anterior, 
+  // el nombre del día de la semana si fue dentro de la última semana, o la fecha en formato día/mes si fue hace más de una semana.
   const formatLastMessageTime = (timestamp: number) => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
@@ -656,6 +685,7 @@ export const HomeScreen = () => {
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
+  // Función para renderizar cada elemento de la lista de chats, mostrando el nombre de la sala, el último mensaje, la hora del último mensaje, y un indicador de mensajes no leídos.
   const renderItem = ({ item }: { item: any }) => {
     const initial = item.nombre.charAt(0).toUpperCase();
     const unreadCount = unreadCounts[item.id_chat] || 0;
@@ -722,7 +752,7 @@ export const HomeScreen = () => {
   const isSearchMode = panelMode === 'search';
   const isImportantMode = panelMode === 'important';
 
-  // ============ MENÃš DESPLEGABLE ============
+  // ============ MENÚ DESPLEGABLE ============
   const dropdownMenu = (
     <Modal
       visible={menuVisible}
@@ -1000,6 +1030,9 @@ export const HomeScreen = () => {
     </View>
   );
 
+  // En la versión de escritorio, se muestra una vista dividida con la lista de chats a la izquierda y el panel de chat a la derecha. 
+  // Si no hay un chat seleccionado, se muestra un panel vacío con un mensaje de bienvenida. 
+  // En la versión móvil, solo se muestra la lista de chats, y al seleccionar uno se navega a la pantalla de chat correspondiente.
   if (isDesktop) {
     return (
       <View style={[s.desktopContainer, { backgroundColor: colors.background }]}>

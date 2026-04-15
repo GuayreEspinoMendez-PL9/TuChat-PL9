@@ -14,6 +14,8 @@ export type BrowserNotificationTarget = {
   targetPanel?: 'events' | 'polls' | 'mentions' | 'info';
 };
 
+// Función para guardar el destino de una notificación en sessionStorage, lo que permite que al hacer clic en una notificación se pueda navegar a la sala y mensaje correspondientes. 
+// Esto es especialmente útil para manejar la navegación desde notificaciones web.
 const persistNotificationTarget = (payload: BrowserNotificationTarget) => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   try {
@@ -23,6 +25,7 @@ const persistNotificationTarget = (payload: BrowserNotificationTarget) => {
   }
 };
 
+// Función para guardar la preferencia de notificaciones web en localStorage, lo que permite recordar si el usuario ha habilitado o deshabilitado las notificaciones web incluso después de cerrar el navegador.
 const persistBrowserNotificationsEnabled = (enabled: boolean) => {
   browserNotificationsEnabled = enabled;
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -37,6 +40,8 @@ export const setBrowserNotificationsEnabled = (enabled: boolean) => {
   persistBrowserNotificationsEnabled(Boolean(enabled));
 };
 
+// Función para verificar si las notificaciones web están habilitadas, leyendo la preferencia desde localStorage. 
+// Si no se encuentra una preferencia guardada, se asume que las notificaciones están habilitadas por defecto.
 export const areBrowserNotificationsEnabled = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return true;
   try {
@@ -49,6 +54,7 @@ export const areBrowserNotificationsEnabled = () => {
   }
 };
 
+// Función para sincronizar la preferencia de notificaciones web con el servidor, obteniendo el estado actual desde una API protegida por token.
 export const syncBrowserNotificationsPreference = async (token?: string | null) => {
   if (Platform.OS !== 'web' || !token) return areBrowserNotificationsEnabled();
   try {
@@ -64,6 +70,7 @@ export const syncBrowserNotificationsPreference = async (token?: string | null) 
   }
 };
 
+// Función para consumir el destino de una notificación pendiente, leyendo los datos guardados en sessionStorage y luego eliminándolos para evitar que se reutilicen.
 export const consumePendingNotificationTarget = (): BrowserNotificationTarget | null => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
   try {
@@ -86,6 +93,7 @@ export const consumePendingNotificationTarget = (): BrowserNotificationTarget | 
   }
 };
 
+// Función para limpiar el destino de una notificación pendiente, eliminando cualquier dato guardado en sessionStorage relacionado con notificaciones. 
 export const clearPendingNotificationTarget = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   try {
@@ -95,6 +103,7 @@ export const clearPendingNotificationTarget = () => {
   }
 };
 
+// Función para inicializar las notificaciones web, solicitando permisos al usuario si aún no se han solicitado.
 export const initBrowserNotifications = () => {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return;
   if (!areBrowserNotificationsEnabled()) return;
@@ -108,6 +117,8 @@ export const initBrowserNotifications = () => {
   }
 };
 
+// Función para mostrar una notificación web, utilizando la biblioteca push.js para crear una notificación con un título, cuerpo y un manejador de clics que 
+// permite navegar a la sala y mensaje correspondientes al hacer clic en la notificación.
 export const showBrowserMessageNotification = ({
   title,
   body,

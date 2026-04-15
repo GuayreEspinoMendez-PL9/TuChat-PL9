@@ -73,6 +73,7 @@ const ReactionItem = ({
     );
 };
 
+// Componente principal del picker de reacciones
 export const ReactionPicker = ({ onSelect, isMe }: ReactionPickerProps) => {
     const { colors } = useTheme();
     const { width } = useWindowDimensions();

@@ -48,6 +48,7 @@ const options: { mode: ThemeMode; label: string; desc: string; icon: React.React
     { mode: 'yellow', label: 'Amarillo', desc: 'Tema amarillo cálido.', icon: <ColorDotIcon color="#ca8a04" /> },
 ];
 
+// Componente para seleccionar el tema de la aplicación
 export const ThemeSelector = ({ visible, onClose }: Props) => {
     const { mode, setMode, colors } = useTheme();
 

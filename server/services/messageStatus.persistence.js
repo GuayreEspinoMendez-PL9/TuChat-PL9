@@ -2,6 +2,7 @@ import { appDb } from "../db/db.js";
 
 let initPromise = null;
 
+// Helper de lectura de arrays de usuarios desde la base de datos, manejando tanto formatos JSON como strings simples
 const parseUserArray = (value) => {
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") {
@@ -15,6 +16,7 @@ const parseUserArray = (value) => {
   return [];
 };
 
+// Normaliza una fila de la base de datos al formato esperado por la aplicación, calculando los estados de entrega y lectura
 const normalizeRow = (row) => {
   if (!row) return null;
   const deliveredUsers = parseUserArray(row.delivered_users);
@@ -38,7 +40,7 @@ const normalizeRow = (row) => {
     status: read ? "read" : delivered ? "delivered" : "sent",
   };
 };
-
+ // Inicializa la tabla de estado de mensajes si no existe, con un índice para optimizar consultas por room_id
 export const initMessageStatusTable = async () => {
   if (!initPromise) {
     initPromise = (async () => {
@@ -64,6 +66,7 @@ export const initMessageStatusTable = async () => {
   return initPromise;
 };
 
+// Crea o actualiza el estado de un mensaje, asegurando que el número total de destinatarios se mantenga actualizado y consistente
 export const createMessageStatusDb = async ({ msgId, roomId, senderId, totalRecipients = 0, createdAt = Date.now() }) => {
   if (!msgId || !roomId || !senderId) return null;
   await initMessageStatusTable();
@@ -108,6 +111,8 @@ export const markMessageDeliveredDb = async ({ msgId, userId }) => {
   return normalizeRow(rows[0]);
 };
 
+// Marca un mensaje como leído por un usuario, actualizando tanto la lista de usuarios que han leído como la fecha de lectura, 
+// y asegurando que el estado se actualice correctamente cuando todos los destinatarios hayan leído el mensaje
 export const markMessageReadDb = async ({ msgId, userId }) => {
   if (!msgId || !userId) return null;
   await initMessageStatusTable();
@@ -142,6 +147,8 @@ export const markMessageReadDb = async ({ msgId, userId }) => {
   return normalizeRow(rows[0]);
 };
 
+// Lista los estados de mensajes para un conjunto de IDs dentro de una sala específica, 
+// optimizando la consulta para manejar grandes volúmenes de mensajes
 export const listMessageStatusesByIdsDb = async ({ roomId, msgIds }) => {
   if (!roomId || !Array.isArray(msgIds) || msgIds.length === 0) return [];
   await initMessageStatusTable();

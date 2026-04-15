@@ -11,7 +11,7 @@ router.get("/chats-disponibles", getChatsDisponibles);
 router.post("/sync-forzar", forzarSync);
 router.get("/miembros/:id", getMiembrosClase);
 
-// ✅ Endpoint para chats privados
+// Endpoint para chats privados
 router.get("/chats-privados", async (req, res) => {
   try {
     const { id_usuario_app, tipo_externo } = req.currentUser;

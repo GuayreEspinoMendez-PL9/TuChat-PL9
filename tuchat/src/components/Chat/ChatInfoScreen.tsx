@@ -54,6 +54,8 @@ interface ChatInfoScreenProps {
 
 type PermissionMode = 'todos' | 'solo_profesor' | 'profesor_delegados';
 
+// Componente principal de la pantalla de información del chat, que muestra detalles del grupo, lista de participantes, archivos compartidos, 
+// y permite a los profesores gestionar los permisos de escritura en el chat, así como moderar a los alumnos delegados.
 export const ChatInfoScreen = ({
   roomId,
   nombre,
@@ -81,7 +83,6 @@ export const ChatInfoScreen = ({
   const [fileQuery, setFileQuery] = useState('');
   const [fileFilter, setFileFilter] = useState<'all' | 'image' | 'video' | 'file' | 'link' | 'important' | 'requiresAck'>('all');
   
-  // ✅ NUEVO ESTADO: Para asegurar que el rol es correcto
   const [esProfesorInterno, setEsProfesorInterno] = useState(false);
 
   const { socket } = useSocket();
@@ -320,7 +321,6 @@ export const ChatInfoScreen = ({
         <Text style={[styles.chatSubtitle, { color: colors.textSecondary }]}>Grupo · {participantes.length} participantes</Text>
       </View>
 
-      {/* ✅ SECCIÓN CORREGIDA: Usamos esProfesorInterno */}
       {esProfesorInterno && (
         <View style={[styles.section, themedSection]}>
           <View style={styles.sectionHeader}>

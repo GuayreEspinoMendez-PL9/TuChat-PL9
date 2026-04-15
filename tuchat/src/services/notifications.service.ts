@@ -101,6 +101,7 @@ export async function presentIncomingMessageNotification({
   }
 }
 
+// Función para limpiar el destino de una notificación pendiente, eliminando cualquier dato guardado en sessionStorage relacionado con notificaciones.
 export async function registerForPushNotificationsAsync() {
   if (Platform.OS === 'web') return;
   configureNotifications();

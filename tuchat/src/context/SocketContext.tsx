@@ -33,6 +33,7 @@ const SocketContext = createContext<SocketContextType>({
 
 export const useSocket = () => useContext(SocketContext);
 
+// Este componente se encarga de manejar la conexión global del socket, listeners y notificaciones.
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -42,6 +43,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const activeRoomIdRef = useRef<string | null>(null);
   const appState = useRef(AppState.currentState);
 
+  // Función para actualizar los conteos de mensajes no leídos, se puede llamar desde cualquier parte.
   const refreshUnreadCounts = useCallback(() => {
     try {
       const counts = typeof getAllUnreadCounts === 'function' ? getAllUnreadCounts() : {};
@@ -51,10 +53,12 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  // Función para actualizar el chat activo, usada para marcar mensajes como leídos si llegan mientras ese chat está abierto.
   const setActiveRoom = useCallback((roomId: string | null) => {
     activeRoomIdRef.current = roomId;
   }, []);
 
+  // Efecto principal para manejar la conexión del socket, listeners y reintentos en caso de fallos.
   useEffect(() => {
     let newSocket: Socket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -241,6 +245,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [refreshUnreadCounts]);
 
+  // Listener para detectar cuando la app vuelve al primer plano, reintentar conexión y refrescar conteos.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (appState.current.match(/inactive|background/) && nextAppState === 'active') {

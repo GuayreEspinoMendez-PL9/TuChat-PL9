@@ -1,5 +1,6 @@
 const userPresence = new Map();
 
+// Función para actualizar la presencia de un usuario
 export const setUserPresence = (userId, next = {}) => {
   const current = userPresence.get(String(userId)) || {
     status: "available",
@@ -23,6 +24,7 @@ export const setUserPresence = (userId, next = {}) => {
   return merged;
 };
 
+// Función para obtener la presencia de un usuario
 export const getUserPresence = (userId) => {
   return userPresence.get(String(userId)) || {
     userId: String(userId),
@@ -33,6 +35,7 @@ export const getUserPresence = (userId) => {
   };
 };
 
+// Función para obtener la presencia de múltiples usuarios
 export const getPresenceSnapshot = (userIds = []) => {
   return userIds.map((userId) => getUserPresence(userId));
 };

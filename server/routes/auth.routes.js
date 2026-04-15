@@ -1,6 +1,5 @@
 import express from "express";
 import { login, checkStatus, registrarPushToken, cambiarPassword } from "../auth/auth.controller.js";
-// --- AÑADE ESTA LÍNEA (Ajusta la ruta si es necesario) ---
 import { requireAuth } from "../auth/auth.middleware.js";
 import { appDb } from "../db/db.js";
 
@@ -15,7 +14,7 @@ const ensurePrivacyPreferenceColumn = async () => {
              ADD COLUMN sonidos_activos BOOLEAN NOT NULL DEFAULT TRUE`
         );
     } catch (error) {
-        // ignore if it already exists
+        // Ingnorar si ya existe
     }
     try {
         await appDb.query(
@@ -23,7 +22,7 @@ const ensurePrivacyPreferenceColumn = async () => {
              ADD COLUMN confirmaciones_lectura_activas BOOLEAN NOT NULL DEFAULT TRUE`
         );
     } catch (error) {
-        // ignore if it already exists
+        // Ingnorar si ya existe
     }
     privacyPrefReady = true;
 };
@@ -33,7 +32,7 @@ router.get("/status", requireAuth, checkStatus);
 router.post("/registrar-token", requireAuth, registrarPushToken);
 router.post("/cambiar-password", requireAuth, cambiarPassword);
 
-// GET /auth/notif-preference - Obtener preferencia de notificaciones
+// Obtener preferencia de notificaciones
 router.get('/notif-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();
@@ -54,7 +53,7 @@ router.get('/notif-preference', requireAuth, async (req, res) => {
     }
 });
 
-// PUT /auth/notif-preference - Actualizar preferencia de notificaciones
+// Actualizar preferencia de notificaciones
 router.put('/notif-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();
@@ -77,6 +76,7 @@ router.put('/notif-preference', requireAuth, async (req, res) => {
     }
 });
 
+// Obtener preferencia de confirmaciones de lectura
 router.get('/read-receipts-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();
@@ -96,6 +96,7 @@ router.get('/read-receipts-preference', requireAuth, async (req, res) => {
     }
 });
 
+// Actualizar preferencia de confirmaciones de lectura
 router.put('/read-receipts-preference', requireAuth, async (req, res) => {
     try {
         await ensurePrivacyPreferenceColumn();

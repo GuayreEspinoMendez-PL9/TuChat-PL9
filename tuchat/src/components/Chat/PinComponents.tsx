@@ -44,6 +44,7 @@ const toCustomDuration = (raw: string, unit: DurationUnit) => {
     return { value: amount * unitMs, label: `${amount} ${unitLabel}` };
 };
 
+// Modal para configurar el pin de un mensaje
 export const PinWizardModal: React.FC<PinWizardModalProps> = ({ visible, messageToPin, onClose, onPin }) => {
     const { colors } = useTheme();
     const accent = colors.primary;

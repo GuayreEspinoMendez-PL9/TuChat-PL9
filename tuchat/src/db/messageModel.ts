@@ -9,6 +9,8 @@ export type MessageSearchOptions = {
   messageType?: string | null;
 };
 
+// Funciones para normalizar mensajes, construir índices de búsqueda, y filtrar mensajes según criterios específicos. 
+// Esto ayuda a mantener la consistencia de los datos y facilita la búsqueda eficiente en la base de datos.
 const buildDateFragments = (value: unknown) => {
   const timestamp = typeof value === 'number' ? value : Date.parse(String(value || ''));
   if (!timestamp || Number.isNaN(timestamp)) return '';
@@ -36,6 +38,7 @@ const parseJsonSafely = (value: unknown, fallback: any) => {
   }
 };
 
+// Función para determinar si un mensaje es importante, basándose en varias propiedades como un campo explícito, el tipo de mensaje, o metadatos. Esto permite marcar mensajes que requieren atención especial.
 export const isImportantMessage = (message: any): boolean => {
   if (!message) return false;
   if (message.important === true || message.important === 1) return true;
@@ -43,6 +46,8 @@ export const isImportantMessage = (message: any): boolean => {
   return Boolean(message.metadata?.important);
 };
 
+// Función para determinar si un mensaje contiene un archivo adjunto, basándose en su tipo de media, propiedades relacionadas con archivos, 
+// o si el texto parece ser un enlace. Esto ayuda a identificar mensajes que incluyen contenido multimedia o archivos.
 export const isFileMessage = (message: any): boolean => {
   if (!message) return false;
   if (FILE_MEDIA_TYPES.has(String(message.mediaType || ''))) return true;
@@ -53,6 +58,9 @@ export const isFileMessage = (message: any): boolean => {
   return /^https?:\/\//i.test(String(message.text || ''));
 };
 
+
+// Función para categorizar un mensaje según su contenido, clasificándolo como 'image', 'video', 'link', 'file', o 'other'. Esto facilita la organización y 
+// filtrado de mensajes según el tipo de contenido que contienen.
 export const getFileCategory = (message: any): 'image' | 'video' | 'link' | 'file' | 'other' => {
   if (!message) return 'other';
   if (/^https?:\/\//i.test(String(message.text || ''))) return 'link';
@@ -62,6 +70,8 @@ export const getFileCategory = (message: any): 'image' | 'video' | 'link' | 'fil
   return 'other';
 };
 
+// Función para construir un índice de búsqueda a partir de las propiedades de un mensaje, concatenando campos relevantes como texto, nombre del remitente, 
+// nombre de la sala, tipo de mensaje, y metadatos. Esto permite realizar búsquedas eficientes en la base de datos utilizando este índice preconstruido.
 export const buildMetadataIndex = (message: any): string => {
   if (!message) return '';
   const metadata = message.metadata && typeof message.metadata === 'object'
@@ -84,6 +94,8 @@ export const buildMetadataIndex = (message: any): string => {
     .toLowerCase();
 };
 
+// Función para normalizar un mensaje crudo, asegurando que tenga propiedades consistentes y predecibles, como texto, nombre del remitente, 
+// nombre de la sala, metadatos parseados, reacciones, y un índice de búsqueda preconstruido. Esto facilita el manejo de mensajes en la aplicación y su almacenamiento en la base de datos.
 export const normalizeMessage = (raw: any) => {
   const metadata = parseJsonSafely(raw?.metadata, {});
   const reactions = ensureArray(parseJsonSafely(raw?.reactions, []));
@@ -111,6 +123,9 @@ export const normalizeMessage = (raw: any) => {
   };
 };
 
+// Función para preparar un mensaje para su almacenamiento en la base de datos, normalizando sus propiedades y 
+// serializando campos complejos como reacciones, respuestas, metadatos, y lectores de acuse de recibo. 
+// Esto asegura que el mensaje se almacene de manera consistente y que los campos complejos se manejen correctamente en la base de datos.
 export const prepareMessageForStorage = (raw: any) => {
   const normalized = normalizeMessage(raw);
   return {
@@ -124,6 +139,9 @@ export const prepareMessageForStorage = (raw: any) => {
   };
 };
 
+// Función para comparar un mensaje contra criterios de búsqueda específicos, verificando si el mensaje coincide con el ID de la sala, si es importante, 
+// si contiene archivos, si requiere acuse de recibo, si pertenece a un tema de hilo específico, o si su tipo de mensaje coincide. 
+// Además, verifica si el texto del mensaje o sus metadatos coinciden con la consulta de búsqueda. Esto permite filtrar mensajes según criterios complejos.
 export const matchMessageAgainstSearch = (message: any, options: MessageSearchOptions) => {
   const normalized = normalizeMessage(message);
   const query = (options.query || '').trim().toLowerCase();
@@ -140,6 +158,9 @@ export const matchMessageAgainstSearch = (message: any, options: MessageSearchOp
   return (normalized.metadataIndex || buildMetadataIndex(normalized)).includes(query);
 };
 
+// Función para buscar mensajes en un array dado, aplicando los criterios de búsqueda especificados en las opciones.
+// Normaliza cada mensaje, filtra aquellos que coinciden con los criterios, y ordena los resultados por fecha de manera descendente. 
+// Esto permite realizar búsquedas eficientes en un conjunto de mensajes ya cargados en memoria.
 export const searchMessages = (messages: any[], options: MessageSearchOptions) => {
   return messages
     .map(normalizeMessage)

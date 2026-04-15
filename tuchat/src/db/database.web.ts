@@ -5,6 +5,8 @@ import {
   normalizeMessage,
 } from './messageModel';
 
+// HACE LO MISMO QUE database.ts PERO USANDO localStorage EN LUGAR DE IndexedDB, PARA MODO WEB (sin base de datos real, todo en memoria/localStorage)
+
 export const initDB = () => {
   console.log("DB: Usando LocalStorage (Web Mode)");
 };
@@ -93,7 +95,7 @@ export const markMessagesAsRead = (roomId: string) => {
     const history = JSON.parse(localStorage.getItem(key) || '[]');
     const updated = history.map((m: any) => ({ ...m, read: true }));
     localStorage.setItem(key, JSON.stringify(updated));
-    console.log(`✅ Mensajes marcados como leídos en ${roomId}`);
+    console.log(`Mensajes marcados como leídos en ${roomId}`);
   } catch (e) { console.error("Error markMessagesAsRead Web", e); }
 };
 
@@ -159,7 +161,7 @@ export const getTotalUnreadCount = (): number => {
 };
 
 export const toggleReactionFn = (msgId: string, reaction: { emoji: string, userId: string }) => {
-  console.log("🟢 [DB Web] toggleReactionFn called:", msgId, reaction);
+  console.log("[DB Web] toggleReactionFn called:", msgId, reaction);
   try {
     // Find the chat room containing the message
     // Since we don't have roomId passed here, we have to search all chats in localStorage
@@ -235,7 +237,7 @@ export const savePinnedMessage = (pin: any) => {
       pins.push(pin);
     }
     saveAllPins(pins);
-    console.log(`📌 Pin guardado (web): ${pin.id} en ${pin.roomId}`);
+    console.log(`Pin guardado (web): ${pin.id} en ${pin.roomId}`);
   } catch (e) {
     console.error("Error savePinnedMessage Web:", e);
   }
@@ -247,7 +249,7 @@ export const getPinnedMessagesByRoom = (roomId: string): any[] => {
     const pins = getAllPins();
     const active = pins.filter((p: any) => p.roomId === roomId && p.expiresAt > now);
     active.sort((a: any, b: any) => b.pinnedAt - a.pinnedAt);
-    console.log(`📌 Pins cargados (web): ${active.length} en ${roomId}`);
+    console.log(`Pins cargados (web): ${active.length} en ${roomId}`);
     return active;
   } catch (e) {
     console.error("Error getPinnedMessagesByRoom Web:", e);
@@ -260,7 +262,7 @@ export const removePinnedMessage = (roomId: string, msgId: string) => {
     const pins = getAllPins();
     const filtered = pins.filter((p: any) => !(p.roomId === roomId && p.msgId === msgId));
     saveAllPins(filtered);
-    console.log(`📌 Pin eliminado (web): ${msgId} de ${roomId}`);
+    console.log(`Pin eliminado (web): ${msgId} de ${roomId}`);
   } catch (e) {
     console.error("Error removePinnedMessage Web:", e);
   }
@@ -272,7 +274,7 @@ export const cleanExpiredPins = () => {
     const pins = getAllPins();
     const active = pins.filter((p: any) => p.expiresAt > now);
     saveAllPins(active);
-    console.log(`📌 Pins expirados limpiados (web)`);
+    console.log(`Pins expirados limpiados (web)`);
   } catch (e) {
     console.error("Error cleanExpiredPins Web:", e);
   }

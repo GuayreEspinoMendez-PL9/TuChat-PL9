@@ -1,6 +1,13 @@
 import { useLocalSearchParams } from 'expo-router';
 import { ChatScreen } from '../src/components/Chat/ChatScreen';
 
+// Este componente se encarga de recibir los parámetros de la URL y renderizar el ChatScreen con esos parámetros.
+// Los parametros esperados son:
+// - id: el ID del chat
+// - nombre: el nombre del chat 
+// - esProfesor: si el usuario es profesor o no (true/false)
+// - targetMsgId: el ID del mensaje al que se quiere hacer scroll (opcional)
+// - targetPanel: el panel que se quiere mostrar al abrir el chat (events, polls, mentions, info) (opcional)
 export default function ChatPage() {
   const params = useLocalSearchParams();
   

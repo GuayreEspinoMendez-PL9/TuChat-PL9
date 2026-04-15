@@ -2,6 +2,7 @@ import { appDb } from "../db/db.js";
 
 let initPromise = null;
 
+// Función para inicializar las tablas de colaboración si no existen
 export const initCollabTables = async () => {
   if (!initPromise) {
     initPromise = (async () => {
@@ -78,6 +79,7 @@ export const initCollabTables = async () => {
   return initPromise;
 };
 
+// Función para listar eventos de una sala
 export const listEventsByRoomDb = async (roomId) => {
   await initCollabTables();
   const { rows } = await appDb.query(`
@@ -99,6 +101,7 @@ export const listEventsByRoomDb = async (roomId) => {
   return rows;
 };
 
+// Función para crear un nuevo evento en una sala
 export const createRoomEventDb = async ({ roomId, title, description, startsAt, createdBy, createdByName, kind = "evento" }) => {
   await initCollabTables();
   const event = {
@@ -122,6 +125,7 @@ export const createRoomEventDb = async ({ roomId, title, description, startsAt, 
   return event;
 };
 
+// Funcuion para listar encuestas de una sala, incluyenndo opciones y votos 
 export const listPollsByRoomDb = async (roomId) => {
   await initCollabTables();
   const { rows } = await appDb.query(`
@@ -186,6 +190,7 @@ export const listPollsByRoomDb = async (roomId) => {
   return Array.from(pollMap.values());
 };
 
+// Funcuin para crear una nueva encuesta en una sala, con sus opciones
 export const createRoomPollDb = async ({ roomId, question, options, createdBy, createdByName, multiple = false, expiresAt = null }) => {
   await initCollabTables();
   const poll = {
@@ -229,6 +234,7 @@ export const createRoomPollDb = async ({ roomId, question, options, createdBy, c
   }
 };
 
+// Funcion para votar en la encuesta de lka sala 
 export const voteRoomPollDb = async ({ roomId, pollId, optionId, userId, userName }) => {
   await initCollabTables();
   const { rows: metaRows } = await appDb.query(`
@@ -266,6 +272,7 @@ export const voteRoomPollDb = async ({ roomId, pollId, optionId, userId, userNam
   return polls.find((poll) => poll.id === pollId) || null;
 };
 
+// Funcion para eliminar un evento 
 export const deleteRoomEventDb = async ({ roomId, eventId }) => {
   await initCollabTables();
   await appDb.query(`
@@ -279,6 +286,7 @@ const computePollWinner = (poll) => {
   return sorted[0] || null;
 };
 
+// Funcion para cerrar una encuesta y anunciar resultados 
 export const buildPollResultMessage = (poll) => {
   const winner = computePollWinner(poll);
   const winnerText = winner ? `${winner.text} (${winner.votes?.length || 0} votos)` : 'sin votos';
@@ -309,6 +317,7 @@ export const closePollDb = async ({ roomId, pollId, announceResults = true }) =>
   const poll = polls.find((item) => item.id === pollId) || null;
   return poll;
 };
+
 
 export const expirePollsAndCollectAnnouncementsDb = async (roomId) => {
   await initCollabTables();
@@ -342,6 +351,7 @@ export const deletePollDb = async ({ roomId, pollId }) => {
   return poll;
 };
 
+// Funciones oara manejar pins de mensajes
 export const listPinsByRoomDb = async (roomId) => {
   await initCollabTables();
   const now = Date.now();

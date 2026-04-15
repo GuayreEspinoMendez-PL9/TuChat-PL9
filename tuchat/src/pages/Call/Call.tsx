@@ -15,6 +15,8 @@ const getAuthToken = async () => {
   return SecureStore.getItemAsync('token');
 };
 
+
+// Componente principal de la pantalla de llamada, que maneja la lógica de conexión, permisos, gestión de participantes, y controles de la llamada.
 export const CallScreen: React.FC<CallScreenProps> = ({
   roomId,
   userId,
@@ -23,7 +25,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 }) => {
   useEffect(() => {
     if (!roomId || roomId === 'null' || roomId.trim() === '') {
-      console.error('❌ roomId inválido:', roomId);
+      console.error('roomId inválido:', roomId);
       Alert.alert("Error", "ID de sala inválido", [
         { text: "OK", onPress: () => onEndCall?.() }
       ]);
@@ -31,14 +33,14 @@ export const CallScreen: React.FC<CallScreenProps> = ({
     }
 
     if (!userId || userId === 'null' || userId.trim() === '') {
-      console.error('❌ userId inválido:', userId);
+      console.error('userId inválido:', userId);
       Alert.alert("Error", "ID de usuario inválido", [
         { text: "OK", onPress: () => onEndCall?.() }
       ]);
       return;
     }
 
-    console.log(`🎬 CallScreen inicializado:`, { roomId, userId, type });
+    console.log(`CallScreen inicializado:`, { roomId, userId, type });
   }, [roomId, userId, type]);
 
   const [localStream, setLocalStream] = useState<any>(null);
@@ -55,13 +57,11 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   const localStreamRef = useRef<any>(null);
   const screenStreamRef = useRef<any>(null);
   const peersRef = useRef<Map<string, any>>(new Map());
-  // FIX: guard para evitar doble meet:leave
   const isLeavingRef = useRef(false);
-  // FIX: ref espejo de isScreenSharing para evitar stale closure en onended
   const isScreenSharingRef = useRef(false);
-  // FIX: Perfect Negotiation — rastrear si estamos creando un offer por peer
   const makingOfferRef = useRef<Map<string, boolean>>(new Map());
 
+  // Función para solicitar permisos de audio y video al usuario, intentando obtener ambos si el tipo de llamada lo requiere, y manejando los casos en que solo se pueden obtener uno de los dos o ninguno.
   const requestPermissions = async () => {
     const wantsVideo = type === 'video';
 
@@ -71,12 +71,12 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           ? await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
           : await WebRTC.mediaDevices.getUserMedia({ audio: true, video: true });
 
-        console.log('✅ Permisos obtenidos: Audio + Video');
+        console.log('Permisos obtenidos: Audio + Video');
         setHasAudio(stream.getAudioTracks().length > 0);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
       } catch (e) {
-        console.log("⚠️ No se pudo obtener video, intentando solo audio");
+        console.log("No se pudo obtener video, intentando solo audio");
       }
     }
 
@@ -85,12 +85,12 @@ export const CallScreen: React.FC<CallScreenProps> = ({
         ? await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
         : await WebRTC.mediaDevices.getUserMedia({ audio: true, video: false });
 
-      console.log('✅ Permisos obtenidos: Solo Audio');
+      console.log('Permisos obtenidos: Solo Audio');
       setHasAudio(stream.getAudioTracks().length > 0);
       setHasVideo(false);
       return stream;
     } catch (e) {
-      console.log("⚠️ Intentando solo video");
+      console.log("Intentando solo video");
     }
 
     if (wantsVideo) {
@@ -99,12 +99,12 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           ? await navigator.mediaDevices.getUserMedia({ audio: false, video: true })
           : await WebRTC.mediaDevices.getUserMedia({ audio: false, video: true });
 
-        console.log('✅ Permisos obtenidos: Solo Video');
+        console.log('Permisos obtenidos: Solo Video');
         setHasAudio(false);
         setHasVideo(stream.getVideoTracks().length > 0);
         return stream;
       } catch (e) {
-        console.log("❌ No se pudo obtener ningún medio");
+        console.log("No se pudo obtener ningún medio");
       }
     }
 
@@ -114,7 +114,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   };
 
   const createPeerConnection = (socketId: string, stream?: any) => {
-    console.log(`🔗 Creando PeerConnection con ${socketId}`);
+    console.log(`Creando PeerConnection con ${socketId}`);
 
     const PC = Platform.OS === 'web' ? RTCPeerConnection : WebRTC.RTCPeerConnection;
     const pc = new PC(configuration);
@@ -144,7 +144,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
     if (Platform.OS === 'web') {
       pc.ontrack = (e: any) => {
         if (e.streams && e.streams[0]) {
-          console.log(`🎬 Stream recibido de ${socketId}`);
+          console.log(`Stream recibido de ${socketId}`);
           const peer = peersRef.current.get(socketId);
           if (peer) {
             peer.stream = e.streams[0];
@@ -159,7 +159,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
       };
     } else {
       pc.onaddstream = (e: any) => {
-        console.log(`🎬 Stream recibido de ${socketId}`);
+        console.log(`Stream recibido de ${socketId}`);
         const peer = peersRef.current.get(socketId);
         if (peer) {
           peer.stream = e.stream;
@@ -174,7 +174,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`🔌 ICE state con ${socketId}:`, pc.iceConnectionState);
+      console.log(`ICE state con ${socketId}:`, pc.iceConnectionState);
     };
 
     return pc;
@@ -184,7 +184,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
   // replaceTrack reemplaza el track in-band sin cambiar el estado de señalización,
   // evitando la colisión de offers que causaba el fallo al compartir pantalla.
   const renegotiateWithAllPeers = async (newStream: any) => {
-    console.log("🔄 Actualizando streams en todos los peers...");
+    console.log("Actualizando streams en todos los peers...");
 
     for (const [socketId, peer] of peersRef.current.entries()) {
       const pc = peer.peerConnection;
@@ -213,7 +213,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
             await pc.setLocalDescription(offer);
             socket.current.emit("meet:offer", { to: socketId, offer, roomId, isRenegotiation: true });
           } catch (e) {
-            console.error(`🔴 Error en renegociación con ${socketId}:`, e);
+            console.error(`Error en renegociación con ${socketId}:`, e);
           } finally {
             makingOfferRef.current.set(socketId, false);
           }
@@ -226,11 +226,11 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
   useEffect(() => {
     if (!roomId || !userId) {
-      console.error("❌ Props inválidos, abortando");
+      console.error("Props inválidos, abortando");
       return;
     }
 
-    console.log(`🔌 Creando socket para CallScreen con userId: ${userId}`);
+    console.log(`Creando socket para CallScreen con userId: ${userId}`);
 
     const init = async () => {
       const token = await getAuthToken();
@@ -263,20 +263,20 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
       // ESPERAR CONEXIÓN
       socket.current.on('connect', () => {
-        console.log(`🟢 Socket CallScreen conectado: ${socket.current.id}`);
+        console.log(`Socket CallScreen conectado: ${socket.current.id}`);
 
         const joinData = { roomId, userId, type };
-        console.log(`📞 Emitiendo meet:join:`, joinData);
+        console.log(`Emitiendo meet:join:`, joinData);
         socket.current.emit("meet:join", joinData);
       });
 
       socket.current.on('connect_error', (error: any) => {
-        console.error('❌ Error de conexión:', error);
+        console.error('Error de conexión:', error);
         setStatus("Error de conexión");
       });
 
       socket.current.on("meet:participants", async (data: any) => {
-        console.log(`👥 Participantes existentes: ${data.participants.length}`);
+        console.log(`Participantes existentes: ${data.participants.length}`);
 
         if (data.participants.length > 0) {
           setStatus("Conectando con participantes...");
@@ -292,7 +292,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
             await pc.setLocalDescription(offer);
             socket.current.emit("meet:offer", { to: participant.socketId, offer, roomId });
           } catch (e) {
-            console.error(`🔴 Error creando offer inicial con ${participant.socketId}:`, e);
+            console.error(`Error creando offer inicial con ${participant.socketId}:`, e);
           } finally {
             makingOfferRef.current.set(participant.socketId, false);
           }
@@ -303,7 +303,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
       });
 
       socket.current.on("meet:user-joined", async (data: any) => {
-        console.log(`➕ Nuevo participante: ${data.userId} (${data.socketId})`);
+        console.log(`Nuevo participante: ${data.userId} (${data.socketId})`);
         const pc = createPeerConnection(data.socketId);
         peersRef.current.set(data.socketId, { peerConnection: pc, stream: null });
         setParticipants(prev => prev + 1);
@@ -313,7 +313,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
       // Si recibimos un offer mientras ya estamos creando uno (colisión), hacemos
       // rollback de nuestra descripción local y aceptamos la oferta entrante.
       socket.current.on("meet:offer", async (data: any) => {
-        console.log(`📥 Offer recibida de ${data.from}`);
+        console.log(`Offer recibida de ${data.from}`);
 
         let peer = peersRef.current.get(data.from);
 
@@ -332,7 +332,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
 
           if (offerCollision) {
             // Rollback de nuestra descripción local para aceptar la oferta entrante
-            console.log(`⚠️ Colisión de offer con ${data.from}, haciendo rollback`);
+            console.log(`Colisión de offer con ${data.from}, haciendo rollback`);
             await pc.setLocalDescription({ type: 'rollback' });
           }
 
@@ -341,19 +341,19 @@ export const CallScreen: React.FC<CallScreenProps> = ({
           await pc.setLocalDescription(answer);
           socket.current.emit("meet:answer", { to: data.from, answer, roomId });
         } catch (e) {
-          console.error(`🔴 Error procesando offer de ${data.from}:`, e);
+          console.error(`Error procesando offer de ${data.from}:`, e);
         }
       });
 
       socket.current.on("meet:answer", async (data: any) => {
-        console.log(`📥 Answer recibida de ${data.from}`);
+        console.log(`Answer recibida de ${data.from}`);
         const peer = peersRef.current.get(data.from);
         if (peer) {
           try {
             const SD = Platform.OS === 'web' ? RTCSessionDescription : WebRTC.RTCSessionDescription;
             await peer.peerConnection.setRemoteDescription(new SD(data.answer));
           } catch (e) {
-            console.error(`🔴 Error aplicando answer de ${data.from}:`, e);
+            console.error(`Error aplicando answer de ${data.from}:`, e);
           }
         }
       });
@@ -371,7 +371,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
       });
 
       socket.current.on("meet:user-left", (data: any) => {
-        console.log(`👋 Participante salió: ${data.socketId}`);
+        console.log(`Participante salió: ${data.socketId}`);
         const peer = peersRef.current.get(data.socketId);
         if (peer) {
           peer.peerConnection.close();
@@ -386,7 +386,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
       });
 
       socket.current.on("meet:error", (data: any) => {
-        console.error("❌ Error del servidor:", data.msg);
+        console.error("Error del servidor:", data.msg);
         Alert.alert("Error", data.msg);
         setTimeout(handleEndCall, 3000);
       });
@@ -458,7 +458,7 @@ export const CallScreen: React.FC<CallScreenProps> = ({
     if (isLeavingRef.current) return;
     isLeavingRef.current = true;
 
-    console.log("🔚 Finalizando llamada...");
+    console.log("Finalizando llamada...");
 
     peersRef.current.forEach((peer) => {
       if (peer.peerConnection) peer.peerConnection.close();

@@ -26,6 +26,7 @@ export const fetchRoomEvents = async (roomId: string) => {
   return data?.events || [];
 };
 
+// Función para crear un evento en una sala de chat, enviando una solicitud POST a la API con los detalles del evento como título, descripción, fecha de inicio y tipo de evento.
 export const createRoomEventRequest = async (payload: {
   roomId: string;
   title: string;
@@ -38,6 +39,7 @@ export const createRoomEventRequest = async (payload: {
   return data?.event;
 };
 
+// Función para eliminar un evento de una sala de chat, enviando una solicitud DELETE a la API con el ID del evento y la ID de la sala para identificar qué evento eliminar.
 export const deleteRoomEventRequest = async (payload: { roomId: string; eventId: string }) => {
   const headers = await authHeaders();
   const { data } = await axios.delete(`${API_URL}/chat/events/${payload.eventId}`, {
@@ -47,6 +49,8 @@ export const deleteRoomEventRequest = async (payload: { roomId: string; eventId:
   return data;
 };
 
+// Función para actualizar un evento existente en una sala de chat, enviando una solicitud PUT a la API con el ID del evento, 
+// la ID de la sala y los nuevos detalles del evento como título, descripción, fecha de inicio y tipo de evento.
 export const fetchRoomPolls = async (roomId: string) => {
   const headers = await authHeaders();
   const { data } = await axios.get(`${API_URL}/chat/polls/${roomId}`, { headers });

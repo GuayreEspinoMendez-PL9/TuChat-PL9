@@ -25,6 +25,7 @@ let emojiCache = { data: null, fetchedAt: 0 };
 
 router.use(requireAuth);
 
+// Función auxiliar para obtener IDs de miembros de una sala, considerando chats privados y grupales
 const getRoomMemberIds = async (roomId) => {
     const privateChat = await appDb.query(
         `SELECT id_profesor_usuario_app, id_alumno_usuario_app
@@ -61,6 +62,7 @@ const getRoomMemberIds = async (roomId) => {
     return rows.map((row) => row.id_usuario_app);
 };
 
+// Función para verificar si el usuario actual puede gestionar eventos y encuestas de la sala
 const canManageRoomExtras = async (roomId, currentUser) => {
     if (currentUser?.tipo_externo === 'PROFESOR' || currentUser?.id_rol === 2) {
         return true;
@@ -85,6 +87,7 @@ const canManageRoomExtras = async (roomId, currentUser) => {
     return Array.isArray(config.delegados) && config.delegados.includes(currentUser?.id_usuario_app);
 };
 
+// Función para sanear y filtrar entradas de moderación (muted/banned), eliminando expirados y asegurando formato consistente
 const sanitizeModerationEntries = (entries = []) => {
     const now = Date.now();
     return (Array.isArray(entries) ? entries : [])
@@ -111,7 +114,7 @@ const emitChatSystemMessage = async (req, roomId, message, memberIds = []) => {
     });
 };
 
-// GET /chat/settings/:roomId — Obtener ajustes de la sala (delegados, soloProfesores)
+// Obtener ajustes de la sala (delegados, soloProfesores)
 router.get("/settings/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -140,11 +143,12 @@ router.get("/settings/:roomId", async (req, res) => {
             }
         });
     } catch (err) {
-        console.error("❌ Error en /chat/settings:", err);
+        console.error("Error en /chat/settings:", err);
         res.json({ ok: false, error: err.message });
     }
 });
 
+// Endpoint para moderación: mute, ban, clear_mute, clear_ban
 router.post("/moderation/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -209,6 +213,7 @@ router.post("/moderation/:roomId", async (req, res) => {
     }
 });
 
+// Obtener presencia de miembros en la sala
 router.get("/presence/:roomId", async (req, res) => {
     try {
         const { roomId } = req.params;
@@ -220,6 +225,8 @@ router.get("/presence/:roomId", async (req, res) => {
     }
 });
 
+
+// Obtener eventos de la sala
 router.get("/events/:roomId", async (req, res) => {
     try {
         return res.json({ ok: true, events: await listEventsByRoomDb(req.params.roomId) });
@@ -228,6 +235,7 @@ router.get("/events/:roomId", async (req, res) => {
     }
 });
 
+// Crear y eliminar eventos de la sala (solo para profesorado)
 router.post("/events", async (req, res) => {
     try {
         const { roomId, title, description, startsAt, kind } = req.body || {};
@@ -255,6 +263,7 @@ router.post("/events", async (req, res) => {
     }
 });
 
+// Eliminar eventos de la sala (solo para profesorado)
 router.delete("/events/:eventId", async (req, res) => {
     try {
         const { eventId } = req.params;
@@ -274,6 +283,7 @@ router.delete("/events/:eventId", async (req, res) => {
     }
 });
 
+// Obtener encuestas de la sala y expirar las que hayan llegado a su fecha de expiración, anunciando resultados si corresponde
 router.get("/polls/:roomId", async (req, res) => {
     try {
         const roomId = req.params.roomId;
@@ -291,6 +301,8 @@ router.get("/polls/:roomId", async (req, res) => {
     }
 });
 
+
+// Obtener mensajes anclados de la sala
 router.get("/pins/:roomId", async (req, res) => {
     try {
         return res.json({ ok: true, pins: await listPinsByRoomDb(req.params.roomId) });
@@ -299,6 +311,7 @@ router.get("/pins/:roomId", async (req, res) => {
     }
 });
 
+// Crear encuestas en la sala (solo para profesorado o delegados)
 router.post("/polls", async (req, res) => {
     try {
         const { roomId, question, options, multiple } = req.body || {};
@@ -330,6 +343,8 @@ router.post("/polls", async (req, res) => {
     }
 });
 
+
+// Votar en una encuesta de la sala
 router.post("/polls/:pollId/vote", async (req, res) => {
     try {
         const { pollId } = req.params;
@@ -366,6 +381,7 @@ router.post("/polls/:pollId/vote", async (req, res) => {
     }
 });
 
+// Cerrar una encuesta de la sala (solo para profesorado o delegados), anunciando resultados
 router.post("/polls/:pollId/close", async (req, res) => {
     try {
         const { pollId } = req.params;
@@ -392,6 +408,7 @@ router.post("/polls/:pollId/close", async (req, res) => {
     }
 });
 
+// Eliminar una encuesta de la sala (solo para profesorado o delegados), anunciando resultados si estaba activa
 router.delete("/polls/:pollId", async (req, res) => {
     try {
         const { pollId } = req.params;
@@ -415,7 +432,7 @@ router.delete("/polls/:pollId", async (req, res) => {
     }
 });
 
-// GET /chat/emojis - Proxy para evitar CORS en web + cache simple en memoria
+// Proxy para evitar CORS en web + cache simple en memoria
 router.get("/emojis", async (_req, res) => {
     const now = Date.now();
     const hasFreshCache = emojiCache.data && (now - emojiCache.fetchedAt) < EMOJI_CACHE_TTL_MS;

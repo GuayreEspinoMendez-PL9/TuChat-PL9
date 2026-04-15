@@ -28,7 +28,7 @@ const api = async (path: string, opts: { method?: string; data?: any } = {}) => 
   const t = await getToken(); const r = await axios({ url: `${API}${path}`, method: opts.method || 'GET', headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }, data: opts.data }); return r.data;
 };
 
-// ─── SEARCHABLE DROPDOWN WITH CREATE ─────────────────────────
+// Componentes reutilizables
 function SearchDrop({ label, items, selectedId, onSelect, displayKey, idKey, onCreate, createLabel }:
   { label: string; items: any[]; selectedId: string; onSelect: (id: string) => void; displayKey: string | ((i: any) => string); idKey: string; onCreate?: () => void; createLabel?: string }) {
   const [open, setOpen] = useState(false);
@@ -68,7 +68,8 @@ function SearchDrop({ label, items, selectedId, onSelect, displayKey, idKey, onC
   );
 }
 
-// ─── CREATE OFERTA MODAL (asignatura + vincular al plan) ─────
+// Componente para crear una nueva oferta vinculando una asignatura existente o creando una nueva, con campos para configurar el curso y si es obligatoria.
+// Permite buscar entre asignaturas existentes o crear una nueva asignatura en el mismo flujo, facilitando la gestión de ofertas en el plan de estudios.
 function CreateOfertaModal({ visible, onClose, idPlan, cursoClase, allAsignaturas, onSave }:
   { visible: boolean; onClose: () => void; idPlan: string; cursoClase: string; allAsignaturas: any[]; onSave: () => Promise<void> }) {
   const [mode, setMode] = useState<'pick' | 'new'>('pick');
@@ -87,6 +88,8 @@ function CreateOfertaModal({ visible, onClose, idPlan, cursoClase, allAsignatura
 
   const filtered = allAsignaturas.filter(a => !q || a.nombre.toLowerCase().includes(q.toLowerCase()) || a.codigo.toLowerCase().includes(q.toLowerCase()));
 
+  // Función para guardar la oferta, que maneja tanto la creación de una nueva asignatura como la vinculación de una asignatura existente al plan. 
+  // Valida los campos necesarios, realiza las llamadas a la API correspondientes, y maneja el estado de carga y errores.
   const save = async () => {
     setSaving(true);
     try {
@@ -239,7 +242,8 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
   const [showCreateOferta, setShowCreateOferta] = useState(false);
   const [allAsignaturas, setAllAsignaturas] = useState<any[]>([]);
 
-  // ─── INITIAL LOAD ──────────────────────────────────────────
+  // Carga inicial de datos, y si es edición, carga de datos de la clase a editar. Se cargan planes, centros y cursos escolares para los dropdowns, 
+  // y si se está editando una clase, se cargan también las ofertas del plan, profesores y alumnos disponibles en el centro, y los detalles de la clase (ofertas seleccionadas, asignaciones y matrículas).
   useEffect(() => {
     (async () => {
       try {
@@ -356,7 +360,7 @@ export default function WizardClase({ onClose, editClaseId }: { onClose: () => v
     setMatriculas(prev => [...prev, ...nuevos]);
   };
 
-  // ─── SAVE ──────────────────────────────────────────────────
+  // ─── GUARDAR CLASE (create y edit) ─────────────────────────
   const guardar = async () => {
     setSaving(true);
     try {

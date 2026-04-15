@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 
 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
 
+// Función para decodificar una cadena Base64, utilizada como parte de la decodificación de JWT en entornos donde atob no está disponible (como React Native).
 export const atobPolyfill = (input: string = '') => {
     const str = input.replace(/=+$/, '');
     let output = '';
@@ -22,6 +23,7 @@ export const atobPolyfill = (input: string = '') => {
     return output;
 };
 
+// Función para decodificar un JWT, extrayendo su payload y convirtiéndolo a un objeto JavaScript. Utiliza atob o una función polyfill para decodificar la parte del payload del token.
 export const decodeJwt = (token: string) => {
     try {
         const base64Url = token.split('.')[1];

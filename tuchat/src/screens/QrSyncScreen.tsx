@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, ActivityIndicator,
-  Platform, StyleSheet, Modal, Alert, ScrollView
+  Platform, StyleSheet, Modal, Alert, ScrollView, TextInput
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { useSocket } from '../context/SocketContext';
 import * as SecureStore from 'expo-secure-store';
@@ -42,6 +43,12 @@ const MonitorIcon = ({ size = 24, color = '#6366F1' }: { size?: number; color?: 
 const CloseIcon = ({ size = 24, color = '#64748B' }: { size?: number; color?: string }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
     <Path d="M18 6L6 18M6 6l12 12" />
+  </Svg>
+);
+
+const CameraIcon = ({ size = 24, color = '#6366F1' }: { size?: number; color?: string }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" /><Path d="M12 17a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" />
   </Svg>
 );
 
@@ -120,6 +127,9 @@ export const QRSyncScreen = ({ visible, onClose }: QRSyncScreenProps) => {
   const [status, setStatus] = useState<'idle' | 'waiting' | 'paired' | 'syncing' | 'done' | 'error'>('idle');
   const [progress, setProgress] = useState({ current: 0, total: 0, rooms: 0 });
   const [errorMsg, setErrorMsg] = useState('');
+  const [manualToken, setManualToken] = useState('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
   const isWeb = Platform.OS === 'web';
 
   useEffect(() => {
@@ -137,6 +147,13 @@ export const QRSyncScreen = ({ visible, onClose }: QRSyncScreenProps) => {
     if (!socket || !userId) return;
     setStatus('waiting');
     setProgress({ current: 0, total: 0, rooms: 0 });
+
+    // Limpiar listeners previos antes de registrar nuevos
+    socket.off("sync:qr_token");
+    socket.off("sync:paired");
+    socket.off("sync:chunk");
+    socket.off("sync:complete");
+    socket.off("sync:error");
 
     socket.emit("sync:request_qr", { userId });
 
@@ -260,8 +277,26 @@ export const QRSyncScreen = ({ visible, onClose }: QRSyncScreenProps) => {
     });
   };
 
-  // For mobile: simple token input (camera QR scanner would need expo-barcode-scanner)
-  const [manualToken, setManualToken] = useState('');
+  // Manejar lectura del QR desde la cámara
+  const handleBarCodeScanned = ({ data }: { data: string }) => {
+    if (data) {
+      setManualToken(data);
+      setIsScannerOpen(false);
+    }
+  };
+
+  // Abrir scanner de QR
+  const openScanner = async () => {
+    const hasPerm = permission?.granted;
+    if (!hasPerm) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        Alert.alert('Permiso denegado', 'Necesitamos acceso a la cámara para escanear el QR');
+        return;
+      }
+    }
+    setIsScannerOpen(true);
+  };
 
   const handleClose = () => {
     // Cleanup listeners
@@ -285,7 +320,16 @@ export const QRSyncScreen = ({ visible, onClose }: QRSyncScreenProps) => {
     if (visible && isWeb && status === 'idle') {
       startWebSync();
     }
-  }, [visible]);
+    return () => {
+      if (!visible && socket) {
+        socket.off("sync:qr_token");
+        socket.off("sync:paired");
+        socket.off("sync:chunk");
+        socket.off("sync:complete");
+        socket.off("sync:error");
+      }
+    };
+  }, [visible, isWeb, status, socket]);
 
   return (
     <Modal visible={visible} animationType="fade" transparent>
@@ -343,38 +387,65 @@ export const QRSyncScreen = ({ visible, onClose }: QRSyncScreenProps) => {
                 </Text>
 
                 <Text style={st.inputLabel}>Código del QR (de la pantalla web):</Text>
-                <View style={st.inputRow}>
-                  <View style={st.inputBox}>
-                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#94A3B8" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                      <Path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3z" />
-                    </Svg>
-                    <Text
-                      style={st.input}
-                      // @ts-ignore - Using Text for display, would use TextInput in real app
-                      selectable
-                    >{manualToken || 'Pega el código aquí...'}</Text>
-                  </View>
-                </View>
-
-                {/* In a real implementation, you'd use expo-barcode-scanner here */}
-                {/* For now, provide a TextInput workaround */}
-                {Platform.OS !== 'web' && (
-                  <>
-                    <View style={{ marginTop: 12 }}>
+                
+                {/* Scanner QR Modal */}
+                {isScannerOpen && !isWeb && (
+                  <Modal visible={isScannerOpen} animationType="slide" transparent={false}>
+                    <View style={st.scannerContainer}>
+                      {permission?.granted ? (
+                        <CameraView
+                          style={st.camera}
+                          onBarcodeScanned={handleBarCodeScanned}
+                          barcodeScannerSettings={{
+                            barcodeTypes: ['qr'],
+                          }}
+                        />
+                      ) : (
+                        <View style={st.scannerError}>
+                          <Text style={st.scannerErrorText}>Sin permiso de cámara</Text>
+                        </View>
+                      )}
                       <TouchableOpacity
-                        style={[st.primaryBtn, !manualToken && { opacity: 0.5 }]}
-                        onPress={() => manualToken && startMobileSync(manualToken)}
-                        disabled={!manualToken}
+                        style={st.closeScannerBtn}
+                        onPress={() => setIsScannerOpen(false)}
                       >
-                        <PhoneIcon size={18} color="#FFF" />
-                        <Text style={st.primaryBtnText}>Iniciar sincronización</Text>
+                        <Text style={st.closeScannerBtnText}>Cerrar</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={st.hint}>
-                      Los mensajes con archivos grandes se enviarán sin el adjunto para ahorrar datos.
-                    </Text>
-                  </>
+                  </Modal>
                 )}
+
+                <TextInput
+                  style={[st.textInput, { borderColor: colors.borderLight }]}
+                  placeholder="Pega el código aquí..."
+                  placeholderTextColor="#94A3B8"
+                  value={manualToken}
+                  onChangeText={setManualToken}
+                  editable={true}
+                  selectTextOnFocus
+                />
+
+                <TouchableOpacity
+                  style={st.secondaryBtn}
+                  onPress={openScanner}
+                >
+                  <CameraIcon size={18} color="#6366F1" />
+                  <Text style={st.secondaryBtnText}>Escanear QR</Text>
+                </TouchableOpacity>
+
+                <View style={{ marginTop: 12 }}>
+                  <TouchableOpacity
+                    style={[st.primaryBtn, !manualToken && { opacity: 0.5 }]}
+                    onPress={() => manualToken && startMobileSync(manualToken)}
+                    disabled={!manualToken}
+                  >
+                    <PhoneIcon size={18} color="#FFF" />
+                    <Text style={st.primaryBtnText}>Iniciar sincronización</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={st.hint}>
+                  Los mensajes con archivos grandes se enviarán sin el adjunto para ahorrar datos.
+                </Text>
               </View>
             )}
 
@@ -545,6 +616,32 @@ const st = StyleSheet.create({
   progressFill: {
     height: '100%', backgroundColor: '#6366F1', borderRadius: 3,
   },
+  textInput: {
+    width: '100%', paddingHorizontal: 14, paddingVertical: 14,
+    backgroundColor: '#F8FAFC', borderRadius: 12, borderWidth: 1.5,
+    fontSize: 14, color: '#0F172A', marginBottom: 12,
+  },
+  secondaryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, width: '100%',
+    backgroundColor: '#F1F5F9', borderWidth: 1.5, borderColor: '#6366F1', marginBottom: 12,
+  },
+  secondaryBtnText: { color: '#6366F1', fontSize: 15, fontWeight: '600' },
+  scannerContainer: {
+    flex: 1, backgroundColor: '#000', justifyContent: 'flex-start',
+  },
+  camera: {
+    flex: 1,
+  },
+  closeScannerBtn: {
+    paddingVertical: 16, paddingHorizontal: 24, backgroundColor: '#6366F1',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  closeScannerBtnText: { color: '#FFF', fontSize: 15, fontWeight: '600' },
+  scannerError: {
+    flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000',
+  },
+  scannerErrorText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
 });
 
 export default QRSyncScreen;
