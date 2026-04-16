@@ -57,6 +57,7 @@ export const fetchRoomPolls = async (roomId: string) => {
   return data?.polls || [];
 };
 
+// Función para obtener las encuestas de una sala de chat, enviando una solicitud GET a la API con la ID de la sala para recuperar todas las encuestas asociadas a esa sala.
 export const fetchRoomPins = async (roomId: string) => {
   const headers = await authHeaders();
   const { data } = await axios.get(`${API_URL}/chat/pins/${roomId}`, { headers });

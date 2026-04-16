@@ -28,7 +28,7 @@ const EMPTY_HOME_WORDS = ['clases', 'ideas', 'avisos'];
 // Logo TuChat desde archivo PNG
 const TuChatLogoImage = ({ size = 32 }: { size?: number }) => (
   <Image
-    source={require('../../../../tuchat/assets/images/logo.png')}
+    source={require('../../../assets/images/logo.png')}
     style={{ width: size, height: size, tintColor: '#fff' }}
     resizeMode="contain"
   />
@@ -37,7 +37,7 @@ const TuChatLogoImage = ({ size = 32 }: { size?: number }) => (
 // Logo para fondo claro (sin tint)
 const TuChatLogoColor = ({ size = 80 }: { size?: number }) => (
   <Image
-    source={require('../../../../tuchat/assets/images/logo.png')}
+    source={require('../../../assets/images/logo.png')}
     style={{ width: size, height: size, opacity: 0.4 }}
     resizeMode="contain"
   />
